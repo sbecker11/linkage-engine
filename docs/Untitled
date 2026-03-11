@@ -1,0 +1,17 @@
+
+```markdown
+# The Linkage-Engine
+
+## The Vision
+I'm developing **linkage-engine** to solve the fundamental problem of entity resolution in messy, sparse datasets. It’s a Spring Boot service that uses vector embeddings to link historical records that don't share a common key but do share a semantic context.
+
+### AI for Semantic Connections
+The LLM attempts to make semantic connections between historical records 
+which may include names, families, events, dates, locations, photos, 
+and other documents and reports a degree of confidence for each.
+
+### Human in the Loop
+These "Confidence Scores" and "Supporting Evidences" are used to automatically surface the highest-probability leads. Humans make the final call as to
+which connections get marked as legitimate.
+
+```
