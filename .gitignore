@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# API Keys / local env (do not commit)
+.env
+.env.*
+!.env.example
