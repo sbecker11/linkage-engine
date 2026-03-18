@@ -1,7 +1,7 @@
 A Java-based engine for **Spatio-Temporal Data Linkage** and **Semantic Record Resolution**.
 
 ## Overview
-Traditional databases struggle with the "fuzzy" nature of historical records. `linkage-engine` uses Vector Search and RAG to link disparate data points—like names, dates, and locations—into a cohesive individual profile.
+Traditional databases struggle with the "fuzzy" nature of historical records. `linkage-engine` uses Hybrid Search (deterministic SQL filtering first, then probabilistic semantic/vector search) plus RAG to link disparate data points—like names, dates, and locations—into a cohesive individual profile.
 
 See ARCHITECTURE.md for a detailed breakdown of the Semantic and Spatio-Temporal endpoints.
 

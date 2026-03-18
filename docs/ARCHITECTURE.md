@@ -295,9 +295,9 @@ public class RecordIngestionService {
 
         // Index the data with SQL-queriable metadata:
         // By adding location and recordId to the metadata, we can perform
-        // Hybrid Search (filtering by SQL/Location first, then doing 
-        // Vector Search, which is much more efficient than Vector 
-        // Search alone.
+        // Hybrid Search (deterministic SQL/Location filtering first,
+        // then probabilistic semantic/vector search), which is much more
+        // efficient than vector search alone.
         cleanDoc.metadata().add("recordId", recordId);
         cleanDoc.metadata().add("location", location);
 
