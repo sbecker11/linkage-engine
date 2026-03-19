@@ -24,7 +24,7 @@ public class ChatController {
     }
 
     @GetMapping("/api/ask")
-    String ask(@RequestParam(defaultValue = "Hello!") String q) {
+    String ask(@RequestParam(name = "q", defaultValue = "Hello!") String q) {
         return chatModel.call(q);
     }
     // example curl POST request:
