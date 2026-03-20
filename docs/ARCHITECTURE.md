@@ -6,18 +6,19 @@
 | **Language** | Java 21 (Virtual Threads / Project Loom) |
 | **Framework** | Spring Boot 3.2.4 |
 | **AI Orchestration** | Spring AI 1.0.0 |
-| **LLM Provider** | OpenAI (via `spring-ai-starter-model-openai`) |
-| **Vector Store** | PGVector (via `spring-ai-starter-vector-store-pgvector`) |
+| **LLM Provider** | Amazon Bedrock Converse (chat) + InvokeModel Titan (embeddings, optional) |
+| **Vectors** | Native `pgvector` columns on `record_embeddings` (Flyway); Spring `PgVectorStore` autoconfig is disabled |
 | **Build Tool** | Maven |
 
 ---
 
 ## 2. Core High-Value Endpoints
 
-### 1. Entity Resolution
+### 1. Entity Resolution (implemented)
 * **`POST /v1/linkage/resolve`**
     * **Purpose:** Resolves "John Smith" style ambiguities.
-    * **Logic:** Converts entity metadata (occupations, family naming patterns, neighbors) into vectors to find the highest-probability match in the archive.
+    * **Logic:** (1) Deterministic SQL on `records` (name/year/location). (2) If `SPRING_AI_MODEL_EMBEDDING=bedrock-titan` and rows exist in `record_embeddings`, embed the query (Titan) and rerank candidates by cosine similarity in Postgres. (3) Bedrock Converse summarizes ranked candidates.
+* **`POST /v1/records`** — upsert a person row; optional embedding write to `record_embeddings` when Titan is enabled.
 
 ### 2. Spatio-Temporal Validation (The "Truth Engine")
 * **`POST /v1/spatial/temporal-overlap`**

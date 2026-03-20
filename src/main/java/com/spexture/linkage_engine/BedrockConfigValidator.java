@@ -28,5 +28,17 @@ public class BedrockConfigValidator implements ApplicationRunner {
                 "Missing Bedrock model id. Set BEDROCK_MODEL_ID (or spring.ai.bedrock.converse.chat.options.model) before startup."
             );
         }
+
+        String embeddingProvider = environment.getProperty("spring.ai.model.embedding", "");
+        if (!"bedrock-titan".equalsIgnoreCase(embeddingProvider)) {
+            return;
+        }
+        String embedModel = environment.getProperty("spring.ai.bedrock.titan.embedding.model", "");
+        if (!StringUtils.hasText(embedModel)) {
+            throw new IllegalStateException(
+                "Hybrid embeddings enabled (spring.ai.model.embedding=bedrock-titan) but no model id. "
+                    + "Set BEDROCK_EMBEDDING_MODEL_ID (or spring.ai.bedrock.titan.embedding.model)."
+            );
+        }
     }
 }

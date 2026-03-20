@@ -37,4 +37,28 @@ class BedrockConfigValidatorTest {
 
         assertDoesNotThrow(() -> validator.run(null));
     }
+
+    @Test
+    void runThrowsWhenBedrockTitanEmbeddingHasNoModelId() {
+        Environment env = new MockEnvironment()
+            .withProperty("spring.ai.model.chat", "bedrock-converse")
+            .withProperty("spring.ai.bedrock.converse.chat.options.model", "us.amazon.nova-lite-v1:0")
+            .withProperty("spring.ai.model.embedding", "bedrock-titan")
+            .withProperty("spring.ai.bedrock.titan.embedding.model", "");
+        BedrockConfigValidator validator = new BedrockConfigValidator(env);
+
+        assertThrows(IllegalStateException.class, () -> validator.run(null));
+    }
+
+    @Test
+    void runSucceedsWhenBedrockTitanEmbeddingModelPresent() {
+        Environment env = new MockEnvironment()
+            .withProperty("spring.ai.model.chat", "bedrock-converse")
+            .withProperty("spring.ai.bedrock.converse.chat.options.model", "us.amazon.nova-lite-v1:0")
+            .withProperty("spring.ai.model.embedding", "bedrock-titan")
+            .withProperty("spring.ai.bedrock.titan.embedding.model", "amazon.titan-embed-text-v2:0");
+        BedrockConfigValidator validator = new BedrockConfigValidator(env);
+
+        assertDoesNotThrow(() -> validator.run(null));
+    }
 }

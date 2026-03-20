@@ -38,9 +38,29 @@ AWS_REGION=us-west-1
 BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0
 ```
 
+Optional **hybrid vector rerank + ingest embeddings** (Amazon Titan Embed Text v2, 1024-dim; matches Flyway `V2`):
+```env
+SPRING_AI_MODEL_EMBEDDING=bedrock-titan
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
+```
+
+Database (defaults match Docker example below):
+```env
+DB_URL=jdbc:postgresql://localhost:5432/linkage_db
+DB_USER=ancestry
+DB_PASSWORD=password
+```
+
+Run without AWS (Postgres still required for `/v1/linkage` + `/v1/records` when JDBC is enabled):
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
 Notes:
 * `BEDROCK_MODEL_ID` should be an **inference profile ID** for your account/region (for example `us.amazon.nova-lite-v1:0`), not a base model ID.
 * The app uses the AWS SDK default credential provider chain, so credentials should come from your AWS profile/session or IAM role.
+* **Ingest:** `POST /v1/records` upserts into `records` and, when embeddings are enabled, writes Titan vectors to `record_embeddings`.
+* **Resolve:** `POST /v1/linkage/resolve` narrows with SQL, then (if embeddings exist for those rows) reranks by cosine similarity; response includes `candidateScores[].vectorSimilarity`.
 
 Verify your AWS setup before starting the app:
 ```bash

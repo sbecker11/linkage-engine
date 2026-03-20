@@ -58,6 +58,17 @@
             <artifactId>spring-ai-starter-model-bedrock-converse</artifactId>
         </dependency>
 
+        <!-- InvokeModel Titan embeddings (separate from Converse chat). -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-bedrock</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-retry</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
@@ -128,7 +139,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>@{argLine} -XX:+EnableDynamicAgentLoading -Djdk.instrument.traceUsage=false</argLine>
+                    <argLine>@{argLine} -XX:+EnableDynamicAgentLoading -Djdk.instrument.traceUsage=false -Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
             <plugin>
