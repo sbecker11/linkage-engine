@@ -45,6 +45,7 @@ Edit `deploy/ecs/task-definition.json` as needed:
 
 - Push changes to your branch.
 - In GitHub Actions, run `deploy-ecr-ecs` via **Run workflow**.
+- The workflow assumes **only** the IAM role in the **`AWS_DEPLOY_ROLE_ARN` repository secret** — it does not accept a role ARN from the UI (prevents privilege escalation via arbitrary roles).
 - The workflow will:
   1. Build Docker image
   2. Push image to ECR
