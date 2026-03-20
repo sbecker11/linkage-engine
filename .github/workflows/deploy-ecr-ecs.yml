@@ -2,6 +2,26 @@ name: deploy-ecr-ecs
 
 on:
   workflow_dispatch:
+    inputs:
+      aws_region:
+        description: AWS region for ECR/ECS/Bedrock
+        required: true
+        default: us-west-1
+      ecr_repository:
+        description: ECR repository name
+        required: true
+        default: linkage-engine
+      ecs_cluster:
+        description: ECS cluster name
+        required: true
+        default: linkage-engine-cluster
+      ecs_service:
+        description: ECS service name
+        required: true
+        default: linkage-engine-service
+      aws_deploy_role_arn:
+        description: IAM role ARN to assume via OIDC
+        required: true
 
 permissions:
   id-token: write
@@ -11,10 +31,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      AWS_REGION: ${{ github.event.inputs.aws_region }}
+      ECR_REPOSITORY: ${{ github.event.inputs.ecr_repository }}
+      ECS_CLUSTER: ${{ github.event.inputs.ecs_cluster }}
+      ECS_SERVICE: ${{ github.event.inputs.ecs_service }}
       ECS_TASK_DEFINITION: deploy/ecs/task-definition.json
       CONTAINER_NAME: linkage-engine
     steps:
@@ -24,7 +44,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ github.event.inputs.aws_deploy_role_arn }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR

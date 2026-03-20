@@ -18,6 +18,8 @@
 ```mermaid
 flowchart TD
     C[Client Apps] --> API[Spring Boot API]
+    UP[Upstream exports / raw files] --> S3[(S3 landing zone)]
+    S3 --> BI[Batch ingest job<br/>ECS/Lambda/script]
 
     subgraph API_Layer[API Layer]
         API --> LC[LinkageController<br/>POST /v1/linkage/resolve]
@@ -55,6 +57,8 @@ flowchart TD
     VSQL --> RE
     RC --> REC
     RC --> RE
+    BI --> REC
+    BI --> RE
 
     BEDROCK --> OUT[LinkageResolveResponse]
     LLMLOCAL --> OUT
@@ -66,12 +70,21 @@ flowchart TD
 - Deterministic SQL search runs against PostgreSQL wherever `DB_URL` points (local Docker, on-prem, or AWS RDS/Aurora).
 - Bedrock is only used for LLM/embedding calls in the semantic stage; SQL itself is not moved to Bedrock.
 - The local profile intentionally bypasses Bedrock for fast local development.
+- **Local semantic search mode:** run PostgreSQL + `pgvector` in local Docker (`DB_URL=jdbc:postgresql://localhost:5432/linkage_db`). Semantic ranking is local cosine similarity in Postgres, and local profile summary uses `LocalChatModelConfiguration` (no Bedrock call).
+- **Remote/AWS semantic search mode:** keep deterministic + vector search in PostgreSQL hosted in AWS (typically RDS/Aurora Postgres with `pgvector`), and use Amazon Bedrock for model calls:
+  - **Bedrock Converse** for semantic summary generation
+  - **Bedrock Titan Embeddings** (`bedrock-titan`) for query/record embeddings when hybrid vector rerank is enabled.
 
 ---
 
 ## 1.2 Standard raw-data pipeline (S3 → PostgreSQL)
 
 **Standard:** raw exports and bulk source files are stored in **S3** (shared “landing zone”). **Search and linkage** use **PostgreSQL** after ingest — S3 is not queried like a database. Ingest may be `POST /v1/records`, a batch job (ECS/Lambda/script), or ETL that loads `records` / `record_embeddings`.
+
+Environment-specific behavior:
+
+- **Local:** Docker PostgreSQL + `pgvector` performs deterministic SQL + vector similarity locally.
+- **AWS remote:** RDS/Aurora PostgreSQL + `pgvector` performs deterministic SQL + vector similarity in AWS; Bedrock provides semantic LLM/embedding inference.
 
 Full conventions (prefixes, IAM, local vs AWS access, env vars): **`docs/DATA_PIPELINE_S3.md`**.
 
