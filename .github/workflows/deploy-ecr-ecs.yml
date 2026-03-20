@@ -1,63 +1,39 @@
 name: deploy-ecr-ecs
 
-# Deploy uses fixed repository configuration only:
-# - Repository Variables: AWS_REGION, ECR_REPOSITORY, ECS_CLUSTER, ECS_SERVICE
-# - Repository Secret: AWS_DEPLOY_ROLE_ARN (OIDC role — never user-supplied)
+# Entry point: OIDC role is passed only via repository secret (see reusable workflow).
 # See docs/DEPLOYMENT_ECS_FARGATE.md
 
 on:
   workflow_dispatch:
-
-permissions:
-  id-token: write
-  contents: read
+    inputs:
+      aws_region:
+        description: AWS region for ECR/ECS
+        type: string
+        required: true
+        default: us-west-1
+      ecr_repository:
+        description: ECR repository name
+        type: string
+        required: true
+        default: linkage-engine
+      ecs_cluster:
+        description: ECS cluster name
+        type: string
+        required: true
+        default: linkage-engine-cluster
+      ecs_service:
+        description: ECS service name
+        type: string
+        required: true
+        default: linkage-engine-service
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
-      ECS_TASK_DEFINITION: deploy/ecs/task-definition.json
-      CONTAINER_NAME: linkage-engine
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, tag, and push image
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Render ECS task definition
-        id: render-task
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-task.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+    uses: ./.github/workflows/deploy-ecr-ecs-reusable.yml
+    with:
+      aws_region: ${{ github.event.inputs.aws_region }}
+      ecr_repository: ${{ github.event.inputs.ecr_repository }}
+      ecs_cluster: ${{ github.event.inputs.ecs_cluster }}
+      ecs_service: ${{ github.event.inputs.ecs_service }}
+    # Pass repository secrets into the reusable workflow without repeating secret names in expressions (avoids IDE false positives).
+    secrets: inherit
