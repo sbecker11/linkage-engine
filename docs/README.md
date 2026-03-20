@@ -5,6 +5,7 @@ Traditional databases struggle with the "fuzzy" nature of historical records. `l
 
 See ARCHITECTURE.md for a detailed breakdown of the Semantic and Spatio-Temporal endpoints.
 For deployment bootstrap on AWS, see `DEPLOYMENT_ECS_FARGATE.md`.
+For runtime credentials in AWS, use **Secrets Manager** per `SECRETS_MANAGER.md` (ECS injects `DB_*` into the container).
 
 **Data pipeline standard:** raw bulk source files live in **S3**; linkage and search use **PostgreSQL** after ingest. Conventions, IAM, and local vs AWS access are documented in **`DATA_PIPELINE_S3.md`**.
 

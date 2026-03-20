@@ -26,9 +26,18 @@
         { "name": "LINKAGE_SEMANTIC_LLM_ENABLED", "value": "true" }
       ],
       "secrets": [
-        { "name": "DB_URL", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-url" },
-        { "name": "DB_USER", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-user" },
-        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-password" }
+        {
+          "name": "DB_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_URL::"
+        },
+        {
+          "name": "DB_USER",
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_USER::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_PASSWORD::"
+        }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

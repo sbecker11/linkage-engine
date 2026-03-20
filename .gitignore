@@ -36,3 +36,7 @@ build/
 .env
 .env.*
 !.env.example
+
+# Local copies of AWS secret payloads (example template is committed)
+deploy/secrets/runtime-secret.json
+deploy/secrets/*.local.json

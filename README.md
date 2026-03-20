@@ -78,5 +78,6 @@ LINKAGE_S3_PREFIX=landing/
 - `docs/README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT_ECS_FARGATE.md`
+- `docs/SECRETS_MANAGER.md` (AWS Secrets Manager for runtime `DB_*` in ECS)
 - `docs/DATA_PIPELINE_S3.md`
 
