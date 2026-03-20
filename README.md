@@ -8,6 +8,8 @@ Hybrid retrieval is implemented as:
 2. **Optional pgvector rerank** using Titan embeddings stored in `record_embeddings`
 3. **Bedrock Converse** to produce the final `semanticSummary`
 
+**Raw / bulk source data (standard):** store artifacts in **Amazon S3** (`landing/` prefix by convention); **search** runs against **PostgreSQL** after ingest. See `docs/DATA_PIPELINE_S3.md`.
+
 ## Endpoints
 
 1. `POST /v1/linkage/resolve`
@@ -52,6 +54,14 @@ DB_USER=ancestry
 DB_PASSWORD=password
 ```
 
+S3 landing zone (optional; for ingest tooling / batch jobs — same bucket usable from local AWS profile and from ECS task role):
+```env
+LINKAGE_S3_BUCKET=your-org-linkage-landing
+LINKAGE_S3_PREFIX=landing/
+# Optional for MinIO / LocalStack only:
+# AWS_ENDPOINT_URL=http://localhost:9000
+```
+
 ### 3) Run
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
@@ -68,4 +78,5 @@ DB_PASSWORD=password
 - `docs/README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT_ECS_FARGATE.md`
+- `docs/DATA_PIPELINE_S3.md`
 

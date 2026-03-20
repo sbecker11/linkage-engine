@@ -8,6 +8,7 @@
 | **AI Orchestration** | Spring AI 1.0.0 |
 | **LLM Provider** | Amazon Bedrock Converse (chat) + InvokeModel Titan (embeddings, optional) |
 | **Vectors** | Native `pgvector` columns on `record_embeddings` (Flyway); Spring `PgVectorStore` autoconfig is disabled |
+| **Raw landing storage (standard)** | Amazon S3 (`landing/` prefix by convention); searchable linkage data lives in PostgreSQL after ingest — see `docs/DATA_PIPELINE_S3.md` |
 | **Build Tool** | Maven |
 
 ---
@@ -68,13 +69,34 @@ flowchart TD
 
 ---
 
+## 1.2 Standard raw-data pipeline (S3 → PostgreSQL)
+
+**Standard:** raw exports and bulk source files are stored in **S3** (shared “landing zone”). **Search and linkage** use **PostgreSQL** after ingest — S3 is not queried like a database. Ingest may be `POST /v1/records`, a batch job (ECS/Lambda/script), or ETL that loads `records` / `record_embeddings`.
+
+Full conventions (prefixes, IAM, local vs AWS access, env vars): **`docs/DATA_PIPELINE_S3.md`**.
+
+```mermaid
+flowchart LR
+  UP[Upstream / exports] --> S3[(S3 bucket\nlanding/ prefix)]
+  S3 --> ING[Ingest\nAPI or batch job]
+  ING --> PG[(PostgreSQL)]
+  subgraph PG_Tables[Linkage tables]
+    PG --> R[records]
+    PG --> RE[record_embeddings\noptional pgvector]
+  end
+  ING --> R
+  ING --> RE
+```
+
+---
+
 ## 2. Core High-Value Endpoints
 
 ### 1. Entity Resolution (implemented)
 * **`POST /v1/linkage/resolve`**
     * **Purpose:** Resolves "John Smith" style ambiguities.
     * **Logic:** (1) Deterministic SQL on `records` (name/year/location). (2) If `SPRING_AI_MODEL_EMBEDDING=bedrock-titan` and rows exist in `record_embeddings`, embed the query (Titan) and rerank candidates by cosine similarity in Postgres. (3) Bedrock Converse summarizes ranked candidates.
-* **`POST /v1/records`** — upsert a person row; optional embedding write to `record_embeddings` when Titan is enabled.
+* **`POST /v1/records`** — upsert a person row; optional embedding write to `record_embeddings` when Titan is enabled. Bulk raw files are expected to land in **S3** first per `docs/DATA_PIPELINE_S3.md`, then feed this path or a batch ingest job.
 
 ### 2. Spatio-Temporal Validation (The "Truth Engine")
 * **`POST /v1/spatial/temporal-overlap`**

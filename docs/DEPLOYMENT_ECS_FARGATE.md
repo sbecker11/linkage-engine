@@ -16,7 +16,8 @@ This project now includes starter assets for ECS/Fargate deployment:
 - CloudWatch log group `/ecs/linkage-engine`
 - IAM roles:
   - ECS task execution role (ECR pull + logs)
-  - ECS task role (Bedrock invoke + Secrets Manager read)
+  - ECS task role (Bedrock invoke + Secrets Manager read + **S3 read** on landing prefix if batch ingest runs in ECS)
+- **S3 landing bucket** (optional but standard for raw data): create a bucket and prefix per `docs/DATA_PIPELINE_S3.md`; grant the task role `s3:ListBucket` / `s3:GetObject` on that prefix.
 
 ## 2) Configure GitHub repository settings
 
@@ -31,17 +32,14 @@ Set this **Repository Secret**:
 
 - `AWS_DEPLOY_ROLE_ARN` (OIDC assumable role used by GitHub Actions)
 
-## 3) Update task definition placeholders
+## 3) Verify ECS task definition
 
-Edit `deploy/ecs/task-definition.json`:
+Edit `deploy/ecs/task-definition.json` as needed:
 
-- Replace `<ACCOUNT_ID>` placeholders.
-- Confirm `executionRoleArn` and `taskRoleArn`.
-- Confirm Secrets Manager ARNs for:
-  - `DB_URL`
-  - `DB_USER`
-  - `DB_PASSWORD`
+- Confirm `executionRoleArn` and `taskRoleArn` match your account.
+- Confirm Secrets Manager ARNs for `DB_URL`, `DB_USER`, `DB_PASSWORD`.
 - Adjust Bedrock/env values as needed.
+- Optional: add plain `environment` entries for `LINKAGE_S3_BUCKET` and `LINKAGE_S3_PREFIX` when ingest runs in ECS (see `docs/DATA_PIPELINE_S3.md`).
 
 ## 4) Deploy
 
@@ -58,3 +56,4 @@ Edit `deploy/ecs/task-definition.json`:
 - SQL retrieval remains in PostgreSQL (wherever `DB_URL` points).
 - Bedrock is used by the application for semantic summarization/embeddings, not as a database.
 - For ALB health checks, add a lightweight non-LLM endpoint (for example `/health`) to avoid calling Bedrock on every probe.
+- Raw data standard: `docs/DATA_PIPELINE_S3.md` (S3 landing → PostgreSQL; Bedrock does not replace the database).

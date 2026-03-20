@@ -6,6 +6,8 @@ Traditional databases struggle with the "fuzzy" nature of historical records. `l
 See ARCHITECTURE.md for a detailed breakdown of the Semantic and Spatio-Temporal endpoints.
 For deployment bootstrap on AWS, see `DEPLOYMENT_ECS_FARGATE.md`.
 
+**Data pipeline standard:** raw bulk source files live in **S3**; linkage and search use **PostgreSQL** after ingest. Conventions, IAM, and local vs AWS access are documented in **`DATA_PIPELINE_S3.md`**.
+
 ## Quick Start
 
 ### 1. Prerequisites
@@ -52,6 +54,12 @@ DB_USER=ancestry
 DB_PASSWORD=password
 ```
 
+S3 landing zone (standard for raw exports; used by ingest tooling — see `DATA_PIPELINE_S3.md`):
+```env
+LINKAGE_S3_BUCKET=your-org-linkage-landing
+LINKAGE_S3_PREFIX=landing/
+```
+
 Run without AWS (Postgres still required for `/v1/linkage` + `/v1/records` when JDBC is enabled):
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
@@ -60,7 +68,7 @@ Run without AWS (Postgres still required for `/v1/linkage` + `/v1/records` when 
 Notes:
 * `BEDROCK_MODEL_ID` should be an **inference profile ID** for your account/region (for example `us.amazon.nova-lite-v1:0`), not a base model ID.
 * The app uses the AWS SDK default credential provider chain, so credentials should come from your AWS profile/session or IAM role.
-* **Ingest:** `POST /v1/records` upserts into `records` and, when embeddings are enabled, writes Titan vectors to `record_embeddings`.
+* **Ingest:** `POST /v1/records` upserts into `records` and, when embeddings are enabled, writes Titan vectors to `record_embeddings`. Bulk raw files should follow the **S3 landing → ingest** standard in `DATA_PIPELINE_S3.md`.
 * **Resolve:** `POST /v1/linkage/resolve` narrows with SQL, then (if embeddings exist for those rows) reranks by cosine similarity; response includes `candidateScores[].vectorSimilarity`.
 
 Verify your AWS setup before starting the app:
