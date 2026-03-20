@@ -3,8 +3,7 @@
 This project now includes starter assets for ECS/Fargate deployment:
 
 - `Dockerfile`
-- `.github/workflows/deploy-ecr-ecs.yml` (manual trigger + inputs for region/ECR/ECS names)
-- `.github/workflows/deploy-ecr-ecs-reusable.yml` (reusable job; OIDC role from repo secret only via `secrets: inherit`)
+- `.github/workflows/deploy-ecr-ecs.yml` (manual trigger; region/ECR/ECS via inputs with defaults; OIDC role from repository secret `AWS_DEPLOY_ROLE_ARN` only)
 - `deploy/ecs/task-definition.json`
 - `deploy/ecs/service-definition.md`
 
@@ -46,7 +45,7 @@ Edit `deploy/ecs/task-definition.json` as needed:
 
 - Push changes to your branch.
 - In GitHub Actions, run `deploy-ecr-ecs` via **Run workflow**.
-- The deploy job assumes **only** the IAM role in the **`AWS_DEPLOY_ROLE_ARN` repository secret**. It is **not** a workflow input (prevents privilege escalation). The entry workflow uses `secrets: inherit` so the role is not duplicated in YAML expressions (cleaner static analysis / IDE diagnostics).
+- The deploy job assumes **only** the IAM role in the **`AWS_DEPLOY_ROLE_ARN` repository secret**. It is **not** a workflow input (prevents privilege escalation).
 - The workflow will:
   1. Build Docker image
   2. Push image to ECR
