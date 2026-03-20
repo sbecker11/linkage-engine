@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -73,5 +75,26 @@ class LinkageServiceTest {
         assertEquals("R-B", response.candidates().get(0).recordId());
         assertEquals("R-B", response.candidateScores().get(0).recordId());
         assertEquals(0.9, response.candidateScores().get(0).vectorSimilarity(), 0.001);
+    }
+
+    @Test
+    void resolveUsesDeterministicSummaryWhenSemanticLlmDisabled() {
+        ChatModel chatModel = mock(ChatModel.class);
+        LinkageRecordStore repository = mock(LinkageRecordStore.class);
+
+        when(repository.countAllRecords()).thenReturn(4);
+        when(repository.findDeterministicCandidates(any())).thenReturn(List.of(
+            new CandidateRecord("R-1001", "John", "Smith", 1850, "Boston")
+        ));
+
+        LinkageService service = new LinkageService(chatModel, repository, null, null, false);
+
+        LinkageResolveResponse response = service.resolve(
+            new LinkageResolveRequest("John", "Smith", 1851, "Boston")
+        );
+
+        assertTrue(response.rulesTriggered().contains("semantic_llm_summary_disabled"));
+        assertTrue(response.semanticSummary().startsWith("Top deterministic candidate: R-1001"));
+        verify(chatModel, never()).call(anyString());
     }
 }

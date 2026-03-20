@@ -12,6 +12,62 @@
 
 ---
 
+## 1.1 System Diagram
+
+```mermaid
+flowchart TD
+    C[Client Apps] --> API[Spring Boot API]
+
+    subgraph API_Layer[API Layer]
+        API --> LC[LinkageController<br/>POST /v1/linkage/resolve]
+        API --> CC[ChatController<br/>GET /api/ask]
+        API --> RC[RecordIngestController<br/>POST /v1/records]
+    end
+
+    subgraph Core_Flow[Linkage Resolve Flow]
+        LC --> SQL[Deterministic SQL Search<br/>records table]
+        SQL --> CANDS[Deterministic Candidate Set]
+        CANDS --> VR{Embeddings enabled?<br/>SPRING_AI_MODEL_EMBEDDING=bedrock-titan}
+        VR -- yes --> EMBQ[Create query embedding]
+        EMBQ --> VSQL[Cosine rerank in Postgres<br/>record_embeddings + pgvector]
+        VR -- no --> RANK[Keep deterministic order]
+        VSQL --> RANK
+        RANK --> SEMA{Semantic LLM enabled?<br/>LINKAGE_SEMANTIC_LLM_ENABLED}
+    end
+
+    subgraph Semantic_Path[Semantic Search / Summary Path]
+        SEMA -- false --> DSUM[Deterministic summary fallback]
+        SEMA -- true --> PROFILE{Runtime profile}
+        PROFILE -- local --> LLMLOCAL[LocalChatModelConfiguration<br/>echo/local response]
+        PROFILE -- default --> BEDROCK[Amazon Bedrock Converse<br/>semantic summary]
+    end
+
+    subgraph Data_Stores[Data Stores]
+        PGS[(PostgreSQL)]
+        REC[(records)]
+        RE[(record_embeddings + pgvector)]
+        PGS --> REC
+        PGS --> RE
+    end
+
+    SQL --> REC
+    VSQL --> RE
+    RC --> REC
+    RC --> RE
+
+    BEDROCK --> OUT[LinkageResolveResponse]
+    LLMLOCAL --> OUT
+    DSUM --> OUT
+    OUT --> C
+```
+
+**Notes:**
+- Deterministic SQL search runs against PostgreSQL wherever `DB_URL` points (local Docker, on-prem, or AWS RDS/Aurora).
+- Bedrock is only used for LLM/embedding calls in the semantic stage; SQL itself is not moved to Bedrock.
+- The local profile intentionally bypasses Bedrock for fast local development.
+
+---
+
 ## 2. Core High-Value Endpoints
 
 ### 1. Entity Resolution (implemented)

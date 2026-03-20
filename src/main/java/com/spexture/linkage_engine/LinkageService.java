@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 
@@ -20,17 +21,29 @@ public class LinkageService implements LinkageResolver {
     private final LinkageRecordStore linkageRecordStore;
     private final EmbeddingModel embeddingModel;
     private final RecordEmbeddingStore recordEmbeddingStore;
+    private final boolean semanticLlmEnabled;
 
     public LinkageService(
         ChatModel chatModel,
         LinkageRecordStore linkageRecordStore,
         @Autowired(required = false) EmbeddingModel embeddingModel,
-        @Autowired(required = false) RecordEmbeddingStore recordEmbeddingStore
+        @Autowired(required = false) RecordEmbeddingStore recordEmbeddingStore,
+        @Value("${linkage.semantic.llm.enabled:true}") boolean semanticLlmEnabled
     ) {
         this.chatModel = chatModel;
         this.linkageRecordStore = linkageRecordStore;
         this.embeddingModel = embeddingModel;
         this.recordEmbeddingStore = recordEmbeddingStore;
+        this.semanticLlmEnabled = semanticLlmEnabled;
+    }
+
+    LinkageService(
+        ChatModel chatModel,
+        LinkageRecordStore linkageRecordStore,
+        EmbeddingModel embeddingModel,
+        RecordEmbeddingStore recordEmbeddingStore
+    ) {
+        this(chatModel, linkageRecordStore, embeddingModel, recordEmbeddingStore, true);
     }
 
     @Override
@@ -76,7 +89,19 @@ public class LinkageService implements LinkageResolver {
             }
         }
 
-        String semanticSummary = chatModel.call(buildPrompt(request, rankedCandidates));
+        String semanticSummary;
+        if (semanticLlmEnabled) {
+            try {
+                semanticSummary = chatModel.call(buildPrompt(request, rankedCandidates));
+                rulesTriggered.add("semantic_llm_summary");
+            } catch (RuntimeException ex) {
+                semanticSummary = buildDeterministicSummary(rankedCandidates);
+                rulesTriggered.add("semantic_llm_summary_skipped");
+            }
+        } else {
+            semanticSummary = buildDeterministicSummary(rankedCandidates);
+            rulesTriggered.add("semantic_llm_summary_disabled");
+        }
         double confidenceScore = computeConfidenceScore(rankedCandidates.size(), request, candidateScores);
 
         List<String> reasons = new ArrayList<>();
@@ -111,6 +136,17 @@ public class LinkageService implements LinkageResolver {
         String candidates = "Candidates (after SQL and optional vector rerank): " + matches;
         String instruction = "Explain likely best matches and why in plain text.";
         return String.join(" ", header, query, candidates, instruction);
+    }
+
+    private String buildDeterministicSummary(List<CandidateRecord> matches) {
+        if (matches.isEmpty()) {
+            return "No deterministic candidates found.";
+        }
+        CandidateRecord top = matches.get(0);
+        return "Top deterministic candidate: " + top.recordId()
+            + " (" + top.givenName() + " " + top.familyName()
+            + ", " + top.year()
+            + ", " + top.location() + ").";
     }
 
     private double computeConfidenceScore(int deterministicMatches, LinkageResolveRequest request, List<CandidateScore> scores) {

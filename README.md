@@ -36,6 +36,7 @@ Bedrock Converse chat:
 ```env
 AWS_REGION=us-west-1
 BEDROCK_MODEL_ID=us.amazon.nova-lite-v1:0
+LINKAGE_SEMANTIC_LLM_ENABLED=true
 ```
 
 Optional Titan embeddings + hybrid rerank/ingest:
@@ -66,4 +67,5 @@ DB_PASSWORD=password
 
 - `docs/README.md`
 - `docs/ARCHITECTURE.md`
+- `docs/DEPLOYMENT_ECS_FARGATE.md`
 

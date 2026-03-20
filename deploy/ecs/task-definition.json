@@ -1,0 +1,43 @@
+{
+  "family": "linkage-engine",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::286103606369:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::286103606369:role/linkage-engine-task-role",
+  "containerDefinitions": [
+    {
+      "name": "linkage-engine",
+      "image": "REPLACE_WITH_ECR_IMAGE_URI",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "AWS_REGION", "value": "us-west-1" },
+        { "name": "BEDROCK_MODEL_ID", "value": "us.amazon.nova-lite-v1:0" },
+        { "name": "SPRING_AI_MODEL_EMBEDDING", "value": "bedrock-titan" },
+        { "name": "BEDROCK_EMBEDDING_MODEL_ID", "value": "amazon.titan-embed-text-v2:0" },
+        { "name": "LINKAGE_SEMANTIC_LLM_ENABLED", "value": "true" }
+      ],
+      "secrets": [
+        { "name": "DB_URL", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-url" },
+        { "name": "DB_USER", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-user" },
+        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage/db-password" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/linkage-engine",
+          "awslogs-region": "us-west-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
