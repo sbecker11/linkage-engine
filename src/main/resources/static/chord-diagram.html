@@ -150,6 +150,19 @@
         color: #6b6b63;
         justify-content: center;
       }
+      .legend span {
+        cursor: pointer;
+        border-radius: 4px;
+        padding: 2px 5px;
+        transition: background 0.15s, color 0.15s;
+      }
+      .legend span.legend-active {
+        background: #1a1a18;
+        color: #fafaf9;
+      }
+      .legend span.legend-dim {
+        opacity: 0.3;
+      }
       .dot {
         display: inline-block;
         width: 9px;
@@ -278,13 +291,13 @@
         <div id="empty-msg"></div>
       </div>
       <div class="legend">
-        <span><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times;</span>
-        <span><span class="dot" style="background:#4a90d9"></span>Plausible &middot; margin 4–10&times;</span>
-        <span><span class="dot" style="background:#9b6fd4"></span>Plausible &middot; margin 2–4&times;</span>
-        <span><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight &lt;2&times;</span>
-        <span><span class="dot" style="background:#e24b4a"></span>Impossible &middot; travel time</span>
-        <span><span class="dot" style="background:#c2185b"></span>Impossible &middot; age inconsistency</span>
-        <span><span class="dot" style="background:#e040fb"></span>Conflict &middot; gender mismatch</span>
+        <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times;</span>
+        <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Plausible &middot; margin 4–10&times;</span>
+        <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Plausible &middot; margin 2–4&times;</span>
+        <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight &lt;2&times;</span>
+        <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Impossible &middot; travel time</span>
+        <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span>Impossible &middot; age inconsistency</span>
+        <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span>Conflict &middot; gender mismatch</span>
       </div>
       <div id="detail"></div>
     </main>
@@ -579,6 +592,48 @@
         return "#EF9F27";
       }
 
+      // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
+
+      function legendItems() {
+        return Array.from(document.querySelectorAll(".legend span[data-color]"));
+      }
+
+      // Highlight the legend item whose data-color matches `color`; dim others.
+      function highlightLegend(color) {
+        const norm = (c) => c.toLowerCase().replace(/\s/g, "");
+        legendItems().forEach(el => {
+          const match = norm(el.dataset.color) === norm(color);
+          el.classList.toggle("legend-active", match);
+          el.classList.toggle("legend-dim", !match);
+        });
+      }
+
+      // Reset all legend items to neutral.
+      function resetLegend() {
+        legendItems().forEach(el => {
+          el.classList.remove("legend-active", "legend-dim");
+        });
+      }
+
+      // Wire legend hover → highlight matching chords.
+      // Called once after ribs selection is available.
+      function bindLegendHover(ribs, plausMap) {
+        legendItems().forEach(el => {
+          const targetColor = el.dataset.color.toLowerCase();
+          el.addEventListener("mouseenter", () => {
+            highlightLegend(targetColor);
+            ribs.attr("fill-opacity", (d) => {
+              const c = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
+              return c === targetColor ? 0.92 : 0.06;
+            });
+          });
+          el.addEventListener("mouseleave", () => {
+            resetLegend();
+            ribs.attr("fill-opacity", 0.72);
+          });
+        });
+      }
+
       function render(records, matrix, plausMap) {
         const W = 700,
           H = 700,
@@ -638,11 +693,13 @@
           .on("mouseover", (event, d) => {
             ribs.attr("fill-opacity", 0.1);
             d3.select(event.currentTarget).attr("fill-opacity", 0.92);
+            highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
             showTip(event, d, records, matrix, plausMap);
           })
           .on("mousemove", moveTip)
           .on("mouseout", () => {
             ribs.attr("fill-opacity", 0.72);
+            resetLegend();
             hideTip();
           })
           .on("click", (event, d) => pinDetail(d, records, matrix, plausMap));
@@ -666,8 +723,25 @@
                 ? 0.9
                 : 0.08,
             );
+            // Highlight all legend colors used by chords connected to this arc
+            const connectedColors = new Set();
+            ribs.each((r) => {
+              if (r.source.index === d.index || r.target.index === d.index) {
+                connectedColors.add(
+                  chordColor(r.source.index, r.target.index, plausMap).toLowerCase()
+                );
+              }
+            });
+            legendItems().forEach(el => {
+              const match = connectedColors.has(el.dataset.color.toLowerCase());
+              el.classList.toggle("legend-active", match);
+              el.classList.toggle("legend-dim", !match);
+            });
           })
-          .on("mouseout", () => ribs.attr("fill-opacity", 0.72));
+          .on("mouseout", () => {
+            ribs.attr("fill-opacity", 0.72);
+            resetLegend();
+          });
 
         grp
           .append("text")
@@ -706,6 +780,9 @@
           .attr("x2", 5)
           .attr("stroke", "#fafaf9")
           .attr("stroke-width", 0.8);
+
+        // Wire legend ↔ chord cross-highlighting now that ribs is in scope
+        bindLegendHover(ribs, plausMap);
       }
 
       function showTip(event, d, records, matrix, plausMap) {
