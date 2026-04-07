@@ -916,6 +916,38 @@
         document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
       }
 
+      // ── Signal percentages ────────────────────────────────────────────────────
+      // Derives age-match %, gender-match % and travel-match % from a plausMap entry.
+      // All three are 0–100; higher = more consistent / more plausible.
+      function signalPcts(p) {
+        if (!p) return { age: null, gender: null, travel: null };
+        const penalties = p.rulePenalties || {};
+
+        // Age: 0 penalty → 100 %, max penalty (50) → 0 %
+        const agePenalty = penalties["AgeConsistencyRule"] ?? null;
+        const age = agePenalty === null ? null : Math.round(100 - (agePenalty / 50) * 100);
+
+        // Gender: no rule → 100 %, penalty 20 (out of max 50) → 60 %
+        const genderPenalty = penalties["GenderPlausibilityRule"] ?? null;
+        const gender = genderPenalty === null ? null : Math.round(100 - (genderPenalty / 50) * 100);
+
+        // Travel: ratio of available days to travel days, capped at 100 %
+        const ratio = (p.availableDays || 365) / Math.max(1, p.travelDays || 1);
+        // ratio ≥ 10 → 100 %, ratio = 1 → 10 %, ratio < 1 → 0 %
+        const travel = p.plausible
+          ? Math.min(100, Math.round((Math.log10(Math.max(1, ratio)) / Math.log10(10)) * 100))
+          : 0;
+
+        return { age, gender, travel };
+      }
+
+      // Renders a small coloured percentage badge: "Age 60 %" in cherry etc.
+      function pctBadge(label, pct, color) {
+        if (pct === null) return "";
+        const col = pct >= 80 ? "#2a7a5a" : pct >= 50 ? "#b07a10" : color;
+        return `<span style="color:${col};font-weight:600">${label} ${pct}%</span>`;
+      }
+
       function showTip(event, d, records, matrix, plausMap) {
         const p = plausMap.get(`${d.source.index}-${d.target.index}`);
         const src = records[d.source.index];
@@ -930,10 +962,19 @@
             ? `plausible &middot; ${p.travelDays?.toFixed(1)}d needed, ${p.availableDays?.toFixed(0)}d available`
             : `<strong style="color:#A32D2D">\u26a0 impossible</strong> &middot; ${p.travelDays?.toFixed(0)}d needed, ${p.availableDays?.toFixed(0)}d available`
           : "\u2014";
+
+        const { age, gender, travel } = signalPcts(p);
+        const badges = [
+          pctBadge("Travel", travel, "#e24b4a"),
+          pctBadge("Age",    age,    "#c2185b"),
+          pctBadge("Gender", gender, "#e040fb"),
+        ].filter(Boolean).join(" &middot; ");
+
         tip.innerHTML =
           `<strong>${src.givenName || ""} ${src.familyName || src.name || ""}</strong> &middot; ${src.location} ${src.year}<br>` +
           `&rarr; <strong>${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}</strong> &middot; ${tgt.location} ${tgt.year}<br>` +
-          `Similarity: ${sim}%<br>${mode} &middot; ${plaus}`;
+          `Similarity: ${sim}% &middot; ${mode} &middot; ${plaus}` +
+          (badges ? `<br>${badges}` : "");
         tip.style.opacity = "1";
         tip.style.left = event.clientX + 16 + "px";
         tip.style.top = event.clientY - 12 + "px";
@@ -982,6 +1023,12 @@
         const plausText = isImpossible
           ? `\u26a0 impossible \u2014 ${p.travelDays?.toFixed(0)}d required by ${mode}, only ${p.availableDays?.toFixed(0)}d available`
           : `${mode} \u2014 ${p?.travelDays?.toFixed(1) ?? "?"}d needed, ${p?.availableDays?.toFixed(0) ?? "?"}d available &middot; ${confLabel}`;
+        const { age, gender, travel } = signalPcts(p);
+        const ageLine   = age    !== null ? `<span style="color:${age    >= 80 ? '#2a7a5a' : age    >= 50 ? '#b07a10' : '#c2185b'};font-weight:600">Age match ${age}%</span>` : "";
+        const genderLine= gender !== null ? `<span style="color:${gender >= 80 ? '#2a7a5a' : gender >= 50 ? '#b07a10' : '#e040fb'};font-weight:600">Gender match ${gender}%</span>` : "";
+        const travelLine= travel !== null ? `<span style="color:${travel >= 80 ? '#2a7a5a' : travel >= 50 ? '#b07a10' : '#e24b4a'};font-weight:600">Travel match ${travel}%</span>` : "";
+        const signalRow = [travelLine, ageLine, genderLine].filter(Boolean).join(" &middot; ");
+
         det.innerHTML = `<div class="det-row">
        <div style="flex:1">
          <p class="det-title">
@@ -989,6 +1036,7 @@
            &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
          </p>
          <p class="det-sub">Similarity ${sim}% &middot; ${plausText}</p>
+         ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
        </div>
        <span class="det-conf ${confClass}">${conf}%</span>
      </div>`;
