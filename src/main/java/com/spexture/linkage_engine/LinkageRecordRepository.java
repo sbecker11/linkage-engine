@@ -116,6 +116,24 @@ public class LinkageRecordRepository implements LinkageRecordStore {
     }
 
     @Override
+    public List<LinkageRecord> findAll() {
+        return jdbcTemplate.query(
+            """
+                select record_id, given_name, family_name, event_year, location
+                from records
+                order by record_id
+                """,
+            (rs, rowNum) -> new LinkageRecord(
+                rs.getString("record_id"),
+                rs.getString("given_name"),
+                rs.getString("family_name"),
+                rs.getObject("event_year", Integer.class),
+                rs.getString("location")
+            )
+        );
+    }
+
+    @Override
     public List<CandidateRecord> findByLocationAndYearRange(String location, int year, int yearTolerance) {
         return jdbcTemplate.query(
             """

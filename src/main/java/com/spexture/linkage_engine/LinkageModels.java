@@ -62,6 +62,18 @@ record RecordSearchRequest(
     String rawQuery
 ) {}
 
+/**
+ * Full record as stored in the {@code records} table — used by the list endpoint
+ * and the chord-diagram data pipeline.
+ */
+record LinkageRecord(
+    String recordId,
+    String givenName,
+    String familyName,
+    Integer year,
+    String location
+) {}
+
 /** Full record projection used by the reindex pipeline. */
 record ReindexRecord(
     String recordId,

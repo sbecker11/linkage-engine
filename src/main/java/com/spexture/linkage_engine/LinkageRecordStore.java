@@ -19,4 +19,7 @@ public interface LinkageRecordStore {
      * Used for neighborhood snapshot aggregation.
      */
     List<CandidateRecord> findByLocationAndYearRange(String location, int year, int yearTolerance);
+
+    /** Returns all records ordered by record_id — used by the list endpoint and chord diagram. */
+    List<LinkageRecord> findAll();
 }
