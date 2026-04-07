@@ -25,7 +25,11 @@ class LinkageServiceTest {
     private static final ConflictResolver NO_OP_RESOLVER;
     static {
         HistoricalTransitService transit = new HistoricalTransitService();
-        NO_OP_RESOLVER = new ConflictResolver(transit);
+        NO_OP_RESOLVER = new ConflictResolver(transit, List.of(
+            new PhysicalImpossibilityRule(),
+            new BiologicalPlausibilityRule(),
+            new NarrowMarginRule()
+        ));
     }
 
     private LinkageService service(LinkageRecordStore store,

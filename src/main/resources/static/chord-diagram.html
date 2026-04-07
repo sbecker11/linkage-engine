@@ -188,6 +188,14 @@
         background: #fcebeb;
         border-color: #f09595;
       }
+      #detail.age-conflict {
+        background: #fce4ec;
+        border-color: #c2185b;
+      }
+      #detail.gender-conflict {
+        background: #fce4ff;
+        border-color: #e040fb;
+      }
       .det-row {
         display: flex;
         align-items: center;
@@ -270,11 +278,13 @@
         <div id="empty-msg"></div>
       </div>
       <div class="legend">
-        <span><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times; travel time</span>
+        <span><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times;</span>
         <span><span class="dot" style="background:#4a90d9"></span>Plausible &middot; margin 4–10&times;</span>
         <span><span class="dot" style="background:#9b6fd4"></span>Plausible &middot; margin 2–4&times;</span>
-        <span><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight margin &lt;2&times;</span>
-        <span><span class="dot" style="background:#e24b4a"></span>Impossible &middot; spatio-temporal failure</span>
+        <span><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight &lt;2&times;</span>
+        <span><span class="dot" style="background:#e24b4a"></span>Impossible &middot; travel time</span>
+        <span><span class="dot" style="background:#c2185b"></span>Impossible &middot; age inconsistency</span>
+        <span><span class="dot" style="background:#e040fb"></span>Conflict &middot; gender mismatch</span>
       </div>
       <div id="detail"></div>
     </main>
@@ -543,15 +553,22 @@
         setTimeout(() => setProgress(0), 700);
       }
 
-      // 5-tier color scale based on margin ratio (available / required):
-      //   #1D9E75  teal-green  — margin ratio >= 10x  (very comfortable)
-      //   #4A90D9  steel-blue  — margin ratio 4–10x   (comfortable)
-      //   #9B6FD4  purple      — margin ratio 2–4x    (moderate)
-      //   #EF9F27  amber       — margin ratio 1–2x    (tight but plausible)
-      //   #E24B4A  red         — spatially impossible
+      // 7-tier color scale:
+      // Plausible pairs — by travel-time margin ratio (available / required):
+      //   #1D9E75  teal-green  — ratio >= 10x  (very comfortable)
+      //   #4A90D9  steel-blue  — ratio 4–10x   (comfortable)
+      //   #9B6FD4  purple      — ratio 2–4x    (moderate)
+      //   #EF9F27  amber       — ratio 1–2x    (tight but plausible)
+      // Implausible pairs — by failure mode:
+      //   #E24B4A  red         — physical impossibility (travel time > available)
+      //   #C2185B  cherry      — age inconsistency (age regresses or outside lifespan)
+      //   #E040FB  magenta     — gender conflict (M vs F inferred from names)
       function chordColor(si, ti, plausMap) {
         const p = plausMap.get(`${si}-${ti}`);
         if (!p) return "#888780";
+        const rules = p.rulesTriggered || [];
+        if (rules.some(r => r === "AgeConsistencyRule")) return "#C2185B";
+        if (rules.some(r => r === "GenderPlausibilityRule")) return "#E040FB";
         if (!p.plausible) return "#E24B4A";
         const travel = p.travelDays || 1;
         const available = p.availableDays || 365;
@@ -731,10 +748,15 @@
         const sim = matrix[d.source.index][d.target.index];
         const det = document.getElementById("detail");
         const adj = p?.confidenceAdjustment || 0;
+        const rules = p?.rulesTriggered || [];
         const isImpossible = p && !p.plausible;
+        const isAgeConflict  = rules.some(r => r === "AgeConsistencyRule");
+        const isGenderConflict = rules.some(r => r === "GenderPlausibilityRule");
         let detClass = "plausible";
         let confLabel = "high confidence";
-        if (isImpossible)    { detClass = "impossible"; confLabel = "impossible"; }
+        if (isAgeConflict)   { detClass = "age-conflict";    confLabel = "age inconsistency"; }
+        else if (isGenderConflict) { detClass = "gender-conflict"; confLabel = "gender conflict"; }
+        else if (isImpossible)    { detClass = "impossible"; confLabel = "impossible"; }
         else if (adj < -25)  { detClass = "verylow";    confLabel = "very low confidence"; }
         else if (adj < -10)  { detClass = "lowconf";    confLabel = "low confidence"; }
         else if (adj < 0)    { detClass = "moderate";   confLabel = "moderate confidence"; }

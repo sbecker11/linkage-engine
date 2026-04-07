@@ -61,7 +61,11 @@ class LinkageServiceSpatioTemporalTest {
             new SemanticSummaryService.SummaryResult("Top candidate: R-1", false)
         );
 
-        ConflictResolver realResolver = new ConflictResolver(new HistoricalTransitService());
+        ConflictResolver realResolver = new ConflictResolver(new HistoricalTransitService(), List.of(
+            new PhysicalImpossibilityRule(),
+            new BiologicalPlausibilityRule(),
+            new NarrowMarginRule()
+        ));
         LinkageService svc = new LinkageService(store, rerank, summary, realResolver);
 
         // Query: Boston 1850 → candidate: SF 1850 → 1 day available, 120 days required

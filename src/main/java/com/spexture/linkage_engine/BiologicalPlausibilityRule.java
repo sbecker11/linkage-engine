@@ -8,6 +8,7 @@ package com.spexture.linkage_engine;
  * to the legacy {@code "BORN:YYYY:"} recordId prefix for backwards compatibility
  * with existing seeded records. Skips silently when no birth year is available.
  */
+@org.springframework.stereotype.Component
 public class BiologicalPlausibilityRule implements ConflictRule {
 
     private static final int MIN_AGE = AgeEstimator.MIN_AGE;

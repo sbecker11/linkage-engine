@@ -19,13 +19,9 @@ public class ConflictResolver {
     private final HistoricalTransitService transitService;
     private final List<ConflictRule> rules;
 
-    public ConflictResolver(HistoricalTransitService transitService) {
+    public ConflictResolver(HistoricalTransitService transitService, List<ConflictRule> rules) {
         this.transitService = transitService;
-        this.rules = List.of(
-            new PhysicalImpossibilityRule(),
-            new BiologicalPlausibilityRule(),
-            new NarrowMarginRule()
-        );
+        this.rules = rules;
     }
 
     public SpatioTemporalResponse resolve(SpatioTemporalRequest request) {

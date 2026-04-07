@@ -4,6 +4,7 @@ package com.spexture.linkage_engine;
  * Flags a low-confidence warning when the margin between available and required travel days
  * is less than {@value #NARROW_MARGIN_DAYS} days — the movement is technically possible but tight.
  */
+@org.springframework.stereotype.Component
 public class NarrowMarginRule implements ConflictRule {
 
     static final int NARROW_MARGIN_DAYS = 5;
