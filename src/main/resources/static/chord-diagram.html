@@ -196,20 +196,25 @@
       }
       #detail {
         display: none;
-        border-radius: 9px;
-        padding: 12px 16px;
-        margin-top: 16px;
-        border: 0.5px solid #d3d1c7;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 20%;
+        height: 100%;
+        padding: 20px 16px 20px 16px;
+        border-right: 1px solid #d3d1c7;
+        overflow-y: auto;
+        z-index: 100;
         transition:
           background 0.3s,
           border-color 0.3s;
-        position: relative;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.08);
       }
       .det-close {
         position: absolute;
-        top: 8px;
-        right: 10px;
-        font-size: 15px;
+        top: 10px;
+        right: 12px;
+        font-size: 18px;
         line-height: 1;
         cursor: pointer;
         color: #888;
@@ -248,13 +253,14 @@
       }
       .det-row {
         display: flex;
-        align-items: center;
-        gap: 12px;
+        flex-direction: column;
+        gap: 10px;
       }
       .det-title {
         font-size: 13px;
         font-weight: 600;
         color: #1a1a18;
+        line-height: 1.5;
       }
       .det-sub {
         font-size: 11px;
@@ -339,9 +345,9 @@
         <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span><span class="legend-step">②</span>AgeConsistency &middot; birth-year clash</span>
         <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span><span class="legend-step">③</span>GenderPlausibility &middot; name mismatch</span>
       </div>
-      <div id="detail"></div>
     </main>
 
+    <div id="detail"></div>
     <div class="tip" id="tip"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -1090,15 +1096,20 @@
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
-            <div style="flex:1">
-              <p class="det-title">
-                ${src.givenName || ""} ${src.familyName || src.name || ""} &middot; ${src.location} ${src.year}
-                &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
-              </p>
-              <p class="det-sub">${simLine} &middot; ${plausText}</p>
-              ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
-            </div>
-            <span class="det-conf ${confClass}">${conf}%</span>
+            <p class="det-title">
+              ${src.givenName || ""} ${src.familyName || src.name || ""}<br>
+              ${src.location} &middot; ${src.year}
+            </p>
+            <p class="det-title" style="font-weight:400;color:#5f5e5a">&darr;</p>
+            <p class="det-title">
+              ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}<br>
+              ${tgt.location} &middot; ${tgt.year}
+            </p>
+            <p class="det-sub">${simLine}</p>
+            <p class="det-sub">${plausText}</p>
+            ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
+            <p style="margin-top:8px"><span class="det-conf ${confClass}">${conf}%</span>
+              <span class="det-sub" style="margin-left:6px">confidence</span></p>
           </div>`;
         det.querySelector(".det-close").addEventListener("click", () => {
           det.style.display = "none";
