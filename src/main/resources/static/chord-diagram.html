@@ -1001,19 +1001,23 @@
         let ageLine = null, ageFlag = null, ageColor = "#888";
         const agePenalty = p?.rulePenalties?.["AgeConsistencyRule"] ?? null;
         if (agePenalty !== null) {
-          const ageA = srcRec.birthYear ? srcRec.year - srcRec.birthYear : null;
-          const ageB = tgtRec.birthYear ? tgtRec.year - tgtRec.birthYear : null;
-          if (ageA !== null && ageB !== null && ageA < 0 || ageB < 0) {
-            ageLine = `⚠ Impossible age: one record implies a negative age (birth year is after the event year).`;
-            ageFlag = "Impossible age"; ageColor = "#c2185b";
+          const ageA = (srcRec.birthYear && srcRec.year) ? srcRec.year - srcRec.birthYear : null;
+          const ageB = (tgtRec.birthYear && tgtRec.year) ? tgtRec.year - tgtRec.birthYear : null;
+          ageColor = "#c2185b";
+          if (ageA !== null && ageB !== null && (ageA < 0 || ageB < 0)) {
+            // Negative age — birth year is after event year (e.g. OCR error)
+            const badRec  = ageA < 0 ? srcRec : tgtRec;
+            const badAge  = ageA < 0 ? ageA   : ageB;
+            ageLine = `⚠ Impossible age: ${name(badRec)} (b. ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
+            ageFlag = `Impossible age (${badAge})`;
           } else if (ageA !== null && ageB !== null) {
-            const delta = Math.abs(ageB - ageA);
+            const ageDelta  = Math.abs(ageB - ageA);
             const yearDelta = Math.abs(tgtRec.year - srcRec.year);
-            ageLine = `⚠ Age contradiction: ${name(srcRec)} was ${ageA} in ${srcRec.year} but ${name(tgtRec)} was ${ageB} in ${tgtRec.year} — aged ${delta} years in ${yearDelta} year${yearDelta !== 1 ? "s" : ""}.`;
-            ageFlag = `Age gap: ${delta} yrs in ${yearDelta} yr${yearDelta !== 1 ? "s" : ""}`; ageColor = "#c2185b";
+            ageLine = `⚠ Age contradiction: ${name(srcRec)} was age ${ageA} in ${srcRec.year} (b. ${srcRec.birthYear}), but ${name(tgtRec)} was age ${ageB} in ${tgtRec.year} (b. ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
+            ageFlag = `Age gap ${ageDelta} yrs / ${yearDelta} calendar yr${yearDelta !== 1 ? "s" : ""}`;
           } else {
-            ageLine = `⚠ Age inconsistency detected between records.`;
-            ageFlag = "Age inconsistency"; ageColor = "#c2185b";
+            ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
+            ageFlag = "Age inconsistency";
           }
         }
 
