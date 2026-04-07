@@ -619,7 +619,7 @@
 
 
       // Travel-margin colour for a plausible pair.
-      function travelColor(p) {
+      function travelHex(p) {
         const ratio = (p.availableDays || 365) / (p.travelDays || 1);
         if (ratio >= 10) return COL.green;
         if (ratio >= 4)  return COL.blue;
@@ -637,7 +637,7 @@
       function chordLayers(p) {
         if (!p) return [COL.grey];
         const penalties = p.rulePenalties || {};
-        const layers = [travelColor(p)];   // travel layer always present
+        const layers = [travelHex(p)];   // travel layer always present
 
         if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
           layers.push(COL.red);
@@ -1028,7 +1028,7 @@
           const ratio = p.availableDays / Math.max(0.1, p.travelDays);
           const margin = ratio >= 10 ? "very comfortable" : ratio >= 4 ? "comfortable" : ratio >= 2 ? "moderate" : "tight";
           travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
-          travelFlag = null; travelColor = "#2a7a5a";
+          travelFlag = null; travelColor = travelHex(p);
         }
 
         // ── Age ───────────────────────────────────────────────────────────────
