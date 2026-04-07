@@ -14,6 +14,11 @@ POST /v1/linkage/resolve
 
 All four stages degrade gracefully — the local profile runs end-to-end with no AWS credentials.
 
+<img src="docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
+
+Each arc is a seeded record. Chord width reflects similarity score; chord colour reflects travel-time margin — green (comfortable) through blue, purple, amber, to red (physically impossible).  
+Live at [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html) when the server is running.
+
 ---
 
 ## What Was Built
