@@ -252,9 +252,18 @@ class ConflictRulesTest {
     }
 
     @Test
-    void availableDays_minimumOne() {
+    void availableDays_sameYearNoMonth_returns365() {
+        // Same year, no month precision → up to 365 days could separate the records
         SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null, null);
         SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, null, null);
+        assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(365.0);
+    }
+
+    @Test
+    void availableDays_minimumOne_whenMonthDataPresent() {
+        // Same year, same month → minimum 1 day floor applies
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, 3, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, 3, null);
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(1.0);
     }
 }

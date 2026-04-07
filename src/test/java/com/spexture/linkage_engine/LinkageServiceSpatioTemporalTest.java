@@ -41,35 +41,15 @@ class LinkageServiceSpatioTemporalTest {
 
     @Test
     void confidenceDecreasesWhenConflictDetected() {
-        // Boston 1850 → SF 1850 (same year, ~120 days required via Cape Horn, but only 1 day available)
-        // Use a candidate with year=1850 and same query year=1850 → availableDays=1 → impossible
-        List<CandidateRecord> impossibleCandidate = List.of(
-            new CandidateRecord("R-1", "John", "Smith", 1850, "San Francisco")
-        );
-        List<CandidateScore> impossibleScore = List.of(new CandidateScore("R-1", null));
-
-        LinkageRecordStore store = mock(LinkageRecordStore.class);
-        when(store.countAllRecords()).thenReturn(5);
-        when(store.search(any())).thenReturn(impossibleCandidate);
-
-        VectorRerankService rerank = mock(VectorRerankService.class);
-        when(rerank.rerank(anyList(), anyString())).thenReturn(
-            new VectorRerankService.RerankResult(impossibleCandidate, impossibleScore, false)
+        // Use a mock resolver returning an impossible result — avoids coupling to
+        // availableDays calculation details (same-year no-month now returns 365 days).
+        ConflictResolver mockResolver = mock(ConflictResolver.class);
+        when(mockResolver.resolve(any())).thenReturn(
+            new SpatioTemporalResponse(false, 120.0, 1.0, -119.0, "ocean_ship",
+                List.of("physical_impossibility"), 50, Map.of("physical_impossibility", 50))
         );
 
-        SemanticSummaryService summary = mock(SemanticSummaryService.class);
-        when(summary.summarize(any(), anyList(), anyList())).thenReturn(
-            new SemanticSummaryService.SummaryResult("Top candidate: R-1", false)
-        );
-
-        ConflictResolver realResolver = new ConflictResolver(new HistoricalTransitService(), List.of(
-            new PhysicalImpossibilityRule(),
-            new BiologicalPlausibilityRule(),
-            new NarrowMarginRule()
-        ));
-        LinkageService svc = new LinkageService(store, rerank, summary, realResolver);
-
-        // Query: Boston 1850 → candidate: SF 1850 → 1 day available, 120 days required
+        LinkageService svc = service(mockResolver);
         LinkageResolveRequest request = new LinkageResolveRequest(
             "John", "Smith", 1850, "Boston", null
         );
