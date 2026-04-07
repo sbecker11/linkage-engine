@@ -1076,7 +1076,7 @@
             ageGapYears  = Math.abs(ageB - ageA);
             calendarYears = Math.abs(tgtRec.year - srcRec.year);
             ageLine = `⚠ Age contradiction: ${fullName(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${fullName(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageGapYears} years of ageing in ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""}.`;
-            ageFlag = `Age gap ${ageGapYears} yrs / ${calendarYears} calendar yr${calendarYears !== 1 ? "s" : ""}`;
+            ageFlag = `Age gap ${ageGapYears} yr${ageGapYears !== 1 ? "s" : ""}`;
           } else {
             ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
             ageFlag = "Age inconsistency";
