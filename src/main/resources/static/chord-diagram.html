@@ -98,29 +98,6 @@
         transition: width 0.35s ease;
         width: 0%;
       }
-      #banner {
-        font-size: 11px;
-        padding: 8px 12px;
-        border-radius: 7px;
-        margin-bottom: 14px;
-        display: none;
-        line-height: 1.6;
-      }
-      .banner-local {
-        background: #faeeda;
-        color: #633806;
-        border: 0.5px solid #fac775;
-      }
-      .banner-bedrock {
-        background: #e1f5ee;
-        color: #085041;
-        border: 0.5px solid #5dcaa5;
-      }
-      .banner-error {
-        background: #fcebeb;
-        color: #a32d2d;
-        border: 0.5px solid #f09595;
-      }
       code {
         font-family: ui-monospace, monospace;
         font-size: 10.5px;
@@ -337,7 +314,6 @@
     <main>
       <div id="status-line">Initialising&hellip;</div>
       <div class="progress"><div class="progress-bar" id="pbar"></div></div>
-      <div id="banner"></div>
       <div id="chart-wrap">
         <div id="empty-msg"></div>
       </div>
@@ -400,12 +376,6 @@
           body: JSON.stringify(body),
         });
 
-      function showBanner(cls, html) {
-        const el = document.getElementById("banner");
-        el.className = cls;
-        el.innerHTML = html;
-        el.style.display = "block";
-      }
 
       function cityAbbr(loc) {
         const MAP = {
@@ -447,7 +417,6 @@
         document.getElementById("chart-wrap").innerHTML =
           '<div id="empty-msg"></div>';
         document.getElementById("empty-msg").style.display = "none";
-        document.getElementById("banner").style.display = "none";
         document.getElementById("profile-badge").style.display = "none";
         setProgress(0);
 
@@ -456,12 +425,8 @@
         try {
           records = await apiGet("/v1/records");
         } catch (e) {
-          showBanner(
-            "banner-error",
-            `Failed to fetch records: <code>${e.message}</code>. ` +
-              `Is the server running? Try <code>./mvnw spring-boot:run</code>.`,
-          );
-          setStatus("");
+          console.error("[chord] Failed to fetch records:", e.message);
+          setStatus(`⚠ Failed to fetch records: ${e.message}. Is the server running?`);
           return;
         }
 
@@ -570,18 +535,7 @@
           "badge " + (isLocal ? "badge-local" : "badge-bedrock");
 
         if (isLocal) {
-          showBanner(
-            "banner-local",
-            "\u26a0 Running on <strong>local profile</strong> &mdash; " +
-              "<code>vectorSimilarity</code> is <code>null</code> (no <code>EmbeddingModel</code> active). " +
-              "Chord widths use rank-based estimates (90, 83, 76\u2026). " +
-              "Start with <code>SPRING_AI_MODEL_EMBEDDING=bedrock-titan</code> for real cosine similarity scores.",
-          );
-        } else {
-          showBanner(
-            "banner-bedrock",
-            "\u2713 <strong>Bedrock profile</strong> &mdash; chord widths reflect real cosine similarity from Titan embeddings.",
-          );
+          console.info("[chord] local profile — chord widths use rank-based estimates (no EmbeddingModel)");
         }
 
         if (pairSet.size === 0) {
