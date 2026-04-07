@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class SpatialControllerTest {
     @Test
     void temporalOverlapReturnsPlausibleResponse() throws Exception {
         SpatioTemporalResponse response = new SpatioTemporalResponse(
-            true, 1.5, 365.0, 363.5, "railroad_eastern", List.of(), 0
+            true, 1.5, 365.0, 363.5, "railroad_eastern", List.of(), 0, Map.of()
         );
         when(conflictResolver.resolve(any())).thenReturn(response);
 
@@ -56,7 +57,7 @@ class SpatialControllerTest {
     void temporalOverlapReturnsImplausibleResponse() throws Exception {
         SpatioTemporalResponse response = new SpatioTemporalResponse(
             false, 120.0, 365.0, -(-245.0), "ocean_ship",
-            List.of("physical_impossibility"), 50
+            List.of("physical_impossibility"), 50, Map.of("physical_impossibility", 50)
         );
         when(conflictResolver.resolve(any())).thenReturn(response);
 

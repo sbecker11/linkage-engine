@@ -149,7 +149,9 @@ record SpatioTemporalResponse(
     double margin,
     String transitMode,
     List<String> rulesTriggered,
-    int confidenceAdjustment
+    int confidenceAdjustment,
+    /** Per-rule penalty breakdown: ruleName → penalty points. Only contains triggered rules. */
+    java.util.Map<String, Integer> rulePenalties
 ) {}
 
 record RecordIngestRequest(

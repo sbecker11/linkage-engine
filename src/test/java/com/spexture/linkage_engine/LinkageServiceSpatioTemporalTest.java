@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -85,7 +86,7 @@ class LinkageServiceSpatioTemporalTest {
         // Mock resolver that always returns plausible with zero penalty
         ConflictResolver mockResolver = mock(ConflictResolver.class);
         when(mockResolver.resolve(any())).thenReturn(
-            new SpatioTemporalResponse(true, 1.5, 365.0, 363.5, "railroad_eastern", List.of(), 0)
+            new SpatioTemporalResponse(true, 1.5, 365.0, 363.5, "railroad_eastern", List.of(), 0, Map.of())
         );
 
         LinkageService svc = service(mockResolver);

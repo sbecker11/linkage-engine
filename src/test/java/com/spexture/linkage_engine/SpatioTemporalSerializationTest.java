@@ -3,6 +3,7 @@ package com.spexture.linkage_engine;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +36,7 @@ class SpatioTemporalSerializationTest {
     void responseSerializesAndDeserializes() throws Exception {
         SpatioTemporalResponse resp = new SpatioTemporalResponse(
             false, 120.5, 365.0, -244.5, "ocean_ship",
-            List.of("physical_impossibility"), 50
+            List.of("physical_impossibility"), 50, Map.of("physical_impossibility", 50)
         );
 
         String json = mapper.writeValueAsString(resp);

@@ -604,20 +604,99 @@
       //   #E24B4A  red         — physical impossibility (travel time > available)
       //   #C2185B  cherry      — age inconsistency (age regresses or outside lifespan)
       //   #E040FB  magenta     — gender conflict (M vs F inferred from names)
+      // ── Colour palette (hex) ──────────────────────────────────────────────────
+      const COL = {
+        green:   "#1D9E75",
+        blue:    "#4A90D9",
+        purple:  "#9B6FD4",
+        amber:   "#EF9F27",
+        red:     "#E24B4A",
+        cherry:  "#C2185B",
+        magenta: "#E040FB",
+        grey:    "#888780",
+      };
+
+      // Parse a hex colour string into {r,g,b}.
+      function hexToRgb(hex) {
+        const h = hex.replace("#", "");
+        return {
+          r: parseInt(h.slice(0, 2), 16),
+          g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16),
+        };
+      }
+
+      // Weighted average of [{color: hex, weight: number}] → "r,g,b" string.
+      function blendRgb(signals) {
+        let totalW = 0, r = 0, g = 0, b = 0;
+        for (const { color, weight } of signals) {
+          const rgb = hexToRgb(color);
+          r += rgb.r * weight;
+          g += rgb.g * weight;
+          b += rgb.b * weight;
+          totalW += weight;
+        }
+        if (totalW === 0) return hexToRgb(COL.grey);
+        return {
+          r: Math.round(r / totalW),
+          g: Math.round(g / totalW),
+          b: Math.round(b / totalW),
+        };
+      }
+
+      // Dominant (highest-weight) colour hex — used for legend matching.
+      function dominantColor(signals) {
+        if (!signals.length) return COL.grey;
+        return signals.reduce((a, b) => b.weight > a.weight ? b : a).color;
+      }
+
+      // Travel-margin colour for a plausible pair.
+      function travelColor(p) {
+        const ratio = (p.availableDays || 365) / (p.travelDays || 1);
+        if (ratio >= 10) return COL.green;
+        if (ratio >= 4)  return COL.blue;
+        if (ratio >= 2)  return COL.purple;
+        return COL.amber;
+      }
+
+      // Build the signal list for a spatial response.
+      // Each signal has a colour and a weight (= penalty, or a baseline for travel).
+      function buildSignals(p) {
+        if (!p) return [{ color: COL.grey, weight: 1 }];
+        const penalties = p.rulePenalties || {};
+        const signals = [];
+
+        // Travel signal — weight is inverse of penalty (comfortable = high weight)
+        const travelW = Math.max(5, 50 - (p.confidenceAdjustment || 0));
+        signals.push({ color: travelColor(p), weight: travelW });
+
+        // Conflict rule signals — weight proportional to their penalty
+        if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
+          signals.push({ color: COL.red,     weight: penalties["physical_impossibility"] || 50 });
+        if (penalties["AgeConsistencyRule"])
+          signals.push({ color: COL.cherry,  weight: penalties["AgeConsistencyRule"] });
+        if (penalties["GenderPlausibilityRule"])
+          signals.push({ color: COL.magenta, weight: penalties["GenderPlausibilityRule"] });
+
+        return signals;
+      }
+
+      // Returns a blended rgba() fill string for the chord.
+      // Alpha scales with total penalty: clean pairs are more transparent.
+      function chordFill(si, ti, plausMap) {
+        const p = plausMap.get(`${si}-${ti}`);
+        const signals = buildSignals(p);
+        const { r, g, b } = blendRgb(signals);
+        const totalPenalty = (p?.confidenceAdjustment || 0)
+          + Object.values(p?.rulePenalties || {}).reduce((a, v) => a + v, 0);
+        const alpha = 0.35 + 0.45 * Math.min(1, totalPenalty / 100);
+        return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+      }
+
+      // Returns the dominant hex colour — used for legend highlight matching.
       function chordColor(si, ti, plausMap) {
         const p = plausMap.get(`${si}-${ti}`);
-        if (!p) return "#888780";
-        const rules = p.rulesTriggered || [];
-        if (rules.some(r => r === "AgeConsistencyRule")) return "#C2185B";
-        if (rules.some(r => r === "GenderPlausibilityRule")) return "#E040FB";
-        if (!p.plausible) return "#E24B4A";
-        const travel = p.travelDays || 1;
-        const available = p.availableDays || 365;
-        const ratio = available / travel;
-        if (ratio >= 10) return "#1D9E75";
-        if (ratio >= 4)  return "#4A90D9";
-        if (ratio >= 2)  return "#9B6FD4";
-        return "#EF9F27";
+        return dominantColor(buildSignals(p));
       }
 
       // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
@@ -650,14 +729,16 @@
           const targetColor = el.dataset.color.toLowerCase();
           el.addEventListener("mouseenter", () => {
             highlightLegend(targetColor);
-            ribs.attr("fill-opacity", (d) => {
-              const c = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
-              return c === targetColor ? 0.92 : 0.06;
+            ribs.attr("fill", (d) => {
+              const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
+              if (dom === targetColor) return chordFill(d.source.index, d.target.index, plausMap);
+              const { r, g, b } = hexToRgb(dom === COL.grey.toLowerCase() ? COL.grey : dom);
+              return `rgba(${r},${g},${b},0.07)`;
             });
           });
           el.addEventListener("mouseleave", () => {
             resetLegend();
-            ribs.attr("fill-opacity", 0.72);
+            ribs.attr("fill", (d) => chordFill(d.source.index, d.target.index, plausMap));
           });
         });
       }
@@ -702,13 +783,13 @@
 
         const ribs = svg
           .append("g")
-          .attr("fill-opacity", 0.72)
+          .attr("fill-opacity", 1)
           .selectAll("path")
           .data(chords)
           .join("path")
           .attr("d", ribGen)
           .attr("fill", (d) =>
-            chordColor(d.source.index, d.target.index, plausMap),
+            chordFill(d.source.index, d.target.index, plausMap),
           )
           .attr("stroke", (d) => {
             const c = d3.color(
@@ -719,14 +800,20 @@
           .attr("stroke-width", 0.5)
           .style("cursor", "pointer")
           .on("mouseover", (event, d) => {
-            ribs.attr("fill-opacity", 0.1);
-            d3.select(event.currentTarget).attr("fill-opacity", 0.92);
+            // Dim all chords, then restore full blended fill on the hovered one
+            ribs.attr("fill", (r) => {
+              const dom = chordColor(r.source.index, r.target.index, plausMap);
+              const { r: rv, g, b } = hexToRgb(dom);
+              return `rgba(${rv},${g},${b},0.07)`;
+            });
+            d3.select(event.currentTarget)
+              .attr("fill", chordFill(d.source.index, d.target.index, plausMap));
             highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
             showTip(event, d, records, matrix, plausMap);
           })
           .on("mousemove", moveTip)
           .on("mouseout", () => {
-            ribs.attr("fill-opacity", 0.72);
+            ribs.attr("fill", (r) => chordFill(r.source.index, r.target.index, plausMap));
             resetLegend();
             hideTip();
           })
@@ -746,12 +833,14 @@
           .attr("stroke-width", 0.8)
           .style("cursor", "pointer")
           .on("mouseover", (event, d) => {
-            ribs.attr("fill-opacity", (r) =>
-              r.source.index === d.index || r.target.index === d.index
-                ? 0.9
-                : 0.08,
-            );
-            // Highlight all legend colors used by chords connected to this arc
+            ribs.attr("fill", (r) => {
+              const connected = r.source.index === d.index || r.target.index === d.index;
+              if (connected) return chordFill(r.source.index, r.target.index, plausMap);
+              const dom = chordColor(r.source.index, r.target.index, plausMap);
+              const { r: rv, g, b } = hexToRgb(dom);
+              return `rgba(${rv},${g},${b},0.07)`;
+            });
+            // Highlight all legend colours used by chords connected to this arc
             const connectedColors = new Set();
             ribs.each((r) => {
               if (r.source.index === d.index || r.target.index === d.index) {
@@ -767,7 +856,7 @@
             });
           })
           .on("mouseout", () => {
-            ribs.attr("fill-opacity", 0.72);
+            ribs.attr("fill", (r) => chordFill(r.source.index, r.target.index, plausMap));
             resetLegend();
           });
 

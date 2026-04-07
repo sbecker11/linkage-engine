@@ -1,7 +1,9 @@
 package com.spexture.linkage_engine;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,7 @@ public class ConflictResolver {
         double margin = availableDays - estimate.travelDays();
 
         List<String> rulesTriggered = new ArrayList<>();
+        Map<String, Integer> rulePenalties = new LinkedHashMap<>();
         boolean plausible = true;
         int totalPenalty = 0;
 
@@ -39,6 +42,7 @@ public class ConflictResolver {
             ConflictRule.RuleResult result = rule.check(request, estimate, availableDays);
             if (result.triggered()) {
                 rulesTriggered.add(result.ruleName());
+                rulePenalties.put(result.ruleName(), result.confidencePenalty());
                 totalPenalty += result.confidencePenalty();
                 log.debug("[ConflictResolver] rule={} triggered={} implausible={} reason={}",
                     result.ruleName(), result.triggered(), result.implausible(), result.reason());
@@ -60,7 +64,8 @@ public class ConflictResolver {
             margin,
             estimate.mode(),
             rulesTriggered,
-            Math.min(50, totalPenalty)
+            Math.min(50, totalPenalty),
+            rulePenalties
         );
     }
 
