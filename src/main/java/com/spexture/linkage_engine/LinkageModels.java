@@ -31,7 +31,9 @@ record LinkageResolveResponse(
     double confidenceScore,
     List<String> reasons,
     List<String> rulesTriggered,
-    String semanticSummary
+    String semanticSummary,
+    /** Null when no top-candidate pair was available for validation. */
+    SpatioTemporalResponse spatioTemporalResult
 ) {}
 
 /**
@@ -44,6 +46,34 @@ record RecordSearchRequest(
     Integer approxYear,
     String location,
     String rawQuery
+) {}
+
+/**
+ * One anchor point in a spatio-temporal plausibility check.
+ * {@code lat}/{@code lon} are optional; if absent, {@code location} is resolved via the built-in city table.
+ */
+record SpatioTemporalRecord(
+    String recordId,
+    String location,
+    Double lat,
+    Double lon,
+    int year,
+    Integer month
+) {}
+
+record SpatioTemporalRequest(
+    SpatioTemporalRecord from,
+    SpatioTemporalRecord to
+) {}
+
+record SpatioTemporalResponse(
+    boolean plausible,
+    double travelDays,
+    double availableDays,
+    double margin,
+    String transitMode,
+    List<String> rulesTriggered,
+    int confidenceAdjustment
 ) {}
 
 record RecordIngestRequest(

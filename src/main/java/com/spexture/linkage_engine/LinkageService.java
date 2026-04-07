@@ -16,16 +16,19 @@ public class LinkageService implements LinkageResolver {
     private final LinkageRecordStore linkageRecordStore;
     private final VectorRerankService vectorRerankService;
     private final SemanticSummaryService semanticSummaryService;
+    private final ConflictResolver conflictResolver;
 
     @Autowired
     public LinkageService(
         LinkageRecordStore linkageRecordStore,
         VectorRerankService vectorRerankService,
-        SemanticSummaryService semanticSummaryService
+        SemanticSummaryService semanticSummaryService,
+        ConflictResolver conflictResolver
     ) {
         this.linkageRecordStore = linkageRecordStore;
         this.vectorRerankService = vectorRerankService;
         this.semanticSummaryService = semanticSummaryService;
+        this.conflictResolver = conflictResolver;
     }
 
     @Override
@@ -59,10 +62,32 @@ public class LinkageService implements LinkageResolver {
 
         double confidenceScore = computeConfidenceScore(rerank.candidates().size(), request, rerank.scores());
 
-        List<String> reasons = buildReasons(totalRecords, sqlCandidates.size(), rerank, request);
+        // Stage 4 — spatio-temporal validation on query→top-candidate pair
+        SpatioTemporalResponse spatioResult = null;
+        if (!rerank.candidates().isEmpty() && !isBlank(request.location()) && request.approxYear() != null) {
+            CandidateRecord top = rerank.candidates().get(0);
+            if (top.year() != null && !isBlank(top.location())) {
+                SpatioTemporalRequest spatioReq = new SpatioTemporalRequest(
+                    new SpatioTemporalRecord("query", request.location(), null, null,
+                        request.approxYear(), null),
+                    new SpatioTemporalRecord(top.recordId(), top.location(), null, null,
+                        top.year(), null)
+                );
+                spatioResult = conflictResolver.resolve(spatioReq);
+                log.info("[resolve] stage=spatiotemporal plausible={} adjustment={}",
+                    spatioResult.plausible(), spatioResult.confidenceAdjustment());
+                rulesTriggered.add("spatiotemporal_validation");
+                if (spatioResult.confidenceAdjustment() > 0) {
+                    confidenceScore = Math.max(0.05,
+                        confidenceScore - spatioResult.confidenceAdjustment() / 100.0);
+                }
+            }
+        }
+
+        List<String> reasons = buildReasons(totalRecords, sqlCandidates.size(), rerank, request, spatioResult);
 
         return new LinkageResolveResponse(
-            "sql-search → vector-rerank → semantic-summary",
+            "sql-search → vector-rerank → semantic-summary → spatiotemporal-validation",
             totalRecords,
             sqlCandidates.size(),
             rerank.candidates(),
@@ -70,7 +95,8 @@ public class LinkageService implements LinkageResolver {
             confidenceScore,
             reasons,
             rulesTriggered,
-            summary.summary()
+            summary.summary(),
+            spatioResult
         );
     }
 
@@ -91,7 +117,8 @@ public class LinkageService implements LinkageResolver {
 
     private List<String> buildReasons(int total, int sqlCount,
                                        VectorRerankService.RerankResult rerank,
-                                       LinkageResolveRequest request) {
+                                       LinkageResolveRequest request,
+                                       SpatioTemporalResponse spatioResult) {
         List<String> reasons = new ArrayList<>();
         reasons.add("SQL search reduced " + total + " records to " + sqlCount + " candidates.");
         if (rerank.rerankApplied()) {
@@ -102,6 +129,12 @@ public class LinkageService implements LinkageResolver {
         }
         if (!isBlank(request.location())) {
             reasons.add("Applied location filter.");
+        }
+        if (spatioResult != null) {
+            reasons.add("Spatio-temporal validation: plausible=" + spatioResult.plausible()
+                + " mode=" + spatioResult.transitMode()
+                + " travelDays=" + String.format("%.1f", spatioResult.travelDays())
+                + " availDays=" + String.format("%.1f", spatioResult.availableDays()) + ".");
         }
         return reasons;
     }

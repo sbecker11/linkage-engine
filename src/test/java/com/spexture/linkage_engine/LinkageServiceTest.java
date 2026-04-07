@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 class LinkageServiceTest {
 
@@ -20,10 +22,16 @@ class LinkageServiceTest {
         new CandidateScore("R-1001", null)
     );
 
+    private static final ConflictResolver NO_OP_RESOLVER;
+    static {
+        HistoricalTransitService transit = new HistoricalTransitService();
+        NO_OP_RESOLVER = new ConflictResolver(transit);
+    }
+
     private LinkageService service(LinkageRecordStore store,
                                     VectorRerankService rerank,
                                     SemanticSummaryService summary) {
-        return new LinkageService(store, rerank, summary);
+        return new LinkageService(store, rerank, summary, NO_OP_RESOLVER);
     }
 
     @Test

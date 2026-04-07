@@ -49,7 +49,8 @@ class LinkageControllerTest {
             0.8,
             java.util.List.of("Deterministic filtering reduced records."),
             java.util.List.of("deterministic_name_match"),
-            "Most likely match is R-1001 with high confidence."
+            "Most likely match is R-1001 with high confidence.",
+            null
         );
         when(linkageResolver.resolve(org.mockito.ArgumentMatchers.any())).thenReturn(response);
 
