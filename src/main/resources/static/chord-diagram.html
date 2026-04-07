@@ -626,29 +626,6 @@
         };
       }
 
-      // Weighted average of [{color: hex, weight: number}] → "r,g,b" string.
-      function blendRgb(signals) {
-        let totalW = 0, r = 0, g = 0, b = 0;
-        for (const { color, weight } of signals) {
-          const rgb = hexToRgb(color);
-          r += rgb.r * weight;
-          g += rgb.g * weight;
-          b += rgb.b * weight;
-          totalW += weight;
-        }
-        if (totalW === 0) return hexToRgb(COL.grey);
-        return {
-          r: Math.round(r / totalW),
-          g: Math.round(g / totalW),
-          b: Math.round(b / totalW),
-        };
-      }
-
-      // Dominant (highest-weight) colour hex — used for legend matching.
-      function dominantColor(signals) {
-        if (!signals.length) return COL.grey;
-        return signals.reduce((a, b) => b.weight > a.weight ? b : a).color;
-      }
 
       // Travel-margin colour for a plausible pair.
       function travelColor(p) {
@@ -659,44 +636,49 @@
         return COL.amber;
       }
 
-      // Build the signal list for a spatial response.
-      // Each signal has a colour and a weight (= penalty, or a baseline for travel).
-      function buildSignals(p) {
-        if (!p) return [{ color: COL.grey, weight: 1 }];
+      // Returns the travel-margin base colour and the list of conflict-rule colours
+      // that were triggered for a spatial response.
+      // conflictColors has one entry per triggered rule — each will be painted at
+      // 1/N opacity so all rules contribute equally regardless of penalty magnitude.
+      function chordLayers(p) {
+        if (!p) return { base: COL.grey, conflicts: [] };
         const penalties = p.rulePenalties || {};
-        const signals = [];
+        const conflicts = [];
 
-        // Travel signal — weight is inverse of penalty (comfortable = high weight)
-        const travelW = Math.max(5, 50 - (p.confidenceAdjustment || 0));
-        signals.push({ color: travelColor(p), weight: travelW });
-
-        // Conflict rule signals — weight proportional to their penalty
         if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
-          signals.push({ color: COL.red,     weight: penalties["physical_impossibility"] || 50 });
+          conflicts.push(COL.red);
         if (penalties["AgeConsistencyRule"])
-          signals.push({ color: COL.cherry,  weight: penalties["AgeConsistencyRule"] });
+          conflicts.push(COL.cherry);
         if (penalties["GenderPlausibilityRule"])
-          signals.push({ color: COL.magenta, weight: penalties["GenderPlausibilityRule"] });
+          conflicts.push(COL.magenta);
 
-        return signals;
+        return { base: travelColor(p), conflicts };
       }
 
-      // Returns a blended rgba() fill string for the chord.
-      // Alpha scales with total penalty: clean pairs are more transparent.
-      function chordFill(si, ti, plausMap) {
-        const p = plausMap.get(`${si}-${ti}`);
-        const signals = buildSignals(p);
-        const { r, g, b } = blendRgb(signals);
-        const totalPenalty = (p?.confidenceAdjustment || 0)
-          + Object.values(p?.rulePenalties || {}).reduce((a, v) => a + v, 0);
-        const alpha = 0.35 + 0.45 * Math.min(1, totalPenalty / 100);
-        return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+      // Base fill rgba — travel colour at a fixed opacity.
+      function baseFill(p) {
+        const { base } = chordLayers(p);
+        const { r, g, b } = hexToRgb(base);
+        return `rgba(${r},${g},${b},0.55)`;
       }
 
-      // Returns the dominant hex colour — used for legend highlight matching.
+      // Conflict overlay fills — each at 1/N opacity so they blend equally.
+      // Returns [] when no conflict rules fired.
+      function conflictFills(p) {
+        const { conflicts } = chordLayers(p);
+        if (!conflicts.length) return [];
+        const alpha = (1 / conflicts.length).toFixed(2);
+        return conflicts.map(hex => {
+          const { r, g, b } = hexToRgb(hex);
+          return { hex, fill: `rgba(${r},${g},${b},${alpha})` };
+        });
+      }
+
+      // Dominant colour for legend matching — first conflict rule wins, else travel.
       function chordColor(si, ti, plausMap) {
         const p = plausMap.get(`${si}-${ti}`);
-        return dominantColor(buildSignals(p));
+        const { base, conflicts } = chordLayers(p);
+        return conflicts.length ? conflicts[0] : base;
       }
 
       // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
@@ -723,22 +705,18 @@
       }
 
       // Wire legend hover → highlight matching chords.
-      // Called once after ribs selection is available.
-      function bindLegendHover(ribs, plausMap) {
+      // dimFn(targetColorHex) dims all chords whose dominant colour doesn't match.
+      // restoreFn() restores all chords to their normal painted state.
+      function bindLegendHover(plausMap, dimFn, restoreFn) {
         legendItems().forEach(el => {
           const targetColor = el.dataset.color.toLowerCase();
           el.addEventListener("mouseenter", () => {
             highlightLegend(targetColor);
-            ribs.attr("fill", (d) => {
-              const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
-              if (dom === targetColor) return chordFill(d.source.index, d.target.index, plausMap);
-              const { r, g, b } = hexToRgb(dom === COL.grey.toLowerCase() ? COL.grey : dom);
-              return `rgba(${r},${g},${b},0.07)`;
-            });
+            dimFn(targetColor);
           });
           el.addEventListener("mouseleave", () => {
             resetLegend();
-            ribs.attr("fill", (d) => chordFill(d.source.index, d.target.index, plausMap));
+            restoreFn();
           });
         });
       }
@@ -781,43 +759,89 @@
           .radius(IR - 1)
           .padAngle(1 / IR);
 
-        const ribs = svg
+        // Each chord is a <g> containing:
+        //   [0] base path  — travel-margin colour at 0.55 opacity
+        //   [1..N] overlay paths — one per triggered conflict rule at 1/N opacity each
+        // This lets all conflict signals show through equally with no override.
+        const ribGroups = svg
           .append("g")
-          .attr("fill-opacity", 1)
-          .selectAll("path")
+          .selectAll("g")
           .data(chords)
-          .join("path")
-          .attr("d", ribGen)
-          .attr("fill", (d) =>
-            chordFill(d.source.index, d.target.index, plausMap),
-          )
-          .attr("stroke", (d) => {
-            const c = d3.color(
-              chordColor(d.source.index, d.target.index, plausMap),
-            );
+          .join("g")
+          .style("cursor", "pointer");
+
+        // Helper: (re)paint all layers of a chord group from plausMap data.
+        function paintRib(gEl, d, dimmed) {
+          const p = plausMap.get(`${d.source.index}-${d.target.index}`);
+          const path = ribGen(d);
+          const strokeCol = (() => {
+            const c = d3.color(chordColor(d.source.index, d.target.index, plausMap));
             return c ? c.darker(0.5).formatHex() : "#555";
-          })
-          .attr("stroke-width", 0.5)
-          .style("cursor", "pointer")
-          .on("mouseover", (event, d) => {
-            // Dim all chords, then restore full blended fill on the hovered one
-            ribs.attr("fill", (r) => {
-              const dom = chordColor(r.source.index, r.target.index, plausMap);
-              const { r: rv, g, b } = hexToRgb(dom);
-              return `rgba(${rv},${g},${b},0.07)`;
+          })();
+
+          gEl.selectAll("path").remove();
+
+          // Base travel layer
+          const baseAlpha = dimmed ? 0.06 : 0.55;
+          const { r: br, g: bg, b: bb } = hexToRgb(travelColor(p || {}));
+          gEl.append("path")
+            .attr("d", path)
+            .attr("fill", `rgba(${br},${bg},${bb},${baseAlpha})`)
+            .attr("stroke", dimmed ? "none" : strokeCol)
+            .attr("stroke-width", 0.5);
+
+          // Conflict overlay layers — each at 1/N (or dimmed near-zero)
+          if (!dimmed) {
+            conflictFills(p).forEach(({ fill }) => {
+              gEl.append("path")
+                .attr("d", path)
+                .attr("fill", fill)
+                .attr("stroke", "none");
             });
-            d3.select(event.currentTarget)
-              .attr("fill", chordFill(d.source.index, d.target.index, plausMap));
+          }
+        }
+
+        ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
+
+        // ribs is a selection of the base paths (index 0) — used for event binding
+        // and for hover dimming via re-painting all groups.
+        // Dim all chords except the one matching exceptD (chord hover).
+        function dimAllExcept(exceptD) {
+          ribGroups.each(function(d) {
+            const isActive = exceptD &&
+              d.source.index === exceptD.source.index &&
+              d.target.index === exceptD.target.index;
+            paintRib(d3.select(this), d, !isActive);
+          });
+        }
+        // Dim all chords whose dominant colour doesn't match targetColor (legend hover).
+        function dimAllExceptColor(targetColor) {
+          ribGroups.each(function(d) {
+            const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
+            paintRib(d3.select(this), d, dom !== targetColor);
+          });
+        }
+        function restoreAll() {
+          ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
+        }
+
+        // Bind interaction on the group element so all stacked paths respond.
+        ribGroups
+          .on("mouseover", (event, d) => {
+            dimAllExcept(d);
             highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
             showTip(event, d, records, matrix, plausMap);
           })
           .on("mousemove", moveTip)
           .on("mouseout", () => {
-            ribs.attr("fill", (r) => chordFill(r.source.index, r.target.index, plausMap));
+            restoreAll();
             resetLegend();
             hideTip();
           })
           .on("click", (event, d) => pinDetail(d, records, matrix, plausMap));
+
+        // Alias used by legend hover and arc hover handlers below.
+        const ribs = ribGroups;
 
         const grp = svg
           .append("g")
@@ -833,16 +857,14 @@
           .attr("stroke-width", 0.8)
           .style("cursor", "pointer")
           .on("mouseover", (event, d) => {
-            ribs.attr("fill", (r) => {
+            // Repaint: connected chords full, others dimmed
+            ribGroups.each(function(r) {
               const connected = r.source.index === d.index || r.target.index === d.index;
-              if (connected) return chordFill(r.source.index, r.target.index, plausMap);
-              const dom = chordColor(r.source.index, r.target.index, plausMap);
-              const { r: rv, g, b } = hexToRgb(dom);
-              return `rgba(${rv},${g},${b},0.07)`;
+              paintRib(d3.select(this), r, !connected);
             });
             // Highlight all legend colours used by chords connected to this arc
             const connectedColors = new Set();
-            ribs.each((r) => {
+            ribGroups.each((r) => {
               if (r.source.index === d.index || r.target.index === d.index) {
                 connectedColors.add(
                   chordColor(r.source.index, r.target.index, plausMap).toLowerCase()
@@ -856,7 +878,7 @@
             });
           })
           .on("mouseout", () => {
-            ribs.attr("fill", (r) => chordFill(r.source.index, r.target.index, plausMap));
+            restoreAll();
             resetLegend();
           });
 
@@ -899,7 +921,7 @@
           .attr("stroke-width", 0.8);
 
         // Wire legend ↔ chord cross-highlighting now that ribs is in scope
-        bindLegendHover(ribs, plausMap);
+        bindLegendHover(plausMap, dimAllExceptColor, restoreAll);
 
         // Stamp the render time in the header
         const ts = new Date().toUTCString();
