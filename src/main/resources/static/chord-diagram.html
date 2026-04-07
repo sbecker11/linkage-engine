@@ -984,9 +984,9 @@
         const sameGiven = (recA.givenName || "").toLowerCase() === (recB.givenName || "").toLowerCase();
         const sameFull  = sameGiven &&
           (recA.familyName || "").toLowerCase() === (recB.familyName || "").toLowerCase();
-        const nameMatch = srcType === "real"   ? `Name/text similarity: ${sim}% (vector score)`
+        const nameMatch = sameFull             ? `Exact name match: "${fullName(recA)}"`
+                        : srcType === "real"   ? `Name/text similarity: ${sim}% (vector score)`
                         : srcType === "rank"   ? `Name similarity: ~${sim}% (rank estimate)`
-                        : sameFull             ? `Exact name match: "${fullName(recA)}"`
                         : srcType === "family" ? `Shared family name "${recA.familyName || recB.familyName}" — given names differ ("${recA.givenName}" vs "${recB.givenName}")`
                         :                       `Similarity: ${sim}%`;
 
@@ -1053,7 +1053,7 @@
           ? "No conflicts detected — records are consistent."
           : `${flags.length} conflict${flags.length > 1 ? "s" : ""} detected: ${flags.join("; ")}.`;
 
-        return { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
+        return { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
       }
 
       // Simple gender label for the story — mirrors GivenNameGenderProvider.
@@ -1074,15 +1074,21 @@
         const sim = matrix[si][ti];
         const tip = document.getElementById("tip");
 
-        const { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictSummary = [ageLine, genderLine].filter(Boolean)
           .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
 
+        const tipArrow = sameCity
+          ? `<span style="color:#aaa">↕ same city</span>`
+          : p?.travelDays
+            ? `<span style="color:${p.plausible ? travelColor : "#e24b4a"}">↓ ~${p.travelDays.toFixed(1)} days travel</span>`
+            : `<span style="color:#aaa">↓</span>`;
+
         tip.innerHTML =
           `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Departure</span><br>` +
           `<strong>${srcLine}</strong><br><span style="color:#666">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
-          `<span style="color:#aaa">↓</span><br>` +
+          `${tipArrow}<br>` +
           `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Arrival</span><br>` +
           `<strong>${tgtLine}</strong><br><span style="color:#666">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
           `<span style="color:#5f5e5a;font-size:10px">${nameMatch}</span>` +
@@ -1125,23 +1131,30 @@
         det.className = detClass;
         det.style.display = "block";
 
-        const { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictItems = [ageLine, genderLine].filter(Boolean)
           .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
 
         const verdictColor = flags.length === 0 ? "#2a7a5a" : "#a32d2d";
 
+        const travelArrow = (() => {
+          if (!p || sameCity) return `<span style="color:#aaa;font-size:18px">↕</span><span style="color:#aaa;font-size:10px"> same city</span>`;
+          const days = p.travelDays != null ? `${p.travelDays.toFixed(1)} days` : "";
+          const col  = p.plausible ? travelColor : "#e24b4a";
+          return `<span style="color:${col};font-size:18px">↓</span>${days ? `<span style="color:${col};font-size:10px"> ~${days} travel</span>` : ""}`;
+        })();
+
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
             <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Departure</p>
             <p class="det-title">${srcLine}</p>
-            <p class="det-sub" style="color:#888">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
-            <p style="color:#aaa;margin:4px 0;font-size:18px">↓</p>
+            <p class="det-sub" style="color:#888;margin-top:1px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
+            <p style="margin:6px 0 2px">${travelArrow}</p>
             <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Arrival</p>
             <p class="det-title">${tgtLine}</p>
-            <p class="det-sub" style="color:#888">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
+            <p class="det-sub" style="color:#888;margin-top:1px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
 
             <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
 
