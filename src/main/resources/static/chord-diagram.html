@@ -1035,7 +1035,16 @@
 
         // ── Travel ────────────────────────────────────────────────────────────
         const sameCity = (p?.travelDays || 0) < 0.1;
-        const mode = p ? (p.transitMode || "unknown").replace(/_/g, " ") : null;
+        const modeLabel = (raw) => {
+          if (!raw) return "unknown route";
+          const s = raw.toLowerCase();
+          if (s.includes("ocean") || s.includes("ship") || s.includes("sea")) return "ocean ship";
+          if (s.includes("railroad") || s.includes("rail") || s.includes("train")) return "railroad";
+          if (s.includes("stage") || s.includes("coach")) return "stagecoach";
+          if (s.includes("foot") || s.includes("walk")) return "on foot";
+          return raw.replace(/_/g, " ").toLowerCase();
+        };
+        const mode = modeLabel(p?.transitMode);
         const yearDiff = (tgtRec.year || 0) - (srcRec.year || 0);
         let travelLine, travelFlag, travelColor;
         if (!p) {
@@ -1049,7 +1058,7 @@
           travelLine = `Same city (${srcRec.location}) — no travel required.`;
           travelFlag = null; travelColor = "#888";
         } else if (!p.plausible) {
-          travelLine = `⚠ Physically impossible: ${srcRec.location} → ${tgtRec.location} via ${mode} requires ~${Math.round(p.travelDays)} days, but only ${Math.round(p.availableDays)} days elapsed (${srcRec.year} → ${tgtRec.year}).`;
+          travelLine = `⚠ Physically impossible: ${srcRec.location} → ${tgtRec.location} via ${mode} requires ${p.travelDays.toFixed(1)} days but only ${p.availableDays.toFixed(1)} days available between records.`;
           travelFlag = "Impossible journey"; travelColor = "#e24b4a";
         } else {
           const ratio = p.availableDays / Math.max(0.1, p.travelDays);
