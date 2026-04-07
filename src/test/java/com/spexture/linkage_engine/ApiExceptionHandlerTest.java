@@ -19,7 +19,7 @@ class ApiExceptionHandlerTest {
 
     @Test
     void handleValidationReturnsBadRequestWithDetails() throws Exception {
-        LinkageResolveRequest target = new LinkageResolveRequest("", "", 1850, "Boston");
+        LinkageResolveRequest target = new LinkageResolveRequest("", "", 1850, "Boston", null);
         BeanPropertyBindingResult binding = new BeanPropertyBindingResult(target, "request");
         binding.addError(new FieldError("request", "givenName", "givenName is required"));
         binding.addError(new FieldError("request", "familyName", "familyName is required"));

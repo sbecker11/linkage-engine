@@ -26,7 +26,7 @@ public class LocalChatModelConfiguration {
                 String contents = prompt.getContents();
                 String snippet = contents.length() > 200 ? contents.substring(0, 200) + "..." : contents;
                 return new ChatResponse(List.of(new Generation(new AssistantMessage(
-                    "Local profile (no Bedrock): echo — " + snippet))));
+                    "[LOCAL] Deterministic summary for: " + snippet))));
             }
         };
     }

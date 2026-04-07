@@ -10,7 +10,9 @@ record LinkageResolveRequest(
     @NotBlank(message = "familyName is required")
     String familyName,
     Integer approxYear,
-    String location
+    String location,
+    /** Optional free-text query used for embedding; falls back to structured fields if absent. */
+    String rawQuery
 ) {}
 
 record CandidateRecord(String recordId, String givenName, String familyName, Integer year, String location) {}
@@ -30,6 +32,18 @@ record LinkageResolveResponse(
     List<String> reasons,
     List<String> rulesTriggered,
     String semanticSummary
+) {}
+
+/**
+ * Broader search request: partial name match, ±5 year window, optional location, limit 20.
+ * {@code rawQuery} is the free-text string used for embedding (falls back to structured fields).
+ */
+record RecordSearchRequest(
+    String givenName,
+    String familyName,
+    Integer approxYear,
+    String location,
+    String rawQuery
 ) {}
 
 record RecordIngestRequest(

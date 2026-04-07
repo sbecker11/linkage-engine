@@ -50,7 +50,7 @@ class LinkageRecordRepositoryTest {
 
     @Test
     void deterministicCandidatesApplyYearAndLocationFilters() {
-        LinkageResolveRequest request = new LinkageResolveRequest("John", "Smith", 1851, "Boston");
+        LinkageResolveRequest request = new LinkageResolveRequest("John", "Smith", 1851, "Boston", null);
         List<CandidateRecord> results = repository.findDeterministicCandidates(request);
 
         assertEquals(2, results.size());
@@ -60,7 +60,7 @@ class LinkageRecordRepositoryTest {
 
     @Test
     void deterministicCandidatesUseGivenNameNormalization() {
-        LinkageResolveRequest request = new LinkageResolveRequest("Jon", "Smith", null, "");
+        LinkageResolveRequest request = new LinkageResolveRequest("Jon", "Smith", null, "", null);
         List<CandidateRecord> results = repository.findDeterministicCandidates(request);
 
         assertEquals(3, results.size());

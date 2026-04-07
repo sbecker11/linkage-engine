@@ -54,6 +54,41 @@ public class LinkageRecordRepository implements LinkageRecordStore {
         );
     }
 
+    @Override
+    public List<CandidateRecord> search(RecordSearchRequest request) {
+        String sql = """
+            select record_id, given_name, family_name, event_year, location
+            from records
+            where lower(family_name) like lower(?)
+              and lower(given_name) like lower(?)
+              and (? is null or abs(event_year - ?) <= 5)
+              and (? is null or ? = '' or lower(location) like lower(?))
+            order by
+              case when lower(family_name) = lower(?) then 0 else 1 end,
+              case when lower(given_name) = lower(?) then 0 else 1 end,
+              event_year asc
+            limit 20
+            """;
+
+        String givenPat  = "%" + (request.givenName()  == null ? "" : request.givenName())  + "%";
+        String familyPat = "%" + (request.familyName() == null ? "" : request.familyName()) + "%";
+        String locPat    = "%" + (request.location()   == null ? "" : request.location())   + "%";
+
+        return jdbcTemplate.query(
+            sql,
+            CANDIDATE_ROW_MAPPER,
+            familyPat,
+            givenPat,
+            request.approxYear(),
+            request.approxYear(),
+            request.location(),
+            request.location(),
+            locPat,
+            request.familyName() == null ? "" : request.familyName(),
+            request.givenName()  == null ? "" : request.givenName()
+        );
+    }
+
     private String normalizeGivenName(String givenName) {
         if (givenName == null) {
             return null;

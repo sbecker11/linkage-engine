@@ -1,100 +1,109 @@
 package com.spexture.linkage_engine;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
 
 class LinkageServiceTest {
 
-    @Test
-    void resolveReturnsStructuredResponse() {
-        ChatModel chatModel = mock(ChatModel.class);
-        LinkageRecordStore repository = mock(LinkageRecordStore.class);
-        when(chatModel.call(anyString())).thenReturn("Likely match: R-1001.");
-        when(repository.countAllRecords()).thenReturn(4);
-        when(repository.findDeterministicCandidates(any())).thenReturn(List.of(
-            new CandidateRecord("R-1001", "John", "Smith", 1850, "Boston")
-        ));
-        LinkageService service = new LinkageService(chatModel, repository, null, null);
+    private static final List<CandidateRecord> ONE_CANDIDATE = List.of(
+        new CandidateRecord("R-1001", "John", "Smith", 1850, "Boston")
+    );
+    private static final List<CandidateScore> ONE_SCORE = List.of(
+        new CandidateScore("R-1001", null)
+    );
 
-        LinkageResolveResponse response = service.resolve(
-            new LinkageResolveRequest("John", "Smith", 1851, "Boston")
-        );
-
-        assertEquals(4, response.totalCandidates());
-        assertEquals(1, response.deterministicMatches());
-        assertEquals("R-1001", response.candidates().get(0).recordId());
-        assertEquals(1, response.candidateScores().size());
-        assertEquals("R-1001", response.candidateScores().get(0).recordId());
-        assertTrue(response.confidenceScore() > 0.0);
-        assertFalse(response.reasons().isEmpty());
-        assertFalse(response.rulesTriggered().isEmpty());
-        assertEquals("Likely match: R-1001.", response.semanticSummary());
+    private LinkageService service(LinkageRecordStore store,
+                                    VectorRerankService rerank,
+                                    SemanticSummaryService summary) {
+        return new LinkageService(store, rerank, summary);
     }
 
     @Test
-    void resolveReranksWhenEmbeddingsPresent() {
-        ChatModel chatModel = mock(ChatModel.class);
-        LinkageRecordStore repository = mock(LinkageRecordStore.class);
-        EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
-        RecordEmbeddingStore embeddingStore = mock(RecordEmbeddingStore.class);
+    void resolveReturnsStructuredResponse() {
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(4);
+        when(store.search(any())).thenReturn(ONE_CANDIDATE);
 
-        when(chatModel.call(anyString())).thenReturn("summary");
-        when(repository.countAllRecords()).thenReturn(10);
-        when(repository.findDeterministicCandidates(any())).thenReturn(List.of(
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(ONE_CANDIDATE, ONE_SCORE, false));
+
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("Likely match: R-1001.", true));
+
+        LinkageResolveResponse response = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", 1851, "Boston", null));
+
+        assertThat(response.totalCandidates()).isEqualTo(4);
+        assertThat(response.deterministicMatches()).isEqualTo(1);
+        assertThat(response.candidates().get(0).recordId()).isEqualTo("R-1001");
+        assertThat(response.confidenceScore()).isGreaterThan(0.0);
+        assertThat(response.reasons()).isNotEmpty();
+        assertThat(response.rulesTriggered()).contains("sql_search");
+        assertThat(response.semanticSummary()).isEqualTo("Likely match: R-1001.");
+    }
+
+    @Test
+    void resolveRecordsRerankRuleWhenApplied() {
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(10);
+        List<CandidateRecord> two = List.of(
             new CandidateRecord("R-A", "John", "Smith", 1850, "Boston"),
             new CandidateRecord("R-B", "John", "Smith", 1851, "Boston")
-        ));
-        when(embeddingModel.embed(any(Document.class))).thenReturn(new float[1024]);
-        when(embeddingStore.cosineSimilarityAmong(any(), any())).thenReturn(Map.of(
-            "R-A", 0.5,
-            "R-B", 0.9
-        ));
-
-        LinkageService service = new LinkageService(chatModel, repository, embeddingModel, embeddingStore);
-
-        LinkageResolveResponse response = service.resolve(
-            new LinkageResolveRequest("John", "Smith", 1851, "Boston")
         );
+        when(store.search(any())).thenReturn(two);
 
-        assertTrue(response.rulesTriggered().contains("hybrid_vector_rerank"));
-        assertEquals("R-B", response.candidates().get(0).recordId());
-        assertEquals("R-B", response.candidateScores().get(0).recordId());
-        assertEquals(0.9, response.candidateScores().get(0).vectorSimilarity(), 0.001);
+        List<CandidateRecord> reranked = List.of(
+            new CandidateRecord("R-B", "John", "Smith", 1851, "Boston"),
+            new CandidateRecord("R-A", "John", "Smith", 1850, "Boston")
+        );
+        List<CandidateScore> scores = List.of(
+            new CandidateScore("R-B", 0.9),
+            new CandidateScore("R-A", 0.5)
+        );
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(reranked, scores, true));
+
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("summary", true));
+
+        LinkageResolveResponse response = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", 1851, "Boston", null));
+
+        assertThat(response.rulesTriggered()).contains("hybrid_vector_rerank");
+        assertThat(response.candidates().get(0).recordId()).isEqualTo("R-B");
+        assertThat(response.candidateScores().get(0).vectorSimilarity()).isEqualTo(0.9);
     }
 
     @Test
     void resolveUsesDeterministicSummaryWhenSemanticLlmDisabled() {
-        ChatModel chatModel = mock(ChatModel.class);
-        LinkageRecordStore repository = mock(LinkageRecordStore.class);
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(4);
+        when(store.search(any())).thenReturn(ONE_CANDIDATE);
 
-        when(repository.countAllRecords()).thenReturn(4);
-        when(repository.findDeterministicCandidates(any())).thenReturn(List.of(
-            new CandidateRecord("R-1001", "John", "Smith", 1850, "Boston")
-        ));
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(ONE_CANDIDATE, ONE_SCORE, false));
 
-        LinkageService service = new LinkageService(chatModel, repository, null, null, false);
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("Top deterministic candidate: R-1001 (John Smith, 1850, Boston).", false));
 
-        LinkageResolveResponse response = service.resolve(
-            new LinkageResolveRequest("John", "Smith", 1851, "Boston")
-        );
+        LinkageResolveResponse response = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", 1851, "Boston", null));
 
-        assertTrue(response.rulesTriggered().contains("semantic_llm_summary_disabled"));
-        assertTrue(response.semanticSummary().startsWith("Top deterministic candidate: R-1001"));
-        verify(chatModel, never()).call(anyString());
+        assertThat(response.rulesTriggered()).contains("semantic_llm_summary_disabled");
+        assertThat(response.semanticSummary()).contains("R-1001");
     }
 }

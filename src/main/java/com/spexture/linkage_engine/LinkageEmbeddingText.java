@@ -20,4 +20,11 @@ final class LinkageEmbeddingText {
     static String queryText(LinkageResolveRequest request) {
         return toEmbeddingText(request.givenName(), request.familyName(), request.approxYear(), request.location());
     }
+
+    static String queryText(RecordSearchRequest request) {
+        if (request.rawQuery() != null && !request.rawQuery().isBlank()) {
+            return request.rawQuery();
+        }
+        return toEmbeddingText(request.givenName(), request.familyName(), request.approxYear(), request.location());
+    }
 }

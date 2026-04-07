@@ -9,7 +9,7 @@ class LinkageEmbeddingTextTest {
     @Test
     void queryTextIncludesCoreFields() {
         String text = LinkageEmbeddingText.queryText(
-            new LinkageResolveRequest("Mary", "Jones", 1900, "Chicago")
+            new LinkageResolveRequest("Mary", "Jones", 1900, "Chicago", null)
         );
         assertTrue(text.contains("Mary"));
         assertTrue(text.contains("Jones"));

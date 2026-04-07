@@ -19,7 +19,7 @@ class LocalChatModelConfigurationTest {
             assertThat(ctx).hasSingleBean(ChatModel.class);
             var response = ctx.getBean(ChatModel.class).call(new Prompt("hello"));
             String out = response.getResult().getOutput().getText();
-            assertThat(out).contains("Local profile");
+            assertThat(out).startsWith("[LOCAL] Deterministic summary for:");
         });
     }
 }
