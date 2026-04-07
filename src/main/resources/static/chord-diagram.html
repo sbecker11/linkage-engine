@@ -957,84 +957,111 @@
         document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
       }
 
-      // ── Signal percentages ────────────────────────────────────────────────────
-      // Returns labelled signal objects for display in tooltip and detail panel.
-      // null means "no data available for this signal" (rule never ran / no birth year).
-      function signalPcts(p) {
-        if (!p) return { age: null, gender: null, travel: null, sameCity: false };
-        const penalties = p.rulePenalties || {};
+      // ── Chord story builder ───────────────────────────────────────────────────
+      // Builds a structured narrative for a chord. Both showTip and pinDetail
+      // consume this — tooltip shows headline + flags, detail shows everything.
+      function chordStory(p, srcRec, tgtRec, si, ti, sim, simSource) {
+        const name = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
+        const loc  = (r) => `${r.location}${r.year ? ", " + r.year : ""}`;
+        const born = (r) => r.birthYear ? `b. ${r.birthYear}` : null;
 
-        // Age consistency: CONTRADICTS (−40) → 20%, IMPLAUSIBLE (−50) → 0%.
-        // null when neither record had a birth year (rule skipped).
-        const agePenalty = penalties["AgeConsistencyRule"] ?? null;
-        const age = agePenalty === null ? null : Math.round(100 - (agePenalty / 50) * 100);
+        // ── Who ───────────────────────────────────────────────────────────────
+        const srcLine = born(srcRec) ? `${name(srcRec)} (${born(srcRec)})` : name(srcRec);
+        const tgtLine = born(tgtRec) ? `${name(tgtRec)} (${born(tgtRec)})` : name(tgtRec);
 
-        // Gender: binary — either names agree (null, not shown) or they conflict (0%).
-        // We show null when the rule didn't fire so the badge is absent for clean pairs.
-        const genderPenalty = penalties["GenderPlausibilityRule"] ?? null;
-        const gender = genderPenalty === null ? null : 0;   // conflict = 0 %, no conflict = not shown
-
-        // Travel plausibility: 0% when impossible, otherwise margin expressed as
-        // a log-scaled percentage (ratio ≥ 10× → 100%, ratio = 1× → 0%).
-        // Same-city pairs (travelDays < 0.1) are flagged separately — ratio is meaningless.
-        const sameCity = (p.travelDays || 0) < 0.1;
-        const ratio = (p.availableDays || 365) / Math.max(0.1, p.travelDays || 1);
-        const travel = sameCity ? null
-          : p.plausible
-            ? Math.min(100, Math.round((Math.log10(Math.max(1, ratio)) / 1) * 40))
-            : 0;
-
-        return { age, gender, travel, sameCity };
-      }
-
-      // Renders a small coloured percentage badge, e.g. "Age match: 20%".
-      // Returns "" when pct is null (signal not available).
-      function pctBadge(label, pct, conflictColor) {
-        if (pct === null) return "";
-        const col = pct >= 80 ? "#2a7a5a" : pct >= 50 ? "#b07a10" : conflictColor;
-        return `<span style="color:${col};font-weight:600">${label}: ${pct}%</span>`;
-      }
-
-      // Returns a human-readable label for the similarity score source.
-      function simLabel(si, ti, sim, simSource) {
+        // ── Name match ────────────────────────────────────────────────────────
         const a = Math.min(si, ti), b = Math.max(si, ti);
-        const src = simSource?.get(`${a}-${b}`);
-        if (src === "real")   return `Vector similarity ${sim}%`;
-        if (src === "rank")   return `Name similarity ~${sim}% (rank estimate)`;
-        if (src === "family") return `Family-name match (no vector score)`;
-        return `Similarity ${sim}%`;
+        const srcType = simSource?.get(`${a}-${b}`);
+        const nameMatch = srcType === "real"   ? `Name/text similarity: ${sim}% (vector score)`
+                        : srcType === "rank"   ? `Name similarity: ~${sim}% (rank estimate)`
+                        : srcType === "family" ? `Shared family name "${srcRec.familyName || tgtRec.familyName}" — given names differ`
+                        :                       `Similarity: ${sim}%`;
+
+        // ── Travel ────────────────────────────────────────────────────────────
+        const sameCity = (p?.travelDays || 0) < 0.1;
+        const mode = p ? (p.transitMode || "unknown").replace(/_/g, " ") : null;
+        let travelLine, travelFlag, travelColor;
+        if (!p) {
+          travelLine = "No travel data available.";
+          travelFlag = null; travelColor = "#888";
+        } else if (sameCity) {
+          travelLine = `Same city (${srcRec.location}) — no travel required.`;
+          travelFlag = "Same city"; travelColor = "#888";
+        } else if (!p.plausible) {
+          travelLine = `⚠ Physically impossible: ${mode} would take ${Math.round(p.travelDays)} days but only ${Math.round(p.availableDays)} days elapsed between records.`;
+          travelFlag = "Impossible journey"; travelColor = "#e24b4a";
+        } else {
+          const ratio = p.availableDays / Math.max(0.1, p.travelDays);
+          const margin = ratio >= 10 ? "comfortable" : ratio >= 4 ? "moderate" : ratio >= 2 ? "tight" : "very tight";
+          travelLine = `Journey plausible via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available (${margin} margin).`;
+          travelFlag = null; travelColor = "#2a7a5a";
+        }
+
+        // ── Age ───────────────────────────────────────────────────────────────
+        let ageLine = null, ageFlag = null, ageColor = "#888";
+        const agePenalty = p?.rulePenalties?.["AgeConsistencyRule"] ?? null;
+        if (agePenalty !== null) {
+          const ageA = srcRec.birthYear ? srcRec.year - srcRec.birthYear : null;
+          const ageB = tgtRec.birthYear ? tgtRec.year - tgtRec.birthYear : null;
+          if (ageA !== null && ageB !== null && ageA < 0 || ageB < 0) {
+            ageLine = `⚠ Impossible age: one record implies a negative age (birth year is after the event year).`;
+            ageFlag = "Impossible age"; ageColor = "#c2185b";
+          } else if (ageA !== null && ageB !== null) {
+            const delta = Math.abs(ageB - ageA);
+            const yearDelta = Math.abs(tgtRec.year - srcRec.year);
+            ageLine = `⚠ Age contradiction: ${name(srcRec)} was ${ageA} in ${srcRec.year} but ${name(tgtRec)} was ${ageB} in ${tgtRec.year} — aged ${delta} years in ${yearDelta} year${yearDelta !== 1 ? "s" : ""}.`;
+            ageFlag = `Age gap: ${delta} yrs in ${yearDelta} yr${yearDelta !== 1 ? "s" : ""}`; ageColor = "#c2185b";
+          } else {
+            ageLine = `⚠ Age inconsistency detected between records.`;
+            ageFlag = "Age inconsistency"; ageColor = "#c2185b";
+          }
+        }
+
+        // ── Gender ────────────────────────────────────────────────────────────
+        let genderLine = null, genderFlag = null;
+        const genderPenalty = p?.rulePenalties?.["GenderPlausibilityRule"] ?? null;
+        if (genderPenalty !== null) {
+          genderLine = `⚠ Gender conflict: "${srcRec.givenName}" is typically ${inferGenderLabel(srcRec.givenName)} but "${tgtRec.givenName}" is typically ${inferGenderLabel(tgtRec.givenName)}.`;
+          genderFlag = `${srcRec.givenName} (${inferGenderLabel(srcRec.givenName)}) vs ${tgtRec.givenName} (${inferGenderLabel(tgtRec.givenName)})`;
+        }
+
+        // ── Verdict ───────────────────────────────────────────────────────────
+        const flags = [travelFlag, ageFlag, genderFlag].filter(Boolean);
+        const verdict = flags.length === 0
+          ? "No conflicts detected — records are consistent."
+          : `${flags.length} conflict${flags.length > 1 ? "s" : ""} detected: ${flags.join("; ")}.`;
+
+        return { srcLine, tgtLine, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
+      }
+
+      // Simple gender label for the story — mirrors GivenNameGenderProvider.
+      function inferGenderLabel(name) {
+        if (!name) return "unknown";
+        const female = ["mary","elizabeth","sarah","margaret","anna","emma","alice","helen","catherine","ruth"];
+        const male   = ["john","jon","johnny","james","william","george","charles","henry","thomas","robert","joseph","samuel","edward","richard","david"];
+        const n = name.toLowerCase().trim();
+        if (female.includes(n)) return "female";
+        if (male.includes(n))   return "male";
+        return "ambiguous";
       }
 
       function showTip(event, d, records, matrix, plausMap, simSource) {
         const si = d.source.index, ti = d.target.index;
         const p   = plausGet(plausMap, si, ti);
-        const src = records[si];
-        const tgt = records[ti];
+        const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
         const sim = matrix[si][ti];
         const tip = document.getElementById("tip");
-        const mode = p ? (p.transitMode || "unknown").replace(/_/g, " ") : "\u2014";
-        const plaus = p
-          ? p.plausible
-            ? `plausible &middot; ${p.travelDays?.toFixed(1)}d travel, ${p.availableDays?.toFixed(0)}d available`
-            : `<strong style="color:#A32D2D">\u26a0 impossible</strong> &middot; ${p.travelDays?.toFixed(0)}d needed, ${p.availableDays?.toFixed(0)}d available`
-          : "\u2014";
 
-        const { age, gender, travel, sameCity } = signalPcts(p);
-        const travelBadge = sameCity
-          ? `<span style="color:#888">Same city</span>`
-          : pctBadge("Travel margin", travel, "#e24b4a");
-        const badges = [
-          travelBadge,
-          pctBadge("Age match",    age,    "#c2185b"),
-          gender !== null ? `<span style="color:#e040fb;font-weight:600">Gender: conflict</span>` : "",
-        ].filter(Boolean).join(" &middot; ");
+        const { srcLine, tgtLine, nameMatch, travelLine, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+
+        const conflictSummary = [ageLine, genderLine].filter(Boolean)
+          .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
 
         tip.innerHTML =
-          `<strong>${src.givenName || ""} ${src.familyName || src.name || ""}</strong> &middot; ${src.location} ${src.year}<br>` +
-          `&rarr; <strong>${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}</strong> &middot; ${tgt.location} ${tgt.year}<br>` +
-          `${simLabel(si, ti, sim, simSource)}<br>` +
-          `${mode} &middot; ${plaus}` +
-          (badges ? `<br>${badges}` : "");
+          `<strong>${srcLine}</strong> &middot; ${src.location} ${src.year || ""}<br>` +
+          `&rarr; <strong>${tgtLine}</strong> &middot; ${tgt.location} ${tgt.year || ""}<br>` +
+          `<span style="color:#5f5e5a;font-size:10px">${nameMatch}</span>` +
+          (conflictSummary ? `<br>${conflictSummary}` : `<br><span style="color:#2a7a5a;font-size:10px">${flags.length === 0 ? "No conflicts" : ""}</span>`);
         tip.style.opacity = "1";
         tip.style.left = event.clientX + 16 + "px";
         tip.style.top = event.clientY - 12 + "px";
@@ -1053,63 +1080,54 @@
       function pinDetail(d, records, matrix, plausMap, simSource) {
         const si = d.source.index, ti = d.target.index;
         const p   = plausGet(plausMap, si, ti);
-        const src = records[si];
-        const tgt = records[ti];
+        const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
         const sim = matrix[si][ti];
         const det = document.getElementById("detail");
-        const adj = p?.confidenceAdjustment || 0;
+
         const rules = p?.rulesTriggered || [];
-        const isImpossible = p && !p.plausible;
-        const isAgeConflict  = rules.some(r => r === "AgeConsistencyRule");
-        const isGenderConflict = rules.some(r => r === "GenderPlausibilityRule");
+        const isImpossible    = p && !p.plausible;
+        const isAgeConflict   = rules.some(r => r === "AgeConsistencyRule");
+        const isGenderConflict= rules.some(r => r === "GenderPlausibilityRule");
+
+        // Panel background class
         let detClass = "plausible";
-        let confLabel = "high confidence";
-        if (isAgeConflict)   { detClass = "age-conflict";    confLabel = "age inconsistency"; }
-        else if (isGenderConflict) { detClass = "gender-conflict"; confLabel = "gender conflict"; }
-        else if (isImpossible)    { detClass = "impossible"; confLabel = "impossible"; }
-        else if (adj < -25)  { detClass = "verylow";    confLabel = "very low confidence"; }
-        else if (adj < -10)  { detClass = "lowconf";    confLabel = "low confidence"; }
-        else if (adj < 0)    { detClass = "moderate";   confLabel = "moderate confidence"; }
+        if (isAgeConflict)        detClass = "age-conflict";
+        else if (isGenderConflict)detClass = "gender-conflict";
+        else if (isImpossible)    detClass = "impossible";
+        else if ((p?.confidenceAdjustment || 0) < -25) detClass = "verylow";
+        else if ((p?.confidenceAdjustment || 0) < -10) detClass = "lowconf";
+        else if ((p?.confidenceAdjustment || 0) < 0)   detClass = "moderate";
         det.className = detClass;
         det.style.display = "block";
-        const conf = Math.max(
-          0,
-          Math.min(100, sim + adj),
-        );
-        const confClass =
-          conf >= 75 ? "c-green" : conf >= 50 ? "c-amber" : "c-red";
-        const mode = p
-          ? (p.transitMode || "unknown").replace(/_/g, " ")
-          : "unknown";
-        const plausText = isImpossible
-          ? `\u26a0 impossible \u2014 ${p.travelDays?.toFixed(0)}d required by ${mode}, only ${p.availableDays?.toFixed(0)}d available`
-          : `${mode} \u2014 ${p?.travelDays?.toFixed(1) ?? "?"}d needed, ${p?.availableDays?.toFixed(0) ?? "?"}d available &middot; ${confLabel}`;
-        const { age, gender, travel, sameCity } = signalPcts(p);
-        const travelLine = sameCity
-          ? `<span style="color:#888">Same city — travel distance n/a</span>`
-          : travel !== null ? `<span style="color:${travel >= 80 ? '#2a7a5a' : travel >= 50 ? '#b07a10' : '#e24b4a'};font-weight:600">Travel margin ${travel}%</span>` : "";
-        const ageLine    = age    !== null ? `<span style="color:${age >= 80 ? '#2a7a5a' : age >= 50 ? '#b07a10' : '#c2185b'};font-weight:600">Age match ${age}%</span>` : "";
-        const genderLine = gender !== null ? `<span style="color:#e040fb;font-weight:600">Gender: conflict (names infer opposite sexes)</span>` : "";
-        const simLine    = `<span style="color:#5f5e5a">${simLabel(si, ti, sim, simSource)}</span>`;
-        const signalRow  = [travelLine, ageLine, genderLine].filter(Boolean).join(" &middot; ");
+
+        const { srcLine, tgtLine, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+
+        const conflictItems = [ageLine, genderLine].filter(Boolean)
+          .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
+
+        const verdictColor = flags.length === 0 ? "#2a7a5a" : "#a32d2d";
 
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
-            <p class="det-title">
-              ${src.givenName || ""} ${src.familyName || src.name || ""}<br>
-              ${src.location} &middot; ${src.year}
-            </p>
-            <p class="det-title" style="font-weight:400;color:#5f5e5a">&darr;</p>
-            <p class="det-title">
-              ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}<br>
-              ${tgt.location} &middot; ${tgt.year}
-            </p>
-            <p class="det-sub">${simLine}</p>
-            <p class="det-sub">${plausText}</p>
-            ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
-            <p style="margin-top:8px"><span class="det-conf ${confClass}">${conf}%</span>
-              <span class="det-sub" style="margin-left:6px">confidence</span></p>
+            <p class="det-title">${srcLine}</p>
+            <p class="det-sub" style="color:#888">${src.location} &middot; ${src.year || "?"}</p>
+            <p style="color:#888;margin:4px 0">↓</p>
+            <p class="det-title">${tgtLine}</p>
+            <p class="det-sub" style="color:#888">${tgt.location} &middot; ${tgt.year || "?"}</p>
+
+            <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
+
+            <p class="det-sub"><strong>Name match</strong><br>${nameMatch}</p>
+
+            <p class="det-sub" style="margin-top:8px"><strong>Travel</strong><br>
+              <span style="color:${travelColor}">${travelLine}</span></p>
+
+            ${conflictItems ? `<p class="det-sub" style="margin-top:8px"><strong>Conflicts</strong></p><ul style="padding-left:14px;font-size:11px">${conflictItems}</ul>` : ""}
+
+            <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
+
+            <p class="det-sub" style="color:${verdictColor};font-weight:600">${verdict}</p>
           </div>`;
         det.querySelector(".det-close").addEventListener("click", () => {
           det.style.display = "none";
