@@ -212,20 +212,20 @@
       }
       .det-close:hover { color: #1a1a18; }
       #detail.plausible {
-        background: #e1f5ee;
-        border-color: #5dcaa5;
-      }
-      #detail.moderate {
-        background: #e8f2fc;
-        border-color: #7ab4e8;
+        background: #e4f7f0;   /* teal-green — very comfortable */
+        border-color: #1D9E75;
       }
       #detail.lowconf {
-        background: #f0eafa;
-        border-color: #b89ee0;
+        background: #e8f2fc;   /* steel-blue — comfortable */
+        border-color: #4A90D9;
+      }
+      #detail.moderate {
+        background: #f0eafa;   /* purple — moderate */
+        border-color: #9B6FD4;
       }
       #detail.verylow {
-        background: #faeeda;
-        border-color: #fac775;
+        background: #fdf3e3;   /* amber — tight */
+        border-color: #EF9F27;
       }
       #detail.impossible {
         background: #fcebeb;
@@ -872,8 +872,6 @@
               selectedD = d;
               restoreAll();
               dimAllExcept(d);
-              const _p = plausGet(plausMap, d.source.index, d.target.index);
-              console.info("🎨 CHORD color: avail=", _p?.availableDays, "travel=", _p?.travelDays, "→", chordColor(d.source.index, d.target.index, plausMap));
               pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
             });
         });
@@ -1031,7 +1029,6 @@
           const margin = ratio >= 10 ? "very comfortable" : ratio >= 4 ? "comfortable" : ratio >= 2 ? "moderate" : "tight";
           travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
           travelFlag = null; travelColor = travelHex(p);
-          console.info("🎨 DETAIL travelColor: avail=", p.availableDays, "travel=", p.travelDays, "ratio=", (p.availableDays/Math.max(0.1,p.travelDays)).toFixed(2), "→", travelColor);
         }
 
         // ── Age ───────────────────────────────────────────────────────────────
@@ -1140,14 +1137,16 @@
         const isAgeConflict   = rules.some(r => r === "AgeConsistencyRule");
         const isGenderConflict= rules.some(r => r === "GenderPlausibilityRule");
 
-        // Panel background class
+        // Panel background class — mirrors chord colour scale
+        const _ratio = p ? (p.availableDays || 365) / Math.max(0.1, p.travelDays || 1) : 99;
         let detClass = "plausible";
-        if (isAgeConflict)        detClass = "age-conflict";
-        else if (isGenderConflict)detClass = "gender-conflict";
-        else if (isImpossible)    detClass = "impossible";
-        else if ((p?.confidenceAdjustment || 0) < -25) detClass = "verylow";
-        else if ((p?.confidenceAdjustment || 0) < -10) detClass = "lowconf";
-        else if ((p?.confidenceAdjustment || 0) < 0)   detClass = "moderate";
+        if (isAgeConflict)         detClass = "age-conflict";
+        else if (isGenderConflict) detClass = "gender-conflict";
+        else if (isImpossible)     detClass = "impossible";
+        else if (_ratio < 2)       detClass = "verylow";    // amber — tight
+        else if (_ratio < 4)       detClass = "moderate";   // purple — moderate
+        else if (_ratio < 10)      detClass = "lowconf";    // blue — comfortable
+        // else green — very comfortable → "plausible"
         det.className = detClass;
         det.style.display = "block";
 
