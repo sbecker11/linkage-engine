@@ -193,7 +193,7 @@
         border-bottom: 1px solid rgba(0,0,0,0.08);
       }
       #detail {
-        display: none;
+        display: block;
         position: fixed;
         top: 0;
         left: 0;
@@ -202,6 +202,8 @@
         overflow-y: auto;
         direction: rtl;
         padding: 20px 16px 20px 16px;
+        background: #f5f4ef;
+        border-color: #d3d1c7;
         border-right: 1px solid #d3d1c7;
         overflow-y: auto;
         z-index: 100;
@@ -434,7 +436,9 @@
       }
 
       async function init() {
-        document.getElementById("detail").style.display = "none";
+        const detEl = document.getElementById("detail");
+        detEl.className = "";
+        detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;
         document.getElementById("chart-wrap").innerHTML =
           '<div id="empty-msg"></div>';
         document.getElementById("empty-msg").style.display = "none";
@@ -863,6 +867,9 @@
           selectedD = null;
           restoreAll();
           document.getElementById("legend").className = "";
+          const detEl = document.getElementById("detail");
+          detEl.className = "";
+          detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;
         }
 
         // Add a single transparent hit-area path per chord group AFTER initial paint.
@@ -1168,7 +1175,6 @@
         else if (_ratio < 10)      detClass = "lowconf";    // blue — comfortable
         // else green — very comfortable → "plausible"
         det.className = detClass;
-        det.style.display = "block";
         document.getElementById("legend").className = detClass;
 
         const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
@@ -1228,7 +1234,8 @@
             ${flags.length > 0 ? `<p class="det-sub" style="color:#888;font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
           </div>`;
         det.querySelector(".det-close").addEventListener("click", () => {
-          det.style.display = "none";
+          det.className = "";
+          det.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;
           if (onClose) onClose();
         });
       }
