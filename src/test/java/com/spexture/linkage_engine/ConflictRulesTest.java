@@ -14,8 +14,8 @@ class ConflictRulesTest {
 
     private static SpatioTemporalRequest req(String fromId, String toId, int fromYear, int toYear) {
         return new SpatioTemporalRequest(
-            new SpatioTemporalRecord(fromId, "Boston", null, null, fromYear, null),
-            new SpatioTemporalRecord(toId,   "Philadelphia", null, null, toYear, null)
+            new SpatioTemporalRecord(fromId, null, "Boston", null, null, fromYear, null),
+            new SpatioTemporalRecord(toId,   null, "Philadelphia", null, null, toYear, null)
         );
     }
 
@@ -125,27 +125,79 @@ class ConflictRulesTest {
         assertThat(result.triggered()).isFalse();
     }
 
+    // ── GenderPlausibilityRule ─────────────────────────────────────────────────
+
+    private static SpatioTemporalRequest reqWithNames(String givenA, String givenB) {
+        return new SpatioTemporalRequest(
+            new SpatioTemporalRecord("R-A", givenA, "Boston",       null, null, 1850, null),
+            new SpatioTemporalRecord("R-B", givenB, "Philadelphia", null, null, 1851, null)
+        );
+    }
+
+    private final GivenNameGenderProvider genderProvider = new GivenNameGenderProvider();
+    private final GenderPlausibilityRule genderRule = new GenderPlausibilityRule(genderProvider);
+
+    @Test
+    void gender_penalisesWhenMaleVsFemale() {
+        // John (M) vs Mary (F) → conflict → −20 pts, still plausible
+        ConflictRule.RuleResult result = genderRule.check(
+            reqWithNames("John", "Mary"), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isTrue();
+        assertThat(result.implausible()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(20);
+        assertThat(result.reason()).contains("conflict");
+    }
+
+    @Test
+    void gender_noPenaltyWhenBothMale() {
+        // John (M) vs Jon (M) → consistent → no penalty
+        ConflictRule.RuleResult result = genderRule.check(
+            reqWithNames("John", "Jon"), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(0);
+    }
+
+    @Test
+    void gender_skippedWhenAmbiguous() {
+        // Leslie (AMBIGUOUS) vs Leslie (AMBIGUOUS) → skipped
+        ConflictRule.RuleResult result = genderRule.check(
+            reqWithNames("Leslie", "Leslie"), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(0);
+        assertThat(result.reason()).contains("skipped");
+    }
+
+    @Test
+    void gender_skippedWhenUnknown() {
+        // "Zxqvr" not in dataset → UNKNOWN → skipped
+        ConflictRule.RuleResult result = genderRule.check(
+            reqWithNames("Zxqvr", "Mary"), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(0);
+        assertThat(result.reason()).contains("skipped");
+    }
+
     // ── ConflictResolver.computeAvailableDays ─────────────────────────────────
 
     @Test
     void availableDays_yearDeltaOnly() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", "Boston", null, null, 1850, null);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", "Philadelphia", null, null, 1851, null);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1851, null);
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(365.0);
     }
 
     @Test
     void availableDays_withMonths() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", "Boston", null, null, 1850, 1);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", "Philadelphia", null, null, 1850, 7);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, 1);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, 7);
         // 0 years + 6 months × 30 = 180 days
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(180.0);
     }
 
     @Test
     void availableDays_minimumOne() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", "Boston", null, null, 1850, null);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", "Philadelphia", null, null, 1850, null);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, null);
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(1.0);
     }
 }

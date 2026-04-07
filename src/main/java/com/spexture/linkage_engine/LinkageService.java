@@ -89,9 +89,9 @@ public class LinkageService implements LinkageResolver {
             CandidateRecord top = rerank.candidates().get(0);
             if (top.year() != null && !isBlank(top.location())) {
                 SpatioTemporalRequest spatioReq = new SpatioTemporalRequest(
-                    new SpatioTemporalRecord("query", request.location(), null, null,
+                    new SpatioTemporalRecord("query", request.givenName(), request.location(), null, null,
                         request.approxYear(), null),
-                    new SpatioTemporalRecord(top.recordId(), top.location(), null, null,
+                    new SpatioTemporalRecord(top.recordId(), top.givenName(), top.location(), null, null,
                         top.year(), null)
                 );
                 spatioResult = conflictResolver.resolve(spatioReq);

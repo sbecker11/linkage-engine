@@ -126,6 +126,7 @@ record NeighborhoodSnapshot(
  */
 record SpatioTemporalRecord(
     String recordId,
+    String givenName,
     String location,
     Double lat,
     Double lon,
