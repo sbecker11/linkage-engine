@@ -1148,13 +1148,13 @@
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
-            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Departure</p>
+            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:1px">Departure</p>
+            <p class="det-sub" style="color:#888;margin:0 0 3px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
             <p class="det-title">${srcLine}</p>
-            <p class="det-sub" style="color:#888;margin-top:1px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
             <p style="margin:6px 0 2px">${travelArrow}</p>
-            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Arrival</p>
+            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:1px">Arrival</p>
+            <p class="det-sub" style="color:#888;margin:0 0 3px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
             <p class="det-title">${tgtLine}</p>
-            <p class="det-sub" style="color:#888;margin-top:1px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
 
             <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
 
