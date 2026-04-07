@@ -622,10 +622,10 @@
 
       // 7-tier color scale:
       // Plausible pairs — by travel-time margin ratio (available / required):
-      //   #1D9E75  teal-green  — ratio >= 10x  (very comfortable)
+      //   #1D9E75  teal-green  — ratio >= 10x  (very comfortable — "no rush")
       //   #4A90D9  steel-blue  — ratio 4–10x   (comfortable)
       //   #9B6FD4  purple      — ratio 2–4x    (moderate)
-      //   #EF9F27  amber       — ratio 1–2x    (tight but plausible)
+      //   #EF9F27  amber       — ratio 1–2x    (tight — barely plausible)
       // Implausible pairs — by failure mode:
       //   #E24B4A  red         — physical impossibility (travel time > available)
       //   #C2185B  cherry      — age inconsistency (age regresses or outside lifespan)
@@ -1010,7 +1010,7 @@
           travelFlag = "Impossible journey"; travelColor = "#e24b4a";
         } else {
           const ratio = p.availableDays / Math.max(0.1, p.travelDays);
-          const margin = ratio >= 10 ? "comfortable" : ratio >= 4 ? "moderate" : ratio >= 2 ? "tight" : "very tight";
+          const margin = ratio >= 10 ? "very comfortable" : ratio >= 4 ? "comfortable" : ratio >= 2 ? "moderate" : "tight";
           travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
           travelFlag = null; travelColor = "#2a7a5a";
         }
