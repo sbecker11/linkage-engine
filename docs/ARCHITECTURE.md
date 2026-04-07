@@ -59,55 +59,90 @@ rules fire. Skipped when either record is missing a location or year.
 
 ---
 
-## 3. System Diagram
+## 3. Local Development Configuration
+
+All four pipeline stages run end-to-end. No AWS credentials required.
+Stage 2 (vector rerank) and Stage 3 (Bedrock summary) use local fallbacks.
 
 ```mermaid
 flowchart TD
-    C[Client Apps] --> API[Spring Boot API]
-    UP[Upstream exports / raw files] --> S3[(S3 landing zone)]
-    S3 --> BI[Batch ingest job\nECS / Lambda / script]
+    DEV[Developer\nbrowser / curl] --> SB[Spring Boot\nlocalhost:8080]
 
-    subgraph API_Layer[API Layer]
-        API --> LC[LinkageController\nPOST /v1/linkage/resolve]
-        API --> RC[RecordIngestController\nPOST /v1/records]
-        API --> SC[SpatialController\nPOST /v1/spatial/temporal-overlap]
-        API --> CC[ChatController\nGET /api/ask]
+    subgraph Local_Infra[Local Infrastructure]
+        SB --> PG[(Docker PostgreSQL\nlocalhost:5434\n+ pgvector)]
+        PG --> REC[records table]
+        PG --> RE[record_embeddings table]
     end
 
-    subgraph Pipeline[Linkage Resolve Pipeline]
-        LC --> S1[Stage 1: SQL search\nrecords table]
-        S1 --> S2{Stage 2: vector rerank\nEmbeddingModel present?}
-        S2 -- yes --> VSQL[Cosine rerank\nrecord_embeddings + pgvector]
-        S2 -- no  --> RANK[Keep deterministic order]
-        VSQL --> RANK
-        RANK --> S3{Stage 3: semantic summary\nChatModel + LLM_ENABLED?}
-        S3 -- false / absent --> DSUM[Deterministic summary fallback]
-        S3 -- local profile  --> LLMLOCAL[LocalChatModelConfiguration\necho response]
-        S3 -- bedrock profile --> BEDROCK[Amazon Bedrock Converse]
-        DSUM  --> S4[Stage 4: spatio-temporal\nConflictResolver]
-        LLMLOCAL --> S4
-        BEDROCK --> S4
-        S4 --> OUT[LinkageResolveResponse\ncandidates · scores · summary\nspatioTemporalResult · confidenceScore]
+    subgraph Pipeline_Local[Resolution Pipeline — local profile]
+        SB --> S1L[Stage 1: SQL search\nLinkageRecordRepository]
+        S1L --> S2L[Stage 2: vector rerank\nSKIPPED — no EmbeddingModel]
+        S2L --> S3L[Stage 3: semantic summary\nLocalChatModelConfiguration\necho response — no Bedrock call]
+        S3L --> S4L[Stage 4: spatio-temporal\nConflictResolver\nalways on]
+        S4L --> OUTL[LinkageResolveResponse\nvectorSimilarity=null\nsemanticSummary=LOCAL prefix]
     end
 
-    subgraph Data_Stores[Data Stores]
-        PG[(PostgreSQL + pgvector)]
-        PG --> REC[records]
-        PG --> RE[record_embeddings]
+    subgraph Ingest_Local[Ingest Pipeline — local profile]
+        SB --> CL[DataCleansingService\nOCRNoiseReducer · LocationStandardizer]
+        CL --> UPSERTL[SQL upsert → records]
+        UPSERTL --> EMBEDL[Embedding: SKIPPED\nno SPRING_AI_MODEL_EMBEDDING]
     end
 
-    S1 --> REC
-    VSQL --> RE
-    RC --> REC
-    RC --> RE
-    BI --> REC
-    BI --> RE
-    OUT --> C
+    S1L --> REC
+    UPSERTL --> REC
 ```
 
 ---
 
-## 4. Ingestion Pipeline (`POST /v1/records`)
+## 4. Production Configuration (ECS / Fargate + Aurora + Bedrock)
+
+All four stages active. DB credentials injected from Secrets Manager at task start.
+
+```mermaid
+flowchart TD
+    USER[Client / Browser] --> ALB[Application Load Balancer\nHTTPS]
+    ALB --> ECS[ECS Fargate Task\nSpring Boot container]
+
+    subgraph AWS_Infra[AWS Infrastructure]
+        SM[Secrets Manager\nlinkage-engine/runtime\nDB_URL · DB_USER · DB_PASSWORD]
+        SM -- valueFrom at task start --> ECS
+
+        ECS --> AURORA[(Aurora PostgreSQL\nServerless v2\n+ pgvector extension)]
+        AURORA --> REC[records]
+        AURORA --> RE[record_embeddings\nvector-1024]
+
+        ECS --> BEDROCK_EMB[Bedrock Titan\namazon.titan-embed-text-v2:0\nembeddings]
+        ECS --> BEDROCK_LLM[Bedrock Converse\nus.amazon.nova-lite-v1:0\nsemantic summary]
+
+        S3[(S3 landing zone\nlanding/ prefix)] --> BATCH[Batch ingest job\nECS / Lambda]
+        BATCH --> REC
+        BATCH --> RE
+    end
+
+    subgraph Pipeline_Prod[Resolution Pipeline — bedrock profile]
+        ECS --> S1P[Stage 1: SQL search\nAurora PostgreSQL]
+        S1P --> S2P[Stage 2: vector rerank\nTitan embed query\ncosine sim in Aurora]
+        S2P --> S3P[Stage 3: semantic summary\nBedrock Converse narrative]
+        S3P --> S4P[Stage 4: spatio-temporal\nConflictResolver\nalways on]
+        S4P --> OUTP[LinkageResolveResponse\nvectorSimilarity populated\nreal LLM narrative]
+    end
+
+    subgraph Ingest_Prod[Ingest Pipeline — bedrock profile]
+        ECS --> CP[DataCleansingService]
+        CP --> UPSERTP[SQL upsert → Aurora records]
+        UPSERTP --> EMBEDP[Titan embed → Aurora record_embeddings]
+    end
+
+    S1P --> REC
+    S2P --> RE
+    UPSERTP --> REC
+    EMBEDP --> RE
+    OUTP --> ALB
+```
+
+---
+
+## 5. Ingestion Pipeline (`POST /v1/records`)
 
 ```
 POST /v1/records (RecordIngestController)
@@ -124,7 +159,7 @@ Raw files from upstream sources are expected to land in **S3** first, then feed
 
 ---
 
-## 5. Spatio-Temporal Validation (`POST /v1/spatial/temporal-overlap`)
+## 6. Spatio-Temporal Validation (`POST /v1/spatial/temporal-overlap`)
 
 Standalone endpoint backed by the same `ConflictResolver` that Stage 4 uses.
 Accepts a `SpatioTemporalRequest` (two anchor records with location + year) and
@@ -154,7 +189,7 @@ Distances are straight-line haversine — actual routes are longer, so this is
 
 ---
 
-## 6. Design Patterns
+## 7. Design Patterns
 
 ### `ObjectProvider` over `@ConditionalOnBean`
 Optional dependencies (`EmbeddingModel`, `RecordEmbeddingStore`, `LinkageRecordMutator`)
@@ -183,21 +218,23 @@ making the application demo-safe and integration-testable without cloud access.
 
 ---
 
-## 7. Endpoints
+## 8. Endpoints
 
-| Method | Path | Stage(s) | Status |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/v1/linkage/resolve` | 1 → 2 → 3 → 4 | Implemented |
-| `POST` | `/v1/records` | Ingest pipeline | Implemented |
-| `POST` | `/v1/spatial/temporal-overlap` | Stage 4 standalone | Implemented |
-| `GET` | `/api/ask` | ChatModel passthrough | Implemented |
-| `GET` | `/v1/search/semantic` | Semantic RAG search | Planned |
-| `GET` | `/v1/context/neighborhood-snapshot` | Census / news context | Planned |
-| `PUT` | `/v1/vectors/reindex` | Delta embedding update | Planned |
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/v1/linkage/resolve` | Four-stage hybrid resolution pipeline |
+| `POST` | `/v1/records` | Ingest — cleanse → SQL upsert → optional embed |
+| `GET` | `/v1/records` | List all records (nodes for chord diagram) |
+| `POST` | `/v1/spatial/temporal-overlap` | Standalone spatio-temporal plausibility check |
+| `GET` | `/v1/search/semantic` | Vector similarity search (local profile: empty + flag) |
+| `GET` | `/v1/context/neighborhood-snapshot` | Aggregated neighbourhood context + optional LLM narrative |
+| `PUT` | `/v1/vectors/reindex` | Delta reindex via Virtual Threads (409 without embedding model) |
+| `GET` | `/api/ask` | ChatModel passthrough |
+| `GET` | `/chord-diagram.html` | Interactive linkage chord diagram (static resource) |
 
 ---
 
-## 8. Why these choices?
+## 9. Why these choices?
 
 **pgvector over a dedicated vector DB** — keeps relational data and semantic vectors
 in a single ACID-compliant store. Hybrid search (SQL narrowing → cosine rerank) runs
@@ -219,7 +256,7 @@ genealogical context.
 
 ---
 
-## 9. S3 Raw Data Pipeline
+## 10. S3 Raw Data Pipeline
 
 Raw exports and bulk source files land in **S3** (`landing/` prefix). Search and
 linkage use **PostgreSQL** after ingest — S3 is not queried at query time.
@@ -239,6 +276,6 @@ Full conventions (prefixes, IAM, local vs AWS access, env vars): `docs/DATA_PIPE
 
 ---
 
-## 10. Deployment
+## 11. Deployment
 
 ECS / Fargate scaffolding and Secrets Manager integration: `docs/DEPLOYMENT_ECS_FARGATE.md`.
