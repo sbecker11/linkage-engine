@@ -678,9 +678,16 @@
         return layers;
       }
 
+      // plausMap is keyed "min-max". D3 chords can have source.index > target.index,
+      // so always normalise before lookup.
+      function plausGet(plausMap, si, ti) {
+        const a = Math.min(si, ti), b = Math.max(si, ti);
+        return plausMap.get(`${a}-${b}`);
+      }
+
       // Dominant colour for legend matching — first conflict rule wins, else travel.
       function chordColor(si, ti, plausMap) {
-        const p = plausMap.get(`${si}-${ti}`);
+        const p = plausGet(plausMap, si, ti);
         const layers = chordLayers(p);
         // First conflict colour (index ≥ 1) is dominant; fall back to travel.
         return layers.length > 1 ? layers[1] : layers[0];
@@ -776,7 +783,7 @@
 
         // Helper: (re)paint all layers of a chord group from plausMap data.
         function paintRib(gEl, d, dimmed) {
-          const p = plausMap.get(`${d.source.index}-${d.target.index}`);
+          const p = plausGet(plausMap, d.source.index, d.target.index);
           const path = ribGen(d);
           const strokeCol = (() => {
             const c = d3.color(chordColor(d.source.index, d.target.index, plausMap));
@@ -984,7 +991,8 @@
 
       // Returns a human-readable label for the similarity score source.
       function simLabel(si, ti, sim, simSource) {
-        const src = simSource?.get(`${si}-${ti}`);
+        const a = Math.min(si, ti), b = Math.max(si, ti);
+        const src = simSource?.get(`${a}-${b}`);
         if (src === "real")   return `Vector similarity ${sim}%`;
         if (src === "rank")   return `Name similarity ~${sim}% (rank estimate)`;
         if (src === "family") return `Family-name match (no vector score)`;
@@ -993,7 +1001,7 @@
 
       function showTip(event, d, records, matrix, plausMap, simSource) {
         const si = d.source.index, ti = d.target.index;
-        const p   = plausMap.get(`${si}-${ti}`);
+        const p   = plausGet(plausMap, si, ti);
         const src = records[si];
         const tgt = records[ti];
         const sim = matrix[si][ti];
@@ -1038,7 +1046,7 @@
 
       function pinDetail(d, records, matrix, plausMap, simSource) {
         const si = d.source.index, ti = d.target.index;
-        const p   = plausMap.get(`${si}-${ti}`);
+        const p   = plausGet(plausMap, si, ti);
         const src = records[si];
         const tgt = records[ti];
         const sim = matrix[si][ti];
