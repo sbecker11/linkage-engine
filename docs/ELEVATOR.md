@@ -28,16 +28,18 @@ optionally embeds chunks into `record_embeddings` via Titan.
 
 **Spatio-temporal validation** — `HistoricalTransitService` selects the fastest
 era-appropriate travel mode (horse/coach, eastern railroad, transcontinental rail,
-ocean ship) and computes minimum travel days via haversine distance. Three
+ocean ship) and computes minimum travel days via haversine distance. Five
 `ConflictRule` implementations fire penalties: `PhysicalImpossibilityRule`,
-`BiologicalPlausibilityRule`, `NarrowMarginRule`. A fourth —
-`GenderPlausibilityRule` — is planned, using SSA name-frequency data from 1880
-onward to infer gender and penalise cross-gender candidate pairs.
+`BiologicalPlausibilityRule`, `NarrowMarginRule`, `AgeConsistencyRule` (birth-year
+contradiction detection), and `GenderPlausibilityRule` (SSA name-frequency gender
+inference). Per-rule penalties are returned in `SpatioTemporalResponse.rulePenalties`.
 
-**Chord diagram UI** — `chord-diagram.html` (served as a Spring Boot static resource
-at `/chord-diagram.html`) visualises all seeded records as a D3.js directed chord
-diagram. Chord width reflects similarity score; chord colour reflects the
-travel-time margin ratio across a 5-tier scale (green → blue → purple → amber → red).
+**Chord diagram UI** — `chord-diagram.html` visualises all seeded records as a D3.js
+chord diagram. Chord colour uses a 7-tier scale (teal-green → steel-blue → purple →
+amber → red → cherry → magenta) encoding travel margin and conflict type. Multiple
+signals are rendered as transparent stacked layers. Clicking a chord opens a detail
+panel showing departure/arrival, name match quality, travel plausibility, any
+conflicts, and a plain-English verdict ("Should this link exist?").
 
 ### Design Patterns
 - **`ObjectProvider` over `@ConditionalOnBean`** — runtime null-checks are

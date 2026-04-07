@@ -86,15 +86,23 @@ aws bedrock list-inference-profiles --region us-west-1 --output table
 
 ### 6. Chord Diagram UI
 With the server running, open [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html)
-to visualise seeded records as a D3.js directed chord diagram. Chord width reflects
-similarity score; chord colour reflects historical travel-time margin (green = comfortable,
-red = physically impossible). See `ARCHITECTURE.md §12` for the full colour scale.
+to visualise seeded records as a D3.js chord diagram.
+
+- **Chord width** — similarity score between the two records
+- **Chord colour** — 7-tier scale encoding travel margin and conflict type:
+  teal-green (very comfortable) → steel-blue → purple → amber (tight) →
+  red (physically impossible) → cherry (age contradiction) → magenta (gender conflict)
+- **Multiple signals** — rendered as transparent stacked layers (opacity 0.25 each)
+- **Click a chord** — opens a detail panel with departure/arrival, name match,
+  travel plausibility, conflict details, and a "Should this link exist?" verdict
+- **Selected chord** — stays highlighted with a thick bright border while the panel is open
+
+See `ARCHITECTURE.md §12` for the full colour scale and interaction model.
 
 ### 7. Planned Extensions
 The `ConflictRule` chain accepts new rules as single-file additions. Planned:
 
 | Rule | Approach |
 | :--- | :--- |
-| `GenderPlausibilityRule` | Infer gender from given name using SSA name-frequency data (1880+); penalise cross-gender candidate pairs by −20 pts |
 | `OccupationalPlausibilityRule` | Flag implausible occupational mobility between records |
 | `TemporalNormalizationProvider` | Normalise "circa 1850", "abt. 1850", "~1850" to a canonical year range before SQL search |

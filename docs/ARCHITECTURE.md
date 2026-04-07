@@ -179,15 +179,31 @@ Distances are straight-line haversine — actual routes are longer, so this is
 
 ### ConflictRule chain
 
-| Rule | Trigger | Effect |
-| :--- | :--- | :--- |
-| `PhysicalImpossibilityRule` | travelDays > availableDays | `plausible=false`, −50 pts |
-| `BiologicalPlausibilityRule` | implied age outside [0, 120] (uses `birthYear` field; falls back to `BORN:YYYY:` recordId prefix) | `plausible=false`, −50 pts |
-| `NarrowMarginRule` | margin < 5 days (tight but possible) | `plausible=true`, −15 pts |
-| `AgeConsistencyRule` | age regresses across records (CONTRADICTS), or age outside lifespan (IMPLAUSIBLE) | `plausible=false`, −40/−50 pts |
-| `GenderPlausibilityRule` | inferred genders of the two records conflict (via `GivenNameGenderProvider`, SSA 1880+ data) | `plausible=true`, −20 pts |
+Rules are applied in `@Order` sequence. All triggered rules contribute to `rulePenalties`
+and `confidenceAdjustment`; the first rule that sets `plausible=false` wins on plausibility.
+
+| Order | Rule | Trigger | Effect |
+| :--- | :--- | :--- | :--- |
+| 1 | `PhysicalImpossibilityRule` | `travelDays > availableDays` | `plausible=false`, −50 pts |
+| 2 | `BiologicalPlausibilityRule` | implied age outside [0, 120] (uses `birthYear` field; falls back to `BORN:YYYY:` recordId prefix) | `plausible=false`, −50 pts |
+| 3 | `NarrowMarginRule` | margin < 5 days (tight but possible) | `plausible=true`, −15 pts |
+| 4 | `AgeConsistencyRule` | birth years imply age regression across records (`CONTRADICTS`), or age outside lifespan (`IMPLAUSIBLE`) | `plausible=false`, −40/−50 pts |
+| 5 | `GenderPlausibilityRule` | inferred genders conflict (via `GivenNameGenderProvider`, SSA 1880+ data) | `plausible=true`, −20 pts |
 
 `confidenceAdjustment` is capped at 50 regardless of how many rules fire.
+
+Each triggered rule is recorded in `SpatioTemporalResponse.rulePenalties` (`Map<String, Integer>`)
+so callers can inspect the per-rule breakdown without re-running the chain.
+
+### `availableDays` calculation
+
+`availableDays = |yearB − yearA| × 365 + |monthB − monthA| × 30`
+
+Special cases:
+- **Same year, no month data** — defaults to **182.5 days** (half-year). Records dated
+  only to a year could be up to 12 months apart; using 1 day would incorrectly flag
+  short journeys as impossible.
+- **Same year, month data present** — floored at **1 day** to avoid division-by-zero.
 
 ### `AgeConsistencyRule` and `AgeEstimator`
 
@@ -210,39 +226,23 @@ legacy `BORN:YYYY:` recordId prefix for backwards compatibility.
 
 ### `GenderPlausibilityRule`
 
-Gender is not currently stored on records, but it can be inferred from given names
-using US Social Security Administration name-frequency data. The SSA publishes
-yearly name/gender counts from **1880 onward** — exactly the right era for
-19th-century genealogical records.
+Gender is not stored on records but is inferred from given names using a built-in
+name→gender map seeded from US Social Security Administration name-frequency data
+(1880 onward — the right era for 19th-century genealogical records).
 
-**Implementation plan:**
-
-1. **Data source** — bundle `ssa-names-1880-1910.csv` (name, year, sex, count) as a
-   classpath resource. The SSA dataset is public domain and small enough (~500 KB
-   for the relevant decades) to ship with the jar.
-
-2. **`GivenNameGenderProvider`** — loads the CSV at startup, computes
-   `P(male | name, decade)` for each name. Returns one of `MALE`, `FEMALE`,
-   `AMBIGUOUS` (when neither gender exceeds 80% of occurrences), or `UNKNOWN`
-   (name not in dataset).
-
-3. **`GenderPlausibilityRule`** — implements `ConflictRule`. Infers gender for
-   both records' given names. If both are non-`AMBIGUOUS` and non-`UNKNOWN` and
-   they differ, applies a −20 pt `confidenceAdjustment`. Does **not** set
-   `plausible=false` — gender inference is probabilistic and historical records
-   contain transcription errors and gender-neutral names.
-
-4. **Fits the existing chain** — registered as a Spring `@Component` implementing
-   `ConflictRule`. `ConflictResolver` picks it up automatically via the injected
-   `List<ConflictRule>`. Zero orchestrator changes required.
+**`GivenNameGenderProvider`** — resolves a given name to one of `male`, `female`,
+`ambiguous`, or `unknown`. If both records resolve to a non-ambiguous, non-unknown
+gender and they differ, `GenderPlausibilityRule` applies a −20 pt penalty. It does
+**not** set `plausible=false` — gender inference is probabilistic and historical
+records contain transcription errors and gender-neutral names.
 
 **Example outcomes:**
 
 | Record A | Record B | Inferred genders | Effect |
 | :--- | :--- | :--- | :--- |
-| John Smith, Boston 1850 | Mary Smith, Boston 1850 | M vs F | −20 pts |
-| John Smith, Boston 1850 | Jon Smyth, Philadelphia 1851 | M vs M | no penalty |
-| Leslie Smith, NYC 1885 | Leslie Jones, Boston 1886 | AMBIGUOUS | no penalty |
+| John Smith, Boston 1850 | Mary Smith, Boston 1850 | male vs female | −20 pts |
+| John Smith, Boston 1850 | Jon Smyth, Philadelphia 1851 | male vs male | no penalty |
+| Leslie Smith, NYC 1885 | Leslie Jones, Boston 1886 | ambiguous | no penalty |
 
 ---
 
@@ -288,6 +288,48 @@ making the application demo-safe and integration-testable without cloud access.
 | `PUT` | `/v1/vectors/reindex` | Delta reindex via Virtual Threads (409 without embedding model) |
 | `GET` | `/api/ask` | ChatModel passthrough |
 | `GET` | `/chord-diagram.html` | Interactive linkage chord diagram (static resource) |
+
+---
+
+## 12. Chord Diagram UI
+
+`chord-diagram.html` is a D3.js visualisation served as a Spring Boot static resource.
+It fetches all records from `GET /v1/records`, resolves candidate pairs via
+`POST /v1/linkage/resolve`, and checks spatio-temporal plausibility for each pair via
+`POST /v1/spatial/temporal-overlap`.
+
+### 7-tier colour scale
+
+Chord colour encodes the dominant signal for each record pair:
+
+| Colour | Signal | Condition |
+| :--- | :--- | :--- |
+| Teal-green | Plausible — very comfortable margin | `availableDays / travelDays ≥ 10×` |
+| Steel-blue | Plausible — comfortable margin | ratio 4–10× |
+| Purple | Plausible — moderate margin | ratio 2–4× |
+| Amber | Plausible — tight margin | ratio 1–2× |
+| Red | Physical impossibility | `travelDays > availableDays` |
+| Cherry | Age contradiction | `AgeConsistencyRule` fired |
+| Magenta | Gender conflict | `GenderPlausibilityRule` fired |
+
+When multiple signals apply (e.g. plausible travel + age conflict), each colour is
+rendered as a transparent layer (`opacity = 0.25`) stacked on the chord, blending
+visually to show all active signals simultaneously.
+
+### Interactive detail panel
+
+Clicking a chord opens a fixed side panel showing:
+
+- **Departure** — location · year, then person name with inferred gender and birth year
+- **Travel arrow** — `↓ ~N days travel (margin)` or `↕ same city`
+- **Arrival** — location · year, then person name
+- **Name match** — exact match, vector similarity score, rank estimate, or family-name link
+- **Travel** — plausibility narrative with mode and days
+- **Conflicts** — age contradiction and/or gender conflict details if triggered
+- **Should this link exist?** — verdict: Yes / Unlikely / No with reason
+
+The selected chord stays highlighted with a thick bright border while the panel is open.
+Clicking a different chord switches the selection. Closing the panel (×) restores all chords.
 
 ---
 
