@@ -85,14 +85,14 @@
       #status-line {
         font-size: 12px;
         color: #6b6b63;
-        min-height: 18px;
-        margin-bottom: 8px;
+        min-height: 0;
+        margin-bottom: 4px;
       }
       .progress {
         height: 3px;
         background: #d3d1c7;
         border-radius: 2px;
-        margin-bottom: 14px;
+        margin-bottom: 6px;
         overflow: hidden;
       }
       .progress-bar {
@@ -729,7 +729,9 @@
           "http://www.w3.org/2000/svg",
           "svg",
         );
-        const side = Math.min(680, window.innerWidth - 48);
+        const headerH = document.querySelector("header").getBoundingClientRect().height;
+        const availH  = window.innerHeight - headerH - 60; // 60px for status+progress+padding
+        const side = Math.min(680, window.innerWidth - 48, availH);
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
         svgEl.setAttribute("width", side);
         svgEl.setAttribute("height", side);
