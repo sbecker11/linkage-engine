@@ -783,22 +783,22 @@
             return c ? c.darker(0.5).formatHex() : "#555";
           })();
 
-          gEl.selectAll("path").remove();
+          gEl.selectAll("path.vis").remove();
 
           if (dimmed) {
             const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
             gEl.append("path")
+              .attr("class", "vis")
               .attr("d", path)
               .attr("fill", `rgba(${r},${g},${b},0.05)`)
               .attr("stroke", "none")
               .style("pointer-events", "none");
           } else {
-            // One path per active colour layer, each at LAYER_ALPHA opacity.
-            // All visual paths have pointer-events:none — the transparent hit path below handles mouse.
             const layers = chordLayers(p);
             layers.forEach((hex, i) => {
               const { r, g, b } = hexToRgb(hex);
               gEl.append("path")
+                .attr("class", "vis")
                 .attr("d", path)
                 .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
                 .attr("stroke", i === 0 ? strokeCol : "none")
@@ -806,20 +806,10 @@
                 .style("pointer-events", "none");
             });
           }
-          // Transparent hit-area path on top — captures mouse events for the whole group.
-          gEl.append("path")
-            .attr("d", path)
-            .attr("fill", "transparent")
-            .attr("stroke", "none")
-            .style("pointer-events", "all")
-            .style("cursor", "pointer");
         }
 
         ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
 
-        // ribs is a selection of the base paths (index 0) — used for event binding
-        // and for hover dimming via re-painting all groups.
-        // Dim all chords except the one matching exceptD (chord hover).
         function dimAllExcept(exceptD) {
           ribGroups.each(function(d) {
             const isActive = exceptD &&
@@ -828,7 +818,6 @@
             paintRib(d3.select(this), d, !isActive);
           });
         }
-        // Dim all chords whose dominant colour doesn't match targetColor (legend hover).
         function dimAllExceptColor(targetColor) {
           ribGroups.each(function(d) {
             const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
@@ -839,20 +828,33 @@
           ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
         }
 
-        // Bind interaction on the group element so all stacked paths respond.
-        ribGroups
-          .on("mouseover", (event, d) => {
-            dimAllExcept(d);
-            highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
-            showTip(event, d, records, matrix, plausMap, simSource);
-          })
-          .on("mousemove", moveTip)
-          .on("mouseout", () => {
-            restoreAll();
-            resetLegend();
-            hideTip();
-          })
-          .on("click", (event, d) => pinDetail(d, records, matrix, plausMap, simSource));
+        // Add a single transparent hit-area path per chord group AFTER initial paint.
+        // All event handlers live here — visual paths have pointer-events:none so they
+        // never interfere. paintRib() only touches visual paths (class "vis"), not this one.
+        ribGroups.each(function(d) {
+          d3.select(this).append("path")
+            .attr("class", "hit")
+            .attr("d", ribGen(d))
+            .attr("fill", "transparent")
+            .attr("stroke", "none")
+            .style("pointer-events", "all")
+            .style("cursor", "pointer")
+            .on("mouseover", (event) => {
+              dimAllExcept(d);
+              highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
+              showTip(event, d, records, matrix, plausMap, simSource);
+            })
+            .on("mousemove", moveTip)
+            .on("mouseout", () => {
+              restoreAll();
+              resetLegend();
+              hideTip();
+            })
+            .on("click", () => {
+              hideTip();
+              pinDetail(d, records, matrix, plausMap, simSource);
+            });
+        });
 
         // Alias used by legend hover and arc hover handlers below.
         const ribs = ribGroups;
