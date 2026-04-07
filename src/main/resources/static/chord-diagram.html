@@ -822,24 +822,63 @@
           }
         }
 
+        let selectedD = null;   // the currently pinned chord, if any
+
+        function isSameChord(a, b) {
+          return a && b &&
+            a.source.index === b.source.index &&
+            a.target.index === b.target.index;
+        }
+
+        // Helper: (re)paint a chord as "selected" — full opacity + thick bright border.
+        function paintRibSelected(gEl, d) {
+          const p = plausGet(plausMap, d.source.index, d.target.index);
+          const path = ribGen(d);
+          const baseHex = chordColor(d.source.index, d.target.index, plausMap);
+          const strokeCol = (() => {
+            const c = d3.color(baseHex);
+            return c ? c.brighter(0.3).formatHex() : "#fff";
+          })();
+
+          gEl.selectAll("path.vis").remove();
+          const layers = chordLayers(p);
+          layers.forEach((hex, i) => {
+            const { r, g, b } = hexToRgb(hex);
+            gEl.append("path")
+              .attr("class", "vis")
+              .attr("d", path)
+              .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
+              .attr("stroke", i === 0 ? strokeCol : "none")
+              .attr("stroke-width", i === 0 ? 2.5 : 0)
+              .style("pointer-events", "none");
+          });
+        }
+
         ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
 
         function dimAllExcept(exceptD) {
           ribGroups.each(function(d) {
-            const isActive = exceptD &&
-              d.source.index === exceptD.source.index &&
-              d.target.index === exceptD.target.index;
-            paintRib(d3.select(this), d, !isActive);
+            const isActive = isSameChord(d, exceptD) || isSameChord(d, selectedD);
+            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, !isActive);
           });
         }
         function dimAllExceptColor(targetColor) {
           ribGroups.each(function(d) {
             const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
-            paintRib(d3.select(this), d, dom !== targetColor);
+            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, dom !== targetColor);
           });
         }
         function restoreAll() {
-          ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
+          ribGroups.each(function(d) {
+            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, false);
+          });
+        }
+        function clearSelection() {
+          selectedD = null;
+          restoreAll();
         }
 
         // Add a single transparent hit-area path per chord group AFTER initial paint.
@@ -866,7 +905,10 @@
             })
             .on("click", () => {
               hideTip();
-              pinDetail(d, records, matrix, plausMap, simSource);
+              selectedD = d;
+              paintRibSelected(d3.select(this.parentNode), d);
+              dimAllExcept(d);
+              pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
             });
         });
 
@@ -1109,7 +1151,7 @@
         document.getElementById("tip").style.opacity = "0";
       }
 
-      function pinDetail(d, records, matrix, plausMap, simSource) {
+      function pinDetail(d, records, matrix, plausMap, simSource, onClose) {
         const si = d.source.index, ti = d.target.index;
         const p   = plausGet(plausMap, si, ti);
         const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
@@ -1190,6 +1232,7 @@
           </div>`;
         det.querySelector(".det-close").addEventListener("click", () => {
           det.style.display = "none";
+          if (onClose) onClose();
         });
       }
 
