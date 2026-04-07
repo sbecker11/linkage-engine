@@ -772,8 +772,7 @@
           .append("g")
           .selectAll("g")
           .data(chords)
-          .join("g")
-          .style("cursor", "pointer");
+          .join("g");
 
         // Helper: (re)paint all layers of a chord group from plausMap data.
         function paintRib(gEl, d, dimmed) {
@@ -787,15 +786,15 @@
           gEl.selectAll("path").remove();
 
           if (dimmed) {
-            // Single near-invisible path when dimmed
             const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
             gEl.append("path")
               .attr("d", path)
               .attr("fill", `rgba(${r},${g},${b},0.05)`)
-              .attr("stroke", "none");
+              .attr("stroke", "none")
+              .style("pointer-events", "none");
           } else {
-            // One path per active colour layer, each at 1/7 opacity.
-            // Stacking N layers of 1/7 gives a combined opacity of N/7.
+            // One path per active colour layer, each at LAYER_ALPHA opacity.
+            // All visual paths have pointer-events:none — the transparent hit path below handles mouse.
             const layers = chordLayers(p);
             layers.forEach((hex, i) => {
               const { r, g, b } = hexToRgb(hex);
@@ -803,9 +802,17 @@
                 .attr("d", path)
                 .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
                 .attr("stroke", i === 0 ? strokeCol : "none")
-                .attr("stroke-width", i === 0 ? 0.5 : 0);
+                .attr("stroke-width", i === 0 ? 0.5 : 0)
+                .style("pointer-events", "none");
             });
           }
+          // Transparent hit-area path on top — captures mouse events for the whole group.
+          gEl.append("path")
+            .attr("d", path)
+            .attr("fill", "transparent")
+            .attr("stroke", "none")
+            .style("pointer-events", "all")
+            .style("cursor", "pointer");
         }
 
         ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
