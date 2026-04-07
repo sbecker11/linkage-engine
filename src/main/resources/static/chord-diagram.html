@@ -636,49 +636,34 @@
         return COL.amber;
       }
 
-      // Returns the travel-margin base colour and the list of conflict-rule colours
-      // that were triggered for a spatial response.
-      // conflictColors has one entry per triggered rule — each will be painted at
-      // 1/N opacity so all rules contribute equally regardless of penalty magnitude.
+      // All 7 legend colours treated as equal peers — each chord layer uses 1/7 opacity.
+      const LAYER_ALPHA = (1 / 7).toFixed(3);  // ≈ 0.143
+
+      // Returns the ordered list of active colour layers for a chord.
+      // Travel colour always comes first (so it renders beneath conflict colours),
+      // followed by any triggered conflict-rule colours.
+      // Every layer uses LAYER_ALPHA so no signal visually dominates another.
       function chordLayers(p) {
-        if (!p) return { base: COL.grey, conflicts: [] };
+        if (!p) return [COL.grey];
         const penalties = p.rulePenalties || {};
-        const conflicts = [];
+        const layers = [travelColor(p)];   // travel layer always present
 
         if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
-          conflicts.push(COL.red);
+          layers.push(COL.red);
         if (penalties["AgeConsistencyRule"])
-          conflicts.push(COL.cherry);
+          layers.push(COL.cherry);
         if (penalties["GenderPlausibilityRule"])
-          conflicts.push(COL.magenta);
+          layers.push(COL.magenta);
 
-        return { base: travelColor(p), conflicts };
-      }
-
-      // Base fill rgba — travel colour at a fixed opacity.
-      function baseFill(p) {
-        const { base } = chordLayers(p);
-        const { r, g, b } = hexToRgb(base);
-        return `rgba(${r},${g},${b},0.55)`;
-      }
-
-      // Conflict overlay fills — each at 1/N opacity so they blend equally.
-      // Returns [] when no conflict rules fired.
-      function conflictFills(p) {
-        const { conflicts } = chordLayers(p);
-        if (!conflicts.length) return [];
-        const alpha = (1 / conflicts.length).toFixed(2);
-        return conflicts.map(hex => {
-          const { r, g, b } = hexToRgb(hex);
-          return { hex, fill: `rgba(${r},${g},${b},${alpha})` };
-        });
+        return layers;
       }
 
       // Dominant colour for legend matching — first conflict rule wins, else travel.
       function chordColor(si, ti, plausMap) {
         const p = plausMap.get(`${si}-${ti}`);
-        const { base, conflicts } = chordLayers(p);
-        return conflicts.length ? conflicts[0] : base;
+        const layers = chordLayers(p);
+        // First conflict colour (index ≥ 1) is dominant; fall back to travel.
+        return layers.length > 1 ? layers[1] : layers[0];
       }
 
       // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
@@ -781,22 +766,24 @@
 
           gEl.selectAll("path").remove();
 
-          // Base travel layer
-          const baseAlpha = dimmed ? 0.06 : 0.55;
-          const { r: br, g: bg, b: bb } = hexToRgb(travelColor(p || {}));
-          gEl.append("path")
-            .attr("d", path)
-            .attr("fill", `rgba(${br},${bg},${bb},${baseAlpha})`)
-            .attr("stroke", dimmed ? "none" : strokeCol)
-            .attr("stroke-width", 0.5);
-
-          // Conflict overlay layers — each at 1/N (or dimmed near-zero)
-          if (!dimmed) {
-            conflictFills(p).forEach(({ fill }) => {
+          if (dimmed) {
+            // Single near-invisible path when dimmed
+            const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
+            gEl.append("path")
+              .attr("d", path)
+              .attr("fill", `rgba(${r},${g},${b},0.05)`)
+              .attr("stroke", "none");
+          } else {
+            // One path per active colour layer, each at 1/7 opacity.
+            // Stacking N layers of 1/7 gives a combined opacity of N/7.
+            const layers = chordLayers(p);
+            layers.forEach((hex, i) => {
+              const { r, g, b } = hexToRgb(hex);
               gEl.append("path")
                 .attr("d", path)
-                .attr("fill", fill)
-                .attr("stroke", "none");
+                .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
+                .attr("stroke", i === 0 ? strokeCol : "none")
+                .attr("stroke-width", i === 0 ? 0.5 : 0);
             });
           }
         }
