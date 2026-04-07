@@ -747,6 +747,15 @@
         svgEl.setAttribute("height", side);
         wrap.appendChild(svgEl);
 
+        // Transparent background rect — clicking it clears the selection.
+        d3.select(svgEl)
+          .insert("rect", ":first-child")
+          .attr("width", W)
+          .attr("height", H)
+          .attr("fill", "transparent")
+          .style("cursor", "default")
+          .on("click", () => { if (selectedD) clearSelection(); });
+
         const svg = d3
           .select(svgEl)
           .append("g")
