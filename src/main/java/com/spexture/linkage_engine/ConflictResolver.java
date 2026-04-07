@@ -81,10 +81,9 @@ public class ConflictResolver {
             if (to.year() < from.year()) monthDelta = -monthDelta;
         }
         double days = yearDelta * 365.0 + monthDelta * 30.0;
-        // When same year and no month precision, we only know the events are within the same
-        // calendar year — up to 365 days could separate them.
+        // When same year and no month precision, assume a half-year gap as a conservative default.
         if (yearDelta == 0 && from.month() == null && to.month() == null) {
-            return 365.0;
+            return 182.5;
         }
         return Math.max(1.0, days);
     }

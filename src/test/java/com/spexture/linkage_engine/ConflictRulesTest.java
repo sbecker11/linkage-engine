@@ -252,11 +252,11 @@ class ConflictRulesTest {
     }
 
     @Test
-    void availableDays_sameYearNoMonth_returns365() {
-        // Same year, no month precision → up to 365 days could separate the records
+    void availableDays_sameYearNoMonth_returnsHalfYear() {
+        // Same year, no month precision → default to half-year (182.5 days)
         SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null, null);
         SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, null, null);
-        assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(365.0);
+        assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(182.5);
     }
 
     @Test
