@@ -269,6 +269,7 @@
           Hover an arc to highlight its connections &middot; hover a chord for
           details &middot; click a chord to pin
         </p>
+        <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
       </div>
       <div
         style="
@@ -785,6 +786,10 @@
 
         // Wire legend ↔ chord cross-highlighting now that ribs is in scope
         bindLegendHover(ribs, plausMap);
+
+        // Stamp the render time in the header
+        const ts = new Date().toUTCString();
+        document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
       }
 
       function showTip(event, d, records, matrix, plausMap) {
