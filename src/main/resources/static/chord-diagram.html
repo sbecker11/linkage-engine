@@ -458,7 +458,7 @@
                 location: rec.location,
               });
             } catch (e) {
-              console.warn("[resolve] failed for", rec.recordId, e.message);
+              // console.warn("[resolve] failed for", rec.recordId, e.message);
               return null;
             }
           }),
@@ -539,7 +539,7 @@
           "badge " + (isLocal ? "badge-local" : "badge-bedrock");
 
         if (isLocal) {
-          console.info("[chord] local profile — chord widths use rank-based estimates (no EmbeddingModel)");
+          // console.info("[chord] local profile — chord widths use rank-based estimates (no EmbeddingModel)");
         }
 
         if (pairSet.size === 0) {
@@ -565,7 +565,7 @@
                 });
                 plausMap.set(`${i}-${j}`, res);
               } catch (e) {
-                console.warn("[spatial] failed for pair", i, j, e.message);
+                // console.warn("[spatial] failed for pair", i, j, e.message);
                 plausMap.set(`${i}-${j}`, {
                   plausible: true,
                   transitMode: "unknown",
