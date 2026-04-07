@@ -485,6 +485,9 @@
         setProgress(50);
 
         const matrix = Array.from({ length: n }, () => new Array(n).fill(0));
+        // Tracks which (i,j) pairs have a real vector similarity vs an estimate.
+        // "real" = Bedrock embedding cosine score; "rank" = rank-based estimate; "family" = family-name fallback
+        const simSource = new Map();   // key "i-j" → "real" | "rank" | "family"
         const pairSet = new Map();
         let anyNull = false,
           anyReal = false;
@@ -504,6 +507,7 @@
               ? Math.round(cand.vectorSimilarity * 100)
               : Math.max(90 - rank * 7, 50);
             matrix[i][j] = sim;
+            simSource.set(`${i}-${j}`, hasSim ? "real" : "rank");
             const key = `${i}-${j}`;
             if (!pairSet.has(key))
               pairSet.set(key, {
@@ -536,6 +540,7 @@
             if (!sameFamilyName) continue;
             anyNull = true;
             matrix[i][j] = 60;
+            simSource.set(key, "family");
             pairSet.set(key, {
               i, j,
               nameA:      a.givenName,  locA: a.location, yearA: a.year, birthYearA: a.birthYear,
@@ -604,7 +609,7 @@
 
         setProgress(90);
         setStatus("");
-        render(records, matrix, plausMap);
+        render(records, matrix, plausMap, simSource);
         setProgress(100);
         setTimeout(() => setProgress(0), 700);
       }
@@ -721,7 +726,7 @@
         });
       }
 
-      function render(records, matrix, plausMap) {
+      function render(records, matrix, plausMap, simSource) {
         const W = 700,
           H = 700,
           CX = 350,
@@ -832,7 +837,7 @@
           .on("mouseover", (event, d) => {
             dimAllExcept(d);
             highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
-            showTip(event, d, records, matrix, plausMap);
+            showTip(event, d, records, matrix, plausMap, simSource);
           })
           .on("mousemove", moveTip)
           .on("mouseout", () => {
@@ -840,7 +845,7 @@
             resetLegend();
             hideTip();
           })
-          .on("click", (event, d) => pinDetail(d, records, matrix, plausMap));
+          .on("click", (event, d) => pinDetail(d, records, matrix, plausMap, simSource));
 
         // Alias used by legend hover and arc hover handlers below.
         const ribs = ribGroups;
@@ -931,63 +936,81 @@
       }
 
       // ── Signal percentages ────────────────────────────────────────────────────
-      // Derives age-match %, gender-match % and travel-match % from a plausMap entry.
-      // All three are 0–100; higher = more consistent / more plausible.
+      // Returns labelled signal objects for display in tooltip and detail panel.
+      // null means "no data available for this signal" (rule never ran / no birth year).
       function signalPcts(p) {
-        if (!p) return { age: null, gender: null, travel: null };
+        if (!p) return { age: null, gender: null, travel: null, sameCity: false };
         const penalties = p.rulePenalties || {};
 
-        // Age: 0 penalty → 100 %, max penalty (50) → 0 %
+        // Age consistency: CONTRADICTS (−40) → 20%, IMPLAUSIBLE (−50) → 0%.
+        // null when neither record had a birth year (rule skipped).
         const agePenalty = penalties["AgeConsistencyRule"] ?? null;
         const age = agePenalty === null ? null : Math.round(100 - (agePenalty / 50) * 100);
 
-        // Gender: no rule → 100 %, penalty 20 (out of max 50) → 60 %
+        // Gender: binary — either names agree (null, not shown) or they conflict (0%).
+        // We show null when the rule didn't fire so the badge is absent for clean pairs.
         const genderPenalty = penalties["GenderPlausibilityRule"] ?? null;
-        const gender = genderPenalty === null ? null : Math.round(100 - (genderPenalty / 50) * 100);
+        const gender = genderPenalty === null ? null : 0;   // conflict = 0 %, no conflict = not shown
 
-        // Travel: ratio of available days to travel days, capped at 100 %
-        const ratio = (p.availableDays || 365) / Math.max(1, p.travelDays || 1);
-        // ratio ≥ 10 → 100 %, ratio = 1 → 10 %, ratio < 1 → 0 %
-        const travel = p.plausible
-          ? Math.min(100, Math.round((Math.log10(Math.max(1, ratio)) / Math.log10(10)) * 100))
-          : 0;
+        // Travel plausibility: 0% when impossible, otherwise margin expressed as
+        // a log-scaled percentage (ratio ≥ 10× → 100%, ratio = 1× → 0%).
+        // Same-city pairs (travelDays < 0.1) are flagged separately — ratio is meaningless.
+        const sameCity = (p.travelDays || 0) < 0.1;
+        const ratio = (p.availableDays || 365) / Math.max(0.1, p.travelDays || 1);
+        const travel = sameCity ? null
+          : p.plausible
+            ? Math.min(100, Math.round((Math.log10(Math.max(1, ratio)) / 1) * 40))
+            : 0;
 
-        return { age, gender, travel };
+        return { age, gender, travel, sameCity };
       }
 
-      // Renders a small coloured percentage badge: "Age 60 %" in cherry etc.
-      function pctBadge(label, pct, color) {
+      // Renders a small coloured percentage badge, e.g. "Age match: 20%".
+      // Returns "" when pct is null (signal not available).
+      function pctBadge(label, pct, conflictColor) {
         if (pct === null) return "";
-        const col = pct >= 80 ? "#2a7a5a" : pct >= 50 ? "#b07a10" : color;
-        return `<span style="color:${col};font-weight:600">${label} ${pct}%</span>`;
+        const col = pct >= 80 ? "#2a7a5a" : pct >= 50 ? "#b07a10" : conflictColor;
+        return `<span style="color:${col};font-weight:600">${label}: ${pct}%</span>`;
       }
 
-      function showTip(event, d, records, matrix, plausMap) {
-        const p = plausMap.get(`${d.source.index}-${d.target.index}`);
-        const src = records[d.source.index];
-        const tgt = records[d.target.index];
-        const sim = matrix[d.source.index][d.target.index];
+      // Returns a human-readable label for the similarity score source.
+      function simLabel(si, ti, sim, simSource) {
+        const src = simSource?.get(`${si}-${ti}`);
+        if (src === "real")   return `Vector similarity ${sim}%`;
+        if (src === "rank")   return `Name similarity ~${sim}% (rank estimate)`;
+        if (src === "family") return `Family-name match (no vector score)`;
+        return `Similarity ${sim}%`;
+      }
+
+      function showTip(event, d, records, matrix, plausMap, simSource) {
+        const si = d.source.index, ti = d.target.index;
+        const p   = plausMap.get(`${si}-${ti}`);
+        const src = records[si];
+        const tgt = records[ti];
+        const sim = matrix[si][ti];
         const tip = document.getElementById("tip");
-        const mode = p
-          ? (p.transitMode || "unknown").replace(/_/g, " ")
-          : "\u2014";
+        const mode = p ? (p.transitMode || "unknown").replace(/_/g, " ") : "\u2014";
         const plaus = p
           ? p.plausible
-            ? `plausible &middot; ${p.travelDays?.toFixed(1)}d needed, ${p.availableDays?.toFixed(0)}d available`
+            ? `plausible &middot; ${p.travelDays?.toFixed(1)}d travel, ${p.availableDays?.toFixed(0)}d available`
             : `<strong style="color:#A32D2D">\u26a0 impossible</strong> &middot; ${p.travelDays?.toFixed(0)}d needed, ${p.availableDays?.toFixed(0)}d available`
           : "\u2014";
 
-        const { age, gender, travel } = signalPcts(p);
+        const { age, gender, travel, sameCity } = signalPcts(p);
+        const travelBadge = sameCity
+          ? `<span style="color:#888">Same city</span>`
+          : pctBadge("Travel margin", travel, "#e24b4a");
         const badges = [
-          pctBadge("Travel", travel, "#e24b4a"),
-          pctBadge("Age",    age,    "#c2185b"),
-          pctBadge("Gender", gender, "#e040fb"),
+          travelBadge,
+          pctBadge("Age match",    age,    "#c2185b"),
+          gender !== null ? `<span style="color:#e040fb;font-weight:600">Gender: conflict</span>` : "",
         ].filter(Boolean).join(" &middot; ");
 
         tip.innerHTML =
           `<strong>${src.givenName || ""} ${src.familyName || src.name || ""}</strong> &middot; ${src.location} ${src.year}<br>` +
           `&rarr; <strong>${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}</strong> &middot; ${tgt.location} ${tgt.year}<br>` +
-          `Similarity: ${sim}% &middot; ${mode} &middot; ${plaus}` +
+          `${simLabel(si, ti, sim, simSource)}<br>` +
+          `${mode} &middot; ${plaus}` +
           (badges ? `<br>${badges}` : "");
         tip.style.opacity = "1";
         tip.style.left = event.clientX + 16 + "px";
@@ -1004,11 +1027,12 @@
         document.getElementById("tip").style.opacity = "0";
       }
 
-      function pinDetail(d, records, matrix, plausMap) {
-        const p = plausMap.get(`${d.source.index}-${d.target.index}`);
-        const src = records[d.source.index];
-        const tgt = records[d.target.index];
-        const sim = matrix[d.source.index][d.target.index];
+      function pinDetail(d, records, matrix, plausMap, simSource) {
+        const si = d.source.index, ti = d.target.index;
+        const p   = plausMap.get(`${si}-${ti}`);
+        const src = records[si];
+        const tgt = records[ti];
+        const sim = matrix[si][ti];
         const det = document.getElementById("detail");
         const adj = p?.confidenceAdjustment || 0;
         const rules = p?.rulesTriggered || [];
@@ -1037,11 +1061,14 @@
         const plausText = isImpossible
           ? `\u26a0 impossible \u2014 ${p.travelDays?.toFixed(0)}d required by ${mode}, only ${p.availableDays?.toFixed(0)}d available`
           : `${mode} \u2014 ${p?.travelDays?.toFixed(1) ?? "?"}d needed, ${p?.availableDays?.toFixed(0) ?? "?"}d available &middot; ${confLabel}`;
-        const { age, gender, travel } = signalPcts(p);
-        const ageLine   = age    !== null ? `<span style="color:${age    >= 80 ? '#2a7a5a' : age    >= 50 ? '#b07a10' : '#c2185b'};font-weight:600">Age match ${age}%</span>` : "";
-        const genderLine= gender !== null ? `<span style="color:${gender >= 80 ? '#2a7a5a' : gender >= 50 ? '#b07a10' : '#e040fb'};font-weight:600">Gender match ${gender}%</span>` : "";
-        const travelLine= travel !== null ? `<span style="color:${travel >= 80 ? '#2a7a5a' : travel >= 50 ? '#b07a10' : '#e24b4a'};font-weight:600">Travel match ${travel}%</span>` : "";
-        const signalRow = [travelLine, ageLine, genderLine].filter(Boolean).join(" &middot; ");
+        const { age, gender, travel, sameCity } = signalPcts(p);
+        const travelLine = sameCity
+          ? `<span style="color:#888">Same city — travel distance n/a</span>`
+          : travel !== null ? `<span style="color:${travel >= 80 ? '#2a7a5a' : travel >= 50 ? '#b07a10' : '#e24b4a'};font-weight:600">Travel margin ${travel}%</span>` : "";
+        const ageLine    = age    !== null ? `<span style="color:${age >= 80 ? '#2a7a5a' : age >= 50 ? '#b07a10' : '#c2185b'};font-weight:600">Age match ${age}%</span>` : "";
+        const genderLine = gender !== null ? `<span style="color:#e040fb;font-weight:600">Gender: conflict (names infer opposite sexes)</span>` : "";
+        const simLine    = `<span style="color:#5f5e5a">${simLabel(si, ti, sim, simSource)}</span>`;
+        const signalRow  = [travelLine, ageLine, genderLine].filter(Boolean).join(" &middot; ");
 
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
@@ -1051,7 +1078,7 @@
                 ${src.givenName || ""} ${src.familyName || src.name || ""} &middot; ${src.location} ${src.year}
                 &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
               </p>
-              <p class="det-sub">Similarity ${sim}% &middot; ${plausText}</p>
+              <p class="det-sub">${simLine} &middot; ${plausText}</p>
               ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
             </div>
             <span class="det-conf ${confClass}">${conf}%</span>
