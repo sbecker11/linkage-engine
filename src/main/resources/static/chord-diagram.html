@@ -144,11 +144,26 @@
       .legend {
         display: flex;
         flex-wrap: wrap;
-        gap: 16px;
+        gap: 6px 20px;
         margin-top: 12px;
         font-size: 11px;
         color: #6b6b63;
         justify-content: center;
+        align-items: baseline;
+      }
+      .legend-group-label {
+        width: 100%;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #999;
+        margin-top: 6px;
+        margin-bottom: 2px;
+      }
+      .legend-group-label:first-child {
+        margin-top: 0;
       }
       .legend span {
         cursor: pointer;
@@ -162,6 +177,14 @@
       }
       .legend span.legend-dim {
         opacity: 0.3;
+      }
+      .legend-step {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        color: #aaa;
+        margin-right: 3px;
+        vertical-align: middle;
       }
       .dot {
         display: inline-block;
@@ -292,13 +315,15 @@
         <div id="empty-msg"></div>
       </div>
       <div class="legend">
-        <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times;</span>
-        <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Plausible &middot; margin 4–10&times;</span>
-        <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Plausible &middot; margin 2–4&times;</span>
-        <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight &lt;2&times;</span>
-        <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Impossible &middot; travel time</span>
-        <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span>Impossible &middot; age inconsistency</span>
-        <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span>Conflict &middot; gender mismatch</span>
+        <div class="legend-group-label">Plausible — travel margin</div>
+        <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Comfortable &nbsp;&ge;10&times;</span>
+        <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Moderate &nbsp;4–10&times;</span>
+        <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Moderate &nbsp;2–4&times;</span>
+        <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
+        <div class="legend-group-label">Conflict rules — applied in order</div>
+        <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span><span class="legend-step">①</span>PhysicalImpossibility &middot; travel time</span>
+        <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span><span class="legend-step">②</span>AgeConsistency &middot; birth-year clash</span>
+        <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span><span class="legend-step">③</span>GenderPlausibility &middot; name mismatch</span>
       </div>
       <div id="detail"></div>
     </main>
