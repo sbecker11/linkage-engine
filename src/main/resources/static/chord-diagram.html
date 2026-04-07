@@ -1150,9 +1150,16 @@
 
         const travelArrow = (() => {
           if (!p || sameCity) return `<span style="color:#aaa;font-size:18px">↕</span><span style="color:#aaa;font-size:10px"> same city</span>`;
-          const days = p.travelDays != null ? `${p.travelDays.toFixed(1)} days` : "";
-          const col  = p.plausible ? travelColor : "#e24b4a";
-          return `<span style="color:${col};font-size:18px">↓</span>${days ? `<span style="color:${col};font-size:10px"> ~${days} travel</span>` : ""}`;
+          const days  = p.travelDays != null ? `${p.travelDays.toFixed(1)} days` : "";
+          const col   = p.plausible ? travelColor : "#e24b4a";
+          const ratio = p.availableDays / Math.max(0.1, p.travelDays);
+          const margin = !p.plausible          ? "impossible"
+                       : ratio >= 10           ? "very comfortable"
+                       : ratio >= 4            ? "comfortable"
+                       : ratio >= 2            ? "moderate"
+                       :                        "tight";
+          const marginStr = days ? ` (${margin})` : "";
+          return `<span style="color:${col};font-size:18px">↓</span>${days ? `<span style="color:${col};font-size:10px"> ~${days} travel${marginStr}</span>` : ""}`;
         })();
 
         det.innerHTML = `
