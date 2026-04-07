@@ -960,40 +960,58 @@
       // ── Chord story builder ───────────────────────────────────────────────────
       // Builds a structured narrative for a chord. Both showTip and pinDetail
       // consume this — tooltip shows headline + flags, detail shows everything.
-      function chordStory(p, srcRec, tgtRec, si, ti, sim, simSource) {
-        const name = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
-        const loc  = (r) => `${r.location}${r.year ? ", " + r.year : ""}`;
-        const born = (r) => r.birthYear ? `born ${r.birthYear}` : null;
+      function chordStory(p, recA, recB, si, ti, sim, simSource) {
+        const fullName = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
+        const gender   = (r) => inferGenderLabel(r.givenName);
+        const attrs    = (r) => {
+          const parts = [];
+          if (r.birthYear) parts.push(`born ${r.birthYear}`);
+          const g = gender(r);
+          if (g !== "ambiguous" && g !== "unknown") parts.push(g);
+          return parts.length ? `(${parts.join(", ")})` : "";
+        };
 
-        // ── Who ───────────────────────────────────────────────────────────────
-        const srcLine = born(srcRec) ? `${name(srcRec)} (${born(srcRec)})` : name(srcRec);
-        const tgtLine = born(tgtRec) ? `${name(tgtRec)} (${born(tgtRec)})` : name(tgtRec);
+        // ── Sort by year so departure is always the earlier record ────────────
+        const [srcRec, tgtRec] = (recA.year || 0) <= (recB.year || 0)
+          ? [recA, recB] : [recB, recA];
+
+        const srcLine = `${fullName(srcRec)} ${attrs(srcRec)}`.trim();
+        const tgtLine = `${fullName(tgtRec)} ${attrs(tgtRec)}`.trim();
 
         // ── Name match ────────────────────────────────────────────────────────
         const a = Math.min(si, ti), b = Math.max(si, ti);
         const srcType = simSource?.get(`${a}-${b}`);
+        const sameGiven = (recA.givenName || "").toLowerCase() === (recB.givenName || "").toLowerCase();
+        const sameFull  = sameGiven &&
+          (recA.familyName || "").toLowerCase() === (recB.familyName || "").toLowerCase();
         const nameMatch = srcType === "real"   ? `Name/text similarity: ${sim}% (vector score)`
                         : srcType === "rank"   ? `Name similarity: ~${sim}% (rank estimate)`
-                        : srcType === "family" ? `Shared family name "${srcRec.familyName || tgtRec.familyName}" — given names differ`
+                        : sameFull             ? `Exact name match: "${fullName(recA)}"`
+                        : srcType === "family" ? `Shared family name "${recA.familyName || recB.familyName}" — given names differ ("${recA.givenName}" vs "${recB.givenName}")`
                         :                       `Similarity: ${sim}%`;
 
         // ── Travel ────────────────────────────────────────────────────────────
         const sameCity = (p?.travelDays || 0) < 0.1;
         const mode = p ? (p.transitMode || "unknown").replace(/_/g, " ") : null;
+        const yearDiff = (tgtRec.year || 0) - (srcRec.year || 0);
         let travelLine, travelFlag, travelColor;
         if (!p) {
           travelLine = "No travel data available.";
           travelFlag = null; travelColor = "#888";
-        } else if (sameCity) {
+        } else if (yearDiff < 0) {
+          // Sorted by year above, so this shouldn't happen — but guard anyway
+          travelLine = `⚠ Records are in reverse chronological order (${srcRec.year} → ${tgtRec.year}).`;
+          travelFlag = "Reversed dates"; travelColor = "#e24b4a";
+        } else if (sameCity && srcRec.location === tgtRec.location) {
           travelLine = `Same city (${srcRec.location}) — no travel required.`;
-          travelFlag = "Same city"; travelColor = "#888";
+          travelFlag = null; travelColor = "#888";
         } else if (!p.plausible) {
-          travelLine = `⚠ Physically impossible: ${mode} would take ${Math.round(p.travelDays)} days but only ${Math.round(p.availableDays)} days elapsed between records.`;
+          travelLine = `⚠ Physically impossible: ${srcRec.location} → ${tgtRec.location} via ${mode} requires ~${Math.round(p.travelDays)} days, but only ${Math.round(p.availableDays)} days elapsed (${srcRec.year} → ${tgtRec.year}).`;
           travelFlag = "Impossible journey"; travelColor = "#e24b4a";
         } else {
           const ratio = p.availableDays / Math.max(0.1, p.travelDays);
           const margin = ratio >= 10 ? "comfortable" : ratio >= 4 ? "moderate" : ratio >= 2 ? "tight" : "very tight";
-          travelLine = `Journey plausible via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available (${margin} margin).`;
+          travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
           travelFlag = null; travelColor = "#2a7a5a";
         }
 
@@ -1035,7 +1053,7 @@
           ? "No conflicts detected — records are consistent."
           : `${flags.length} conflict${flags.length > 1 ? "s" : ""} detected: ${flags.join("; ")}.`;
 
-        return { srcLine, tgtLine, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
+        return { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
       }
 
       // Simple gender label for the story — mirrors GivenNameGenderProvider.
@@ -1056,14 +1074,17 @@
         const sim = matrix[si][ti];
         const tip = document.getElementById("tip");
 
-        const { srcLine, tgtLine, nameMatch, travelLine, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+        const { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictSummary = [ageLine, genderLine].filter(Boolean)
           .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
 
         tip.innerHTML =
-          `<strong>${srcLine}</strong> &middot; ${src.location} ${src.year || ""}<br>` +
-          `&rarr; <strong>${tgtLine}</strong> &middot; ${tgt.location} ${tgt.year || ""}<br>` +
+          `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Departure</span><br>` +
+          `<strong>${srcLine}</strong><br><span style="color:#666">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
+          `<span style="color:#aaa">↓</span><br>` +
+          `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Arrival</span><br>` +
+          `<strong>${tgtLine}</strong><br><span style="color:#666">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
           `<span style="color:#5f5e5a;font-size:10px">${nameMatch}</span>` +
           (conflictSummary ? `<br>${conflictSummary}` : `<br><span style="color:#2a7a5a;font-size:10px">${flags.length === 0 ? "No conflicts" : ""}</span>`);
         tip.style.opacity = "1";
@@ -1104,7 +1125,7 @@
         det.className = detClass;
         det.style.display = "block";
 
-        const { srcLine, tgtLine, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+        const { srcLine, tgtLine, srcRec, tgtRec, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictItems = [ageLine, genderLine].filter(Boolean)
           .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
@@ -1114,11 +1135,13 @@
         det.innerHTML = `
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
+            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Departure</p>
             <p class="det-title">${srcLine}</p>
-            <p class="det-sub" style="color:#888">${src.location} &middot; ${src.year || "?"}</p>
-            <p style="color:#888;margin:4px 0">↓</p>
+            <p class="det-sub" style="color:#888">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
+            <p style="color:#aaa;margin:4px 0;font-size:18px">↓</p>
+            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Arrival</p>
             <p class="det-title">${tgtLine}</p>
-            <p class="det-sub" style="color:#888">${tgt.location} &middot; ${tgt.year || "?"}</p>
+            <p class="det-sub" style="color:#888">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
 
             <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
 
