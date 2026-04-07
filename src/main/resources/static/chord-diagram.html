@@ -141,41 +141,49 @@
         padding: 40px 0;
         display: none;
       }
-      .legend {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px 20px;
-        margin-top: 12px;
+      #legend {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 18%;
+        height: 100%;
+        overflow-y: auto;
+        padding: 20px 16px;
+        background: #f5f4ef;
+        border-left: 1px solid #d3d1c7;
         font-size: 11px;
         color: #6b6b63;
-        justify-content: center;
-        align-items: baseline;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        box-sizing: border-box;
       }
       .legend-group-label {
-        width: 100%;
-        text-align: center;
         font-size: 10px;
         font-weight: 600;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: #999;
-        margin-top: 6px;
-        margin-bottom: 2px;
+        margin: 10px 0 4px;
       }
       .legend-group-label:first-child {
         margin-top: 0;
       }
-      .legend span {
+      #legend span[data-color] {
+        display: flex;
+        align-items: center;
+        gap: 7px;
         cursor: pointer;
         border-radius: 4px;
-        padding: 2px 5px;
+        padding: 3px 5px;
         transition: background 0.15s, color 0.15s;
+        white-space: nowrap;
       }
-      .legend span.legend-active {
+      #legend span[data-color].legend-active {
         background: #1a1a18;
         color: #fafaf9;
       }
-      .legend span.legend-dim {
+      #legend span[data-color].legend-dim {
         opacity: 0.3;
       }
       .legend-step {
@@ -183,16 +191,14 @@
         font-size: 9px;
         font-weight: 700;
         color: #aaa;
-        margin-right: 3px;
-        vertical-align: middle;
+        flex-shrink: 0;
       }
       .dot {
         display: inline-block;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        margin-right: 4px;
-        vertical-align: middle;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex-shrink: 0;
       }
       #detail {
         display: none;
@@ -335,20 +341,20 @@
       <div id="chart-wrap">
         <div id="empty-msg"></div>
       </div>
-      <div class="legend">
-        <div class="legend-group-label">Plausible — travel margin</div>
-        <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Comfortable &nbsp;&ge;10&times;</span>
-        <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Moderate &nbsp;4–10&times;</span>
-        <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Moderate &nbsp;2–4&times;</span>
-        <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
-        <div class="legend-group-label">Conflict rules — applied in order</div>
-        <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span><span class="legend-step">①</span>PhysicalImpossibility &middot; travel time</span>
-        <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span><span class="legend-step">②</span>AgeConsistency &middot; birth-year clash</span>
-        <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span><span class="legend-step">③</span>GenderPlausibility &middot; name mismatch</span>
-      </div>
     </main>
 
     <div id="detail"></div>
+    <div id="legend">
+      <div class="legend-group-label">Plausible — travel margin</div>
+      <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Very comfortable &nbsp;&ge;10&times;</span>
+      <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Comfortable &nbsp;4–10&times;</span>
+      <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Moderate &nbsp;2–4&times;</span>
+      <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
+      <div class="legend-group-label">Conflict rules — applied in order</div>
+      <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span><span class="legend-step">①</span> PhysicalImpossibility</span>
+      <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span><span class="legend-step">②</span> AgeConsistency</span>
+      <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span><span class="legend-step">③</span> GenderPlausibility</span>
+    </div>
     <div class="tip" id="tip"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -703,7 +709,7 @@
       // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
 
       function legendItems() {
-        return Array.from(document.querySelectorAll(".legend span[data-color]"));
+        return Array.from(document.querySelectorAll("#legend span[data-color]"));
       }
 
       // Highlight the legend item whose data-color matches `color`; dim others.
