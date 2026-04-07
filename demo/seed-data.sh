@@ -62,20 +62,30 @@ POST '{"recordId":"DEMO-I","givenName":"Thomas","familyName":"Wilson","eventYear
 POST '{"recordId":"DEMO-J","givenName":"Thomas","familyName":"Wilson","eventYear":1851,"birthYear":1780,"location":"Philadelphia","rawContent":"Thomas Wilson, Philadelphia, 1851 — probate record"}' \
      "DEMO-J  Thomas Wilson  Philadelphia 1851  born 1780  (age 71)"
 
-# ── DEMO-K / DEMO-L : Gender conflict (→ magenta chord) ──────────────────────
+# ── DEMO-K / DEMO-L : Gender conflict, same city (→ magenta chord) ───────────
 # "Mary" (female) vs "Robert" (male) — same family name, same city, same year
 POST '{"recordId":"DEMO-K","givenName":"Mary","familyName":"Taylor","eventYear":1850,"birthYear":1825,"location":"Philadelphia","rawContent":"Mary Taylor, Philadelphia, 1850 — marriage record"}' \
      "DEMO-K  Mary Taylor    Philadelphia 1850  born 1825  (female)"
 POST '{"recordId":"DEMO-L","givenName":"Robert","familyName":"Taylor","eventYear":1851,"birthYear":1825,"location":"Philadelphia","rawContent":"Robert Taylor, Philadelphia, 1851 — city directory"}' \
      "DEMO-L  Robert Taylor  Philadelphia 1851  born 1825  (male)"
 
+# ── DEMO-M / DEMO-N : Travel + gender conflict (→ travel + magenta layers) ───
+# Elizabeth Harris departs Boston 1850; William Harris arrives New York 1851.
+# Plausible travel (Boston→NY, 1 year) but female→male name at journey endpoints
+# → travel colour layer + magenta gender-conflict layer stacked on the chord.
+POST '{"recordId":"DEMO-M","givenName":"Elizabeth","familyName":"Harris","eventYear":1850,"birthYear":1828,"location":"Boston","rawContent":"Elizabeth Harris, Boston, 1850 — passenger list"}' \
+     "DEMO-M  Elizabeth Harris  Boston    1850  born 1828  (female, departure)"
+POST '{"recordId":"DEMO-N","givenName":"William","familyName":"Harris","eventYear":1851,"birthYear":1828,"location":"New York","rawContent":"William Harris, New York, 1851 — census record"}' \
+     "DEMO-N  William Harris    New York  1851  born 1828  (male, arrival)"
+
 echo ""
-echo "=== Seed complete: 12 records ingested ==="
+echo "=== Seed complete: 14 records ingested ==="
 echo ""
 echo "Expected chord colours:"
-echo "  Green   — DEMO-A ↔ DEMO-B  (plausible, comfortable)"
-echo "  Blue    — DEMO-C ↔ DEMO-D  (plausible, moderate)"
-echo "  Amber   — DEMO-E ↔ DEMO-F  (plausible, narrow margin)"
-echo "  Red     — DEMO-G ↔ DEMO-H  (physical impossibility)"
-echo "  Cherry  — DEMO-I ↔ DEMO-J  (age contradiction)"
-echo "  Magenta — DEMO-K ↔ DEMO-L  (gender conflict)"
+echo "  Green        — DEMO-A ↔ DEMO-B  (plausible, comfortable)"
+echo "  Blue         — DEMO-C ↔ DEMO-D  (plausible, moderate)"
+echo "  Amber        — DEMO-E ↔ DEMO-F  (plausible, narrow margin)"
+echo "  Red          — DEMO-G ↔ DEMO-H  (physical impossibility)"
+echo "  Cherry       — DEMO-I ↔ DEMO-J  (age contradiction)"
+echo "  Magenta      — DEMO-K ↔ DEMO-L  (gender conflict, same city)"
+echo "  Green+Magenta— DEMO-M ↔ DEMO-N  (plausible travel + gender conflict)"
