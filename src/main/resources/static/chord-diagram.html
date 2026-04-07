@@ -1026,12 +1026,12 @@
             // Negative age — birth year is after event year (e.g. OCR error)
             const badRec  = ageA < 0 ? srcRec : tgtRec;
             const badAge  = ageA < 0 ? ageA   : ageB;
-            ageLine = `⚠ Impossible age: ${name(badRec)} (born ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
+            ageLine = `⚠ Impossible age: ${fullName(badRec)} (born ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
             ageFlag = `Impossible age (${badAge})`;
           } else if (ageA !== null && ageB !== null) {
             const ageDelta  = Math.abs(ageB - ageA);
             const yearDelta = Math.abs(tgtRec.year - srcRec.year);
-            ageLine = `⚠ Age contradiction: ${name(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${name(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
+            ageLine = `⚠ Age contradiction: ${fullName(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${fullName(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
             ageFlag = `Age gap ${ageDelta} yrs / ${yearDelta} calendar yr${yearDelta !== 1 ? "s" : ""}`;
           } else {
             ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
