@@ -181,6 +181,16 @@
         border-radius: 2px;
         flex-shrink: 0;
       }
+      .panel-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        color: #aaa;
+        margin: 0 0 12px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+      }
       #detail {
         display: none;
         position: fixed;
@@ -325,6 +335,7 @@
 
     <div id="detail"></div>
     <div id="legend">
+      <p class="panel-title">Chord Legend</p>
       <div class="legend-group-label">Plausible — travel margin</div>
       <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Very comfortable &nbsp;&ge;10&times;</span>
       <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Comfortable &nbsp;4–10&times;</span>
@@ -1187,6 +1198,7 @@
         })();
 
         det.innerHTML = `
+          <p class="panel-title">Chord Details</p>
           <button class="det-close" title="Close">&times;</button>
           <div class="det-row">
             <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 1px">Departure</p>
