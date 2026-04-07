@@ -76,4 +76,28 @@ class HistoricalTransitServiceTest {
         assertThat(coords[0]).isEqualTo(51.5);
         assertThat(coords[1]).isEqualTo(-0.1);
     }
+
+    @Test
+    void nullLocationFallsBackToCentralUS() {
+        SpatioTemporalRecord rec = new SpatioTemporalRecord("id", null, null, null, 1850, null);
+        double[] coords = service.resolveCoords(rec);
+        assertThat(coords[0]).isCloseTo(39.5, within(1.0));
+    }
+
+    @Test
+    void pre1830CrossContinentStillUsesOceanShip() {
+        // pre-1830 but crosses continent → ocean ship wins (Cape Horn)
+        HistoricalTransitService.TransitEstimate est =
+            service.estimate(rec("Boston", 1820), rec("San Francisco", 1820));
+        assertThat(est.mode()).isEqualTo("ocean_ship");
+        assertThat(est.travelDays()).isGreaterThan(100.0);
+    }
+
+    @Test
+    void eastCoastToEastCoastDoesNotCrossContinent() {
+        // Both cities east of -100 → no continent crossing
+        HistoricalTransitService.TransitEstimate est =
+            service.estimate(rec("Boston", 1840), rec("New York", 1840));
+        assertThat(est.mode()).isEqualTo("railroad_eastern");
+    }
 }

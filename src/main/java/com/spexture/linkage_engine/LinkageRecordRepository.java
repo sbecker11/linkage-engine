@@ -2,6 +2,8 @@ package com.spexture.linkage_engine;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -88,6 +90,59 @@ public class LinkageRecordRepository implements LinkageRecordStore {
             request.givenName()  == null ? "" : request.givenName()
         );
     }
+
+    @Override
+    public List<ReindexRecord> findSince(Instant since) {
+        String sql;
+        Object[] params;
+        if (since == null) {
+            sql = """
+                select record_id, given_name, family_name, event_year, location, source
+                from records
+                order by created_at asc
+                """;
+            params = new Object[]{};
+        } else {
+            sql = """
+                select record_id, given_name, family_name, event_year, location, source
+                from records
+                where updated_at >= ? or created_at >= ?
+                order by created_at asc
+                """;
+            Timestamp ts = Timestamp.from(since);
+            params = new Object[]{ts, ts};
+        }
+        return jdbcTemplate.query(sql, REINDEX_ROW_MAPPER, params);
+    }
+
+    @Override
+    public List<CandidateRecord> findByLocationAndYearRange(String location, int year, int yearTolerance) {
+        return jdbcTemplate.query(
+            """
+                select record_id, given_name, family_name, event_year, location
+                from records
+                where lower(location) like lower(?)
+                  and abs(event_year - ?) <= ?
+                order by event_year asc
+                limit 100
+                """,
+            CANDIDATE_ROW_MAPPER,
+            "%" + location + "%",
+            year,
+            yearTolerance
+        );
+    }
+
+    private static final RowMapper<ReindexRecord> REINDEX_ROW_MAPPER = (rs, rowNum) ->
+        new ReindexRecord(
+            rs.getString("record_id"),
+            rs.getString("given_name"),
+            rs.getString("family_name"),
+            rs.getObject("event_year", Integer.class),
+            rs.getString("location"),
+            rs.getString("source"),
+            null  // rawContent not stored in records table; re-embed from structured fields
+        );
 
     private String normalizeGivenName(String givenName) {
         if (givenName == null) {

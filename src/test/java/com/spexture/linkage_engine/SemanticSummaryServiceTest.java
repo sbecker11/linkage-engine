@@ -92,4 +92,29 @@ class SemanticSummaryServiceTest {
         String summary = service.buildDeterministicSummary(List.of());
         assertThat(summary).isEqualTo("No candidates found.");
     }
+
+    @Test
+    void promptIncludesNaWhenScoreAbsent() {
+        SemanticSummaryService service = new SemanticSummaryService(null, false);
+        List<CandidateScore> noScores = List.of(
+            new CandidateScore("R-1001", null)
+        );
+        String prompt = service.buildPrompt(QUERY, CANDIDATES, noScores);
+        assertThat(prompt).contains("n/a");
+    }
+
+    @Test
+    void promptIncludesApproxYearAndLocation() {
+        SemanticSummaryService service = new SemanticSummaryService(null, false);
+        String prompt = service.buildPrompt(QUERY, CANDIDATES, SCORES);
+        assertThat(prompt).contains("approxYear=1850").contains("location=Boston");
+    }
+
+    @Test
+    void promptOmitsNullYearAndLocation() {
+        RecordSearchRequest noYearNoLoc = new RecordSearchRequest("John", "Smith", null, null, null);
+        SemanticSummaryService service = new SemanticSummaryService(null, false);
+        String prompt = service.buildPrompt(noYearNoLoc, CANDIDATES, SCORES);
+        assertThat(prompt).doesNotContain("approxYear").doesNotContain("location=");
+    }
 }

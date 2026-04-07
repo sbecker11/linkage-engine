@@ -48,6 +48,52 @@ record RecordSearchRequest(
     String rawQuery
 ) {}
 
+/** Full record projection used by the reindex pipeline. */
+record ReindexRecord(
+    String recordId,
+    String givenName,
+    String familyName,
+    Integer eventYear,
+    String location,
+    String source,
+    String rawContent
+) {}
+
+/** Result item from a semantic similarity search. */
+record SemanticSearchResult(
+    String recordId,
+    double score,
+    String snippet,
+    java.util.Map<String, Object> metadata
+) {}
+
+/** Response envelope for GET /v1/search/semantic. */
+record SemanticSearchResponse(
+    List<SemanticSearchResult> results,
+    boolean localProfile,
+    int totalResults
+) {}
+
+/** Response for PUT /v1/vectors/reindex. */
+record ReindexResponse(
+    int recordsProcessed,
+    int chunksWritten,
+    long durationMs,
+    List<String> errors
+) {}
+
+/** Aggregated neighborhood context for GET /v1/context/neighborhood-snapshot. */
+record NeighborhoodSnapshot(
+    String location,
+    int year,
+    int recordCount,
+    List<String> commonNames,
+    int yearRangeMin,
+    int yearRangeMax,
+    String contextSummary,
+    boolean llmUsed
+) {}
+
 /**
  * One anchor point in a spatio-temporal plausibility check.
  * {@code lat}/{@code lon} are optional; if absent, {@code location} is resolved via the built-in city table.

@@ -59,4 +59,25 @@ class ChatControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().string("Current time in Chicago is ..."));
     }
+
+    @Test
+    void dateTimeAtLocationUsesDefaultWhenLocationBlank() throws Exception {
+        when(chatModel.call(anyString())).thenReturn("Default location time ...");
+
+        mockMvc.perform(post("/api/dateTimeAtLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"location\":\"\"}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void dateTimeAtLocationReturnsBadGatewayOnError() throws Exception {
+        when(chatModel.call(anyString())).thenThrow(new RuntimeException("timeout"));
+
+        mockMvc.perform(post("/api/dateTimeAtLocation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"location\":\"Boston\"}"))
+            .andExpect(status().isBadGateway())
+            .andExpect(jsonPath("$.error").value("Unable to get date/time response from model."));
+    }
 }

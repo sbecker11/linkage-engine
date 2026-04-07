@@ -90,6 +90,17 @@ class RecordIngestServiceTest {
     }
 
     @Test
+    void ingestNoopsWhenMutatorNull() {
+        EmbeddingModel embed = mock(EmbeddingModel.class);
+        RecordIngestRequest req = new RecordIngestRequest(
+            "R-9", "A", "B", 1, "L", "src", null, Boolean.TRUE
+        );
+        // Should not throw
+        new RecordIngestService(null, embed, null, "model", CLEANSING).ingest(req);
+        verify(embed, never()).embed(any(Document.class));
+    }
+
+    @Test
     void buildEmbeddingTextFallsBackToStructuredFieldsWhenNoRawContent() {
         RecordIngestService svc = new RecordIngestService(
             mock(LinkageRecordMutator.class), null, null, "model", CLEANSING

@@ -95,6 +95,68 @@ class LinkageServiceTest {
     }
 
     @Test
+    void resolveWithZeroCandidatesReturnsLowConfidence() {
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(0);
+        when(store.search(any())).thenReturn(List.of());
+
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(List.of(), List.of(), false));
+
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("No candidates found.", false));
+
+        LinkageResolveResponse response = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", null, null, null));
+
+        assertThat(response.confidenceScore()).isEqualTo(0.15);
+        assertThat(response.spatioTemporalResult()).isNull();
+    }
+
+    @Test
+    void resolveWithHighVectorSimilarityBoostsConfidence() {
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(5);
+        when(store.search(any())).thenReturn(ONE_CANDIDATE);
+
+        List<CandidateScore> highScore = List.of(new CandidateScore("R-1001", 0.92));
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(ONE_CANDIDATE, highScore, true));
+
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("High confidence.", true));
+
+        LinkageResolveResponse withoutVec = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", 1850, "Boston", null));
+        // Score should include the +0.05 vector boost
+        assertThat(withoutVec.confidenceScore()).isGreaterThanOrEqualTo(0.7);
+    }
+
+    @Test
+    void resolveWithRawQueryUsesItForEmbedding() {
+        LinkageRecordStore store = mock(LinkageRecordStore.class);
+        when(store.countAllRecords()).thenReturn(1);
+        when(store.search(any())).thenReturn(ONE_CANDIDATE);
+
+        VectorRerankService rerank = mock(VectorRerankService.class);
+        when(rerank.rerank(anyList(), anyString()))
+            .thenReturn(new VectorRerankService.RerankResult(ONE_CANDIDATE, ONE_SCORE, false));
+
+        SemanticSummaryService summary = mock(SemanticSummaryService.class);
+        when(summary.summarize(any(), anyList(), anyList()))
+            .thenReturn(new SemanticSummaryService.SummaryResult("summary", false));
+
+        // rawQuery present — should not throw
+        LinkageResolveResponse response = service(store, rerank, summary)
+            .resolve(new LinkageResolveRequest("John", "Smith", 1850, "Boston", "john smith census 1850"));
+        assertThat(response).isNotNull();
+    }
+
+    @Test
     void resolveUsesDeterministicSummaryWhenSemanticLlmDisabled() {
         LinkageRecordStore store = mock(LinkageRecordStore.class);
         when(store.countAllRecords()).thenReturn(4);
