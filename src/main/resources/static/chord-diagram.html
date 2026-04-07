@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Linkage Engine — Record Similarity Graph</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #fafaf9;
+        color: #1a1a18;
+        min-height: 100vh;
+      }
+      header {
+        padding: 20px 24px 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 3px;
+      }
+      .sub {
+        font-size: 12px;
+        color: #6b6b63;
+        line-height: 1.5;
+      }
+      .badge {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 3px 10px;
+        border-radius: 99px;
+        border: 1px solid;
+        white-space: nowrap;
+        margin-top: 2px;
+      }
+      .badge-local {
+        background: #faeeda;
+        color: #633806;
+        border-color: #fac775;
+      }
+      .badge-bedrock {
+        background: #e1f5ee;
+        color: #085041;
+        border-color: #5dcaa5;
+      }
+      .btn {
+        font-size: 12px;
+        padding: 5px 13px;
+        border: 0.5px solid #b4b2a9;
+        border-radius: 6px;
+        background: white;
+        cursor: pointer;
+        color: #1a1a18;
+        margin-left: auto;
+        margin-top: 2px;
+        white-space: nowrap;
+      }
+      .btn:hover {
+        background: #f1efe8;
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+      main {
+        padding: 16px 24px 32px;
+      }
+      #status-line {
+        font-size: 12px;
+        color: #6b6b63;
+        min-height: 18px;
+        margin-bottom: 8px;
+      }
+      .progress {
+        height: 3px;
+        background: #d3d1c7;
+        border-radius: 2px;
+        margin-bottom: 14px;
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        background: #1d9e75;
+        border-radius: 2px;
+        transition: width 0.35s ease;
+        width: 0%;
+      }
+      #banner {
+        font-size: 11px;
+        padding: 8px 12px;
+        border-radius: 7px;
+        margin-bottom: 14px;
+        display: none;
+        line-height: 1.6;
+      }
+      .banner-local {
+        background: #faeeda;
+        color: #633806;
+        border: 0.5px solid #fac775;
+      }
+      .banner-bedrock {
+        background: #e1f5ee;
+        color: #085041;
+        border: 0.5px solid #5dcaa5;
+      }
+      .banner-error {
+        background: #fcebeb;
+        color: #a32d2d;
+        border: 0.5px solid #f09595;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+        font-size: 10.5px;
+        background: rgba(0, 0, 0, 0.06);
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      #chart-wrap {
+        display: flex;
+        justify-content: center;
+        min-height: 200px;
+        align-items: center;
+      }
+      #empty-msg {
+        font-size: 13px;
+        color: #888780;
+        text-align: center;
+        padding: 40px 0;
+        display: none;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 12px;
+        font-size: 11px;
+        color: #6b6b63;
+        justify-content: center;
+      }
+      .dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: middle;
+      }
+      #detail {
+        display: none;
+        border-radius: 9px;
+        padding: 12px 16px;
+        margin-top: 16px;
+        border: 0.5px solid #d3d1c7;
+        transition:
+          background 0.3s,
+          border-color 0.3s;
+      }
+      #detail.plausible {
+        background: #e1f5ee;
+        border-color: #5dcaa5;
+      }
+      #detail.moderate {
+        background: #e8f2fc;
+        border-color: #7ab4e8;
+      }
+      #detail.lowconf {
+        background: #f0eafa;
+        border-color: #b89ee0;
+      }
+      #detail.verylow {
+        background: #faeeda;
+        border-color: #fac775;
+      }
+      #detail.impossible {
+        background: #fcebeb;
+        border-color: #f09595;
+      }
+      .det-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .det-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1a1a18;
+      }
+      .det-sub {
+        font-size: 11px;
+        color: #5f5e5a;
+        margin-top: 4px;
+        line-height: 1.5;
+      }
+      .det-conf {
+        font-size: 24px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .c-green {
+        color: #0f6e56;
+      }
+      .c-amber {
+        color: #633806;
+      }
+      .c-red {
+        color: #a32d2d;
+      }
+      .tip {
+        position: fixed;
+        font-size: 11px;
+        background: white;
+        border: 0.5px solid #b4b2a9;
+        border-radius: 7px;
+        padding: 7px 11px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s;
+        max-width: 240px;
+        line-height: 1.55;
+        z-index: 200;
+        color: #1a1a18;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div style="flex: 1; min-width: 0">
+        <h1>Linkage Engine &mdash; Record Similarity Graph</h1>
+        <p class="sub">
+          Directed chord diagram &middot; arc size = total similarity flow
+          &middot; chord width = score &middot; arrowhead = resolution direction
+        </p>
+        <p class="sub" style="margin-top: 3px">
+          Hover an arc to highlight its connections &middot; hover a chord for
+          details &middot; click a chord to pin
+        </p>
+      </div>
+      <div
+        style="
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 6px;
+        "
+      >
+        <span id="profile-badge" class="badge" style="display: none"></span>
+        <button class="btn" onclick="init()">&#8635; Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="status-line">Initialising&hellip;</div>
+      <div class="progress"><div class="progress-bar" id="pbar"></div></div>
+      <div id="banner"></div>
+      <div id="chart-wrap">
+        <div id="empty-msg"></div>
+      </div>
+      <div class="legend">
+        <span><span class="dot" style="background:#1d9e75"></span>Plausible &middot; margin &ge;10&times; travel time</span>
+        <span><span class="dot" style="background:#4a90d9"></span>Plausible &middot; margin 4–10&times;</span>
+        <span><span class="dot" style="background:#9b6fd4"></span>Plausible &middot; margin 2–4&times;</span>
+        <span><span class="dot" style="background:#ef9f27"></span>Plausible &middot; tight margin &lt;2&times;</span>
+        <span><span class="dot" style="background:#e24b4a"></span>Impossible &middot; spatio-temporal failure</span>
+      </div>
+      <div id="detail"></div>
+    </main>
+
+    <div class="tip" id="tip"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script>
+      const BASE = "";
+      const MAX_RECORDS = 12;
+
+      const GCOLS = [
+        "#185FA5",
+        "#0F6E56",
+        "#534AB7",
+        "#854F0B",
+        "#A32D2D",
+        "#3C3489",
+        "#085041",
+        "#993C1D",
+        "#0C447C",
+        "#3B6D11",
+        "#633806",
+        "#26215C",
+      ];
+
+      const setStatus = (msg) => {
+        document.getElementById("status-line").textContent = msg;
+      };
+      const setProgress = (pct) => {
+        document.getElementById("pbar").style.width = pct + "%";
+      };
+
+      async function apiFetch(url, opts = {}) {
+        const r = await fetch(BASE + url, opts);
+        if (!r.ok)
+          throw new Error(
+            `${opts.method || "GET"} ${url} \u2192 HTTP ${r.status}`,
+          );
+        return r.json();
+      }
+      const apiGet = (url) => apiFetch(url);
+      const apiPost = (url, body) =>
+        apiFetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+      function showBanner(cls, html) {
+        const el = document.getElementById("banner");
+        el.className = cls;
+        el.innerHTML = html;
+        el.style.display = "block";
+      }
+
+      function cityAbbr(loc) {
+        const MAP = {
+          Philadelphia: "Philly",
+          "New York": "NYC",
+          "San Francisco": "SF",
+          "Los Angeles": "LA",
+          "New Orleans": "N.O.",
+        };
+        return MAP[loc] || (loc.length > 9 ? loc.slice(0, 8) + "." : loc);
+      }
+
+      // Canonical city name for deduplication — keeps "Philly" and "Philadelphia"
+      // from being treated as different locations.
+      const CITY_CANON = {
+        philly: "philadelphia",
+        phila: "philadelphia",
+        nyc: "new york",
+        "new york city": "new york",
+        sf: "san francisco",
+        "san fran": "san francisco",
+        la: "los angeles",
+        "n.o.": "new orleans",
+        "new orleans": "new orleans",
+      };
+      function canonCity(loc) {
+        const k = (loc || "").toLowerCase().trim();
+        return CITY_CANON[k] || k;
+      }
+
+      function recordLabel(r) {
+        const ini = r.givenName ? r.givenName[0] + ". " : "";
+        const yr = String(r.year || "").slice(2);
+        return `${ini}${r.familyName || r.name || "?"} \u00b7 ${cityAbbr(r.location)} '${yr}`;
+      }
+
+      async function init() {
+        document.getElementById("detail").style.display = "none";
+        document.getElementById("chart-wrap").innerHTML =
+          '<div id="empty-msg"></div>';
+        document.getElementById("empty-msg").style.display = "none";
+        document.getElementById("banner").style.display = "none";
+        document.getElementById("profile-badge").style.display = "none";
+        setProgress(0);
+
+        setStatus("Fetching records from GET /v1/records\u2026");
+        let records;
+        try {
+          records = await apiGet("/v1/records");
+        } catch (e) {
+          showBanner(
+            "banner-error",
+            `Failed to fetch records: <code>${e.message}</code>. ` +
+              `Is the server running? Try <code>./mvnw spring-boot:run</code>.`,
+          );
+          setStatus("");
+          return;
+        }
+
+        records = (records || []).slice(0, MAX_RECORDS);
+        const n = records.length;
+
+        if (n < 2) {
+          document.getElementById("empty-msg").textContent =
+            "Not enough records to draw a chord diagram. Run demo/seed-data.sh first.";
+          document.getElementById("empty-msg").style.display = "block";
+          setStatus("");
+          return;
+        }
+
+        setProgress(10);
+        setStatus(`Resolving ${n} records against the pipeline\u2026`);
+
+        const resolveResults = await Promise.all(
+          records.map(async (rec) => {
+            try {
+              return await apiPost("/v1/linkage/resolve", {
+                givenName: rec.givenName,
+                familyName: rec.familyName || rec.name || "Smith",
+                approxYear: rec.year,
+                location: rec.location,
+              });
+            } catch (e) {
+              console.warn("[resolve] failed for", rec.recordId, e.message);
+              return null;
+            }
+          }),
+        );
+
+        setProgress(50);
+
+        const matrix = Array.from({ length: n }, () => new Array(n).fill(0));
+        const pairSet = new Map();
+        let anyNull = false,
+          anyReal = false;
+
+        resolveResults.forEach((res, i) => {
+          if (!res || !Array.isArray(res.rankedCandidates)) return;
+          res.rankedCandidates.forEach((cand, rank) => {
+            if (!cand.recordId) return;
+            const j = records.findIndex((r) => r.recordId === cand.recordId);
+            if (j < 0 || j === i || matrix[i][j] > 0) return;
+            const hasSim =
+              cand.vectorSimilarity !== null &&
+              cand.vectorSimilarity !== undefined;
+            if (hasSim) anyReal = true;
+            else anyNull = true;
+            const sim = hasSim
+              ? Math.round(cand.vectorSimilarity * 100)
+              : Math.max(90 - rank * 7, 50);
+            matrix[i][j] = sim;
+            const key = `${i}-${j}`;
+            if (!pairSet.has(key))
+              pairSet.set(key, {
+                i,
+                j,
+                locA: records[i].location,
+                yearA: records[i].year,
+                locB: cand.location || records[j].location,
+                yearB: cand.year || records[j].year,
+              });
+          });
+        });
+
+        // Also add cross-location pairs that share the same name but weren't
+        // returned as resolve candidates — these are the ones that may be
+        // spatially impossible and should show as red chords.
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const a = records[i], b = records[j];
+            const key = `${i}-${j}`;
+            if (pairSet.has(key) || matrix[i][j] > 0) continue;
+            const sameName =
+              (a.familyName || "").toLowerCase() === (b.familyName || "").toLowerCase() &&
+              (a.givenName  || "").toLowerCase() === (b.givenName  || "").toLowerCase();
+            const diffLoc = canonCity(a.location) !== canonCity(b.location);
+            if (sameName && diffLoc) {
+              anyNull = true;
+              matrix[i][j] = 60;
+              pairSet.set(key, {
+                i, j,
+                locA: a.location, yearA: a.year,
+                locB: b.location, yearB: b.year,
+              });
+            }
+          }
+        }
+
+        const isLocal = anyNull && !anyReal;
+        const badge = document.getElementById("profile-badge");
+        badge.style.display = "inline";
+        badge.textContent = isLocal ? "local profile" : "bedrock profile";
+        badge.className =
+          "badge " + (isLocal ? "badge-local" : "badge-bedrock");
+
+        if (isLocal) {
+          showBanner(
+            "banner-local",
+            "\u26a0 Running on <strong>local profile</strong> &mdash; " +
+              "<code>vectorSimilarity</code> is <code>null</code> (no <code>EmbeddingModel</code> active). " +
+              "Chord widths use rank-based estimates (90, 83, 76\u2026). " +
+              "Start with <code>SPRING_AI_MODEL_EMBEDDING=bedrock-titan</code> for real cosine similarity scores.",
+          );
+        } else {
+          showBanner(
+            "banner-bedrock",
+            "\u2713 <strong>Bedrock profile</strong> &mdash; chord widths reflect real cosine similarity from Titan embeddings.",
+          );
+        }
+
+        if (pairSet.size === 0) {
+          document.getElementById("empty-msg").textContent =
+            "Records found but no candidate pairs resolved. Check that names/years/locations overlap in your seed data.";
+          document.getElementById("empty-msg").style.display = "block";
+          setStatus("");
+          return;
+        }
+
+        setStatus(
+          `Checking spatio-temporal plausibility for ${pairSet.size} candidate pairs\u2026`,
+        );
+        const plausMap = new Map();
+
+        await Promise.all(
+          [...pairSet.values()].map(
+            async ({ i, j, locA, yearA, locB, yearB }) => {
+              try {
+                const res = await apiPost("/v1/spatial/temporal-overlap", {
+                  from: { recordId: "q-a", location: locA, year: yearA },
+                  to:   { recordId: "q-b", location: locB, year: yearB },
+                });
+                plausMap.set(`${i}-${j}`, res);
+              } catch (e) {
+                console.warn("[spatial] failed for pair", i, j, e.message);
+                plausMap.set(`${i}-${j}`, {
+                  plausible: true,
+                  transitMode: "unknown",
+                  travelDays: 0,
+                  availableDays: 365,
+                  confidenceAdjustment: 0,
+                });
+              }
+            },
+          ),
+        );
+
+        setProgress(90);
+        setStatus("");
+        render(records, matrix, plausMap);
+        setProgress(100);
+        setTimeout(() => setProgress(0), 700);
+      }
+
+      // 5-tier color scale based on margin ratio (available / required):
+      //   #1D9E75  teal-green  — margin ratio >= 10x  (very comfortable)
+      //   #4A90D9  steel-blue  — margin ratio 4–10x   (comfortable)
+      //   #9B6FD4  purple      — margin ratio 2–4x    (moderate)
+      //   #EF9F27  amber       — margin ratio 1–2x    (tight but plausible)
+      //   #E24B4A  red         — spatially impossible
+      function chordColor(si, ti, plausMap) {
+        const p = plausMap.get(`${si}-${ti}`);
+        if (!p) return "#888780";
+        if (!p.plausible) return "#E24B4A";
+        const travel = p.travelDays || 1;
+        const available = p.availableDays || 365;
+        const ratio = available / travel;
+        if (ratio >= 10) return "#1D9E75";
+        if (ratio >= 4)  return "#4A90D9";
+        if (ratio >= 2)  return "#9B6FD4";
+        return "#EF9F27";
+      }
+
+      function render(records, matrix, plausMap) {
+        const W = 700,
+          H = 700,
+          CX = 350,
+          CY = 350;
+        const OR = 195,
+          IR = 177;
+
+        const wrap = document.getElementById("chart-wrap");
+        wrap.innerHTML = "";
+        const svgEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        const side = Math.min(680, window.innerWidth - 48);
+        svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        svgEl.setAttribute("width", side);
+        svgEl.setAttribute("height", side);
+        wrap.appendChild(svgEl);
+
+        const svg = d3
+          .select(svgEl)
+          .append("g")
+          .attr("transform", `translate(${CX},${CY})`);
+
+        const chordLayout = d3
+          .chordDirected()
+          .padAngle(14 / OR)
+          .sortSubgroups(d3.descending)
+          .sortChords(d3.descending);
+
+        const chords = chordLayout(matrix);
+        const arcGen = d3.arc().innerRadius(IR).outerRadius(OR);
+        const ribGen = d3
+          .ribbonArrow()
+          .radius(IR - 1)
+          .padAngle(1 / IR);
+
+        const ribs = svg
+          .append("g")
+          .attr("fill-opacity", 0.72)
+          .selectAll("path")
+          .data(chords)
+          .join("path")
+          .attr("d", ribGen)
+          .attr("fill", (d) =>
+            chordColor(d.source.index, d.target.index, plausMap),
+          )
+          .attr("stroke", (d) => {
+            const c = d3.color(
+              chordColor(d.source.index, d.target.index, plausMap),
+            );
+            return c ? c.darker(0.5).formatHex() : "#555";
+          })
+          .attr("stroke-width", 0.5)
+          .style("cursor", "pointer")
+          .on("mouseover", (event, d) => {
+            ribs.attr("fill-opacity", 0.1);
+            d3.select(event.currentTarget).attr("fill-opacity", 0.92);
+            showTip(event, d, records, matrix, plausMap);
+          })
+          .on("mousemove", moveTip)
+          .on("mouseout", () => {
+            ribs.attr("fill-opacity", 0.72);
+            hideTip();
+          })
+          .on("click", (event, d) => pinDetail(d, records, matrix, plausMap));
+
+        const grp = svg
+          .append("g")
+          .selectAll("g")
+          .data(chords.groups)
+          .join("g");
+
+        grp
+          .append("path")
+          .attr("d", arcGen)
+          .attr("fill", (d, i) => GCOLS[i % GCOLS.length])
+          .attr("stroke", "#fafaf9")
+          .attr("stroke-width", 0.8)
+          .style("cursor", "pointer")
+          .on("mouseover", (event, d) => {
+            ribs.attr("fill-opacity", (r) =>
+              r.source.index === d.index || r.target.index === d.index
+                ? 0.9
+                : 0.08,
+            );
+          })
+          .on("mouseout", () => ribs.attr("fill-opacity", 0.72));
+
+        grp
+          .append("text")
+          .each((d) => {
+            d.angle = (d.startAngle + d.endAngle) / 2;
+          })
+          .attr("dy", ".35em")
+          .attr(
+            "transform",
+            (d) =>
+              `rotate(${(d.angle * 180) / Math.PI - 90}) ` +
+              `translate(${OR + 12}) ` +
+              `${d.angle > Math.PI ? "rotate(180)" : ""}`,
+          )
+          .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
+          .attr("font-size", "10.5px")
+          .attr("fill", "#5f5e5a")
+          .attr("font-family", "system-ui,-apple-system,sans-serif")
+          .text((d, i) => recordLabel(records[i]));
+
+        grp
+          .append("g")
+          .selectAll("line")
+          .data((d) => {
+            const k = (d.endAngle - d.startAngle) / d.value;
+            return d3
+              .range(0, d.value, 20)
+              .map((v) => ({ angle: v * k + d.startAngle }));
+          })
+          .join("line")
+          .attr(
+            "transform",
+            (d) =>
+              `rotate(${(d.angle * 180) / Math.PI - 90}) translate(${OR},0)`,
+          )
+          .attr("x2", 5)
+          .attr("stroke", "#fafaf9")
+          .attr("stroke-width", 0.8);
+      }
+
+      function showTip(event, d, records, matrix, plausMap) {
+        const p = plausMap.get(`${d.source.index}-${d.target.index}`);
+        const src = records[d.source.index];
+        const tgt = records[d.target.index];
+        const sim = matrix[d.source.index][d.target.index];
+        const tip = document.getElementById("tip");
+        const mode = p
+          ? (p.transitMode || "unknown").replace(/_/g, " ")
+          : "\u2014";
+        const plaus = p
+          ? p.plausible
+            ? `plausible &middot; ${p.travelDays?.toFixed(1)}d needed, ${p.availableDays?.toFixed(0)}d available`
+            : `<strong style="color:#A32D2D">\u26a0 impossible</strong> &middot; ${p.travelDays?.toFixed(0)}d needed, ${p.availableDays?.toFixed(0)}d available`
+          : "\u2014";
+        tip.innerHTML =
+          `<strong>${src.givenName || ""} ${src.familyName || src.name || ""}</strong> &middot; ${src.location} ${src.year}<br>` +
+          `&rarr; <strong>${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""}</strong> &middot; ${tgt.location} ${tgt.year}<br>` +
+          `Similarity: ${sim}%<br>${mode} &middot; ${plaus}`;
+        tip.style.opacity = "1";
+        tip.style.left = event.clientX + 16 + "px";
+        tip.style.top = event.clientY - 12 + "px";
+      }
+
+      function moveTip(event) {
+        const tip = document.getElementById("tip");
+        tip.style.left = event.clientX + 16 + "px";
+        tip.style.top = event.clientY - 12 + "px";
+      }
+
+      function hideTip() {
+        document.getElementById("tip").style.opacity = "0";
+      }
+
+      function pinDetail(d, records, matrix, plausMap) {
+        const p = plausMap.get(`${d.source.index}-${d.target.index}`);
+        const src = records[d.source.index];
+        const tgt = records[d.target.index];
+        const sim = matrix[d.source.index][d.target.index];
+        const det = document.getElementById("detail");
+        const adj = p?.confidenceAdjustment || 0;
+        const isImpossible = p && !p.plausible;
+        let detClass = "plausible";
+        let confLabel = "high confidence";
+        if (isImpossible)    { detClass = "impossible"; confLabel = "impossible"; }
+        else if (adj < -25)  { detClass = "verylow";    confLabel = "very low confidence"; }
+        else if (adj < -10)  { detClass = "lowconf";    confLabel = "low confidence"; }
+        else if (adj < 0)    { detClass = "moderate";   confLabel = "moderate confidence"; }
+        det.className = detClass;
+        det.style.display = "block";
+        const conf = Math.max(
+          0,
+          Math.min(100, sim + adj),
+        );
+        const confClass =
+          conf >= 75 ? "c-green" : conf >= 50 ? "c-amber" : "c-red";
+        const mode = p
+          ? (p.transitMode || "unknown").replace(/_/g, " ")
+          : "unknown";
+        const plausText = isImpossible
+          ? `\u26a0 impossible \u2014 ${p.travelDays?.toFixed(0)}d required by ${mode}, only ${p.availableDays?.toFixed(0)}d available`
+          : `${mode} \u2014 ${p?.travelDays?.toFixed(1) ?? "?"}d needed, ${p?.availableDays?.toFixed(0) ?? "?"}d available &middot; ${confLabel}`;
+        det.innerHTML = `<div class="det-row">
+       <div style="flex:1">
+         <p class="det-title">
+           ${src.givenName || ""} ${src.familyName || src.name || ""} &middot; ${src.location} ${src.year}
+           &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
+         </p>
+         <p class="det-sub">Similarity ${sim}% &middot; ${plausText}</p>
+       </div>
+       <span class="det-conf ${confClass}">${conf}%</span>
+     </div>`;
+      }
+
+      init();
+    </script>
+  </body>
+</html>
