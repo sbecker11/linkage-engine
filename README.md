@@ -16,6 +16,27 @@ All four stages degrade gracefully — the local profile runs end-to-end with no
 
 ---
 
+## What Was Built
+
+| Sprint | Deliverable |
+| :--- | :--- |
+| 1 | Build, boot, pgvector Docker — app starts in ~2.5s from a clean clone |
+| 2 | Ingestion pipeline — `CleansingProvider` chain (`OCRNoiseReducer`, `LocationStandardizer`), chunk, embed |
+| 3 | Hybrid search — SQL narrowing → pgvector cosine rerank → Bedrock Converse summary |
+| 4 | Spatio-temporal validation — historical transit speed table, `ConflictRule` chain, confidence penalty |
+| 5 | Remaining endpoints, 80%+ branch coverage, demo scripts, Aurora Serverless v2 provisioning guide |
+
+**Demo story in two calls:**
+- Philadelphia → New York 1850→1851: `plausible=true`, `railroad_eastern`, high confidence
+- Boston → San Francisco same month: `plausible=false`, `ocean_ship`, confidence penalised by 50 pts
+
+**Three design patterns carried through every sprint:**
+- `ObjectProvider` over `@ConditionalOnBean` — bean ordering in autoconfiguration is non-deterministic; runtime null-checks are not
+- Chain of Responsibility for both cleansing (`CleansingProvider`) and conflict rules (`ConflictRule`) — adding a new step is a one-file change
+- Profile-gated graceful degradation — each stage has a defined fallback; the pipeline never hard-fails on a missing dependency
+
+---
+
 ## Local Quick Start (under 5 minutes)
 
 ### 1. Start PostgreSQL + pgvector
@@ -113,7 +134,7 @@ curl -s -X POST http://localhost:8080/v1/linkage/resolve \
   }' | python3 -m json.tool
 ```
 
-Response includes `candidates`, `confidenceScore`, `spatioTemporalResult`, `rulesTriggered`, `semanticSummary`.
+Response includes `rankedCandidates` (with inline `vectorSimilarity`), `confidenceScore`, `spatioTemporalResult`, `rulesTriggered`, `semanticSummary`.
 
 ---
 
