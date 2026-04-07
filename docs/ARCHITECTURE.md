@@ -184,8 +184,45 @@ Distances are straight-line haversine — actual routes are longer, so this is
 | `PhysicalImpossibilityRule` | travelDays > availableDays | `plausible=false`, −50 pts |
 | `BiologicalPlausibilityRule` | implied age outside [0, 120] via `BORN:YYYY:` recordId prefix | `plausible=false`, −50 pts |
 | `NarrowMarginRule` | margin < 5 days (tight but possible) | `plausible=true`, −15 pts |
+| `GenderPlausibilityRule` _(planned)_ | inferred genders of the two records conflict | `plausible=true`, −20 pts |
 
 `confidenceAdjustment` is capped at 50 regardless of how many rules fire.
+
+### Planned: `GenderPlausibilityRule`
+
+Gender is not currently stored on records, but it can be inferred from given names
+using US Social Security Administration name-frequency data. The SSA publishes
+yearly name/gender counts from **1880 onward** — exactly the right era for
+19th-century genealogical records.
+
+**Implementation plan:**
+
+1. **Data source** — bundle `ssa-names-1880-1910.csv` (name, year, sex, count) as a
+   classpath resource. The SSA dataset is public domain and small enough (~500 KB
+   for the relevant decades) to ship with the jar.
+
+2. **`GivenNameGenderProvider`** — loads the CSV at startup, computes
+   `P(male | name, decade)` for each name. Returns one of `MALE`, `FEMALE`,
+   `AMBIGUOUS` (when neither gender exceeds 80% of occurrences), or `UNKNOWN`
+   (name not in dataset).
+
+3. **`GenderPlausibilityRule`** — implements `ConflictRule`. Infers gender for
+   both records' given names. If both are non-`AMBIGUOUS` and non-`UNKNOWN` and
+   they differ, applies a −20 pt `confidenceAdjustment`. Does **not** set
+   `plausible=false` — gender inference is probabilistic and historical records
+   contain transcription errors and gender-neutral names.
+
+4. **Fits the existing chain** — registered as a Spring `@Component` implementing
+   `ConflictRule`. `ConflictResolver` picks it up automatically via the injected
+   `List<ConflictRule>`. Zero orchestrator changes required.
+
+**Example outcomes:**
+
+| Record A | Record B | Inferred genders | Effect |
+| :--- | :--- | :--- | :--- |
+| John Smith, Boston 1850 | Mary Smith, Boston 1850 | M vs F | −20 pts |
+| John Smith, Boston 1850 | Jon Smyth, Philadelphia 1851 | M vs M | no penalty |
+| Leslie Smith, NYC 1885 | Leslie Jones, Boston 1886 | AMBIGUOUS | no penalty |
 
 ---
 
