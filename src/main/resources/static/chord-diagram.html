@@ -495,37 +495,38 @@
               pairSet.set(key, {
                 i,
                 j,
-                nameA: records[i].givenName,
-                locA:  records[i].location,
-                yearA: records[i].year,
-                nameB: cand.givenName || records[j].givenName,
-                locB:  cand.location  || records[j].location,
-                yearB: cand.year      || records[j].year,
+                nameA:      records[i].givenName,
+                locA:       records[i].location,
+                yearA:      records[i].year,
+                birthYearA: records[i].birthYear,
+                nameB:      cand.givenName   || records[j].givenName,
+                locB:       cand.location    || records[j].location,
+                yearB:      cand.year        || records[j].year,
+                birthYearB: cand.birthYear   || records[j].birthYear,
               });
           });
         });
 
-        // Also add cross-location pairs that share the same name but weren't
-        // returned as resolve candidates — these are the ones that may be
-        // spatially impossible and should show as red chords.
+        // Also add pairs that weren't returned as resolve candidates but share a
+        // family name — these need gender/age checks on the journey endpoints even
+        // when the given names differ (e.g. Mary Taylor → Robert Taylor).
+        // Same-family + same-given + different location → spatial impossibility check.
+        // Same-family + different-given → gender/age consistency check.
         for (let i = 0; i < n; i++) {
           for (let j = i + 1; j < n; j++) {
             const a = records[i], b = records[j];
             const key = `${i}-${j}`;
             if (pairSet.has(key) || matrix[i][j] > 0) continue;
-            const sameName =
-              (a.familyName || "").toLowerCase() === (b.familyName || "").toLowerCase() &&
-              (a.givenName  || "").toLowerCase() === (b.givenName  || "").toLowerCase();
-            const diffLoc = canonCity(a.location) !== canonCity(b.location);
-            if (sameName && diffLoc) {
-              anyNull = true;
-              matrix[i][j] = 60;
-              pairSet.set(key, {
-                i, j,
-                nameA: a.givenName, locA: a.location, yearA: a.year,
-                nameB: b.givenName, locB: b.location, yearB: b.year,
-              });
-            }
+            const sameFamilyName =
+              (a.familyName || "").toLowerCase() === (b.familyName || "").toLowerCase();
+            if (!sameFamilyName) continue;
+            anyNull = true;
+            matrix[i][j] = 60;
+            pairSet.set(key, {
+              i, j,
+              nameA:      a.givenName,  locA: a.location, yearA: a.year, birthYearA: a.birthYear,
+              nameB:      b.givenName,  locB: b.location, yearB: b.year, birthYearB: b.birthYear,
+            });
           }
         }
 
@@ -566,11 +567,11 @@
 
         await Promise.all(
           [...pairSet.values()].map(
-            async ({ i, j, nameA, locA, yearA, nameB, locB, yearB }) => {
+            async ({ i, j, nameA, locA, yearA, birthYearA, nameB, locB, yearB, birthYearB }) => {
               try {
                 const res = await apiPost("/v1/spatial/temporal-overlap", {
-                  from: { recordId: "q-a", givenName: nameA, location: locA, year: yearA },
-                  to:   { recordId: "q-b", givenName: nameB, location: locB, year: yearB },
+                  from: { recordId: "q-a", givenName: nameA, location: locA, year: yearA, birthYear: birthYearA },
+                  to:   { recordId: "q-b", givenName: nameB, location: locB, year: yearB, birthYear: birthYearB },
                 });
                 plausMap.set(`${i}-${j}`, res);
               } catch (e) {
