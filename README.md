@@ -1,6 +1,6 @@
 # linkage-engine
 
-Built genealogical entity resolution engine in Java 21/Spring AI with a 4-stage hybrid RAG pipeline (SQL narrowing → vector rerank → LLM semantic summary → spatio-temporal plausibility), Matryoshka embeddings via Bedrock Titan, pgvector on Aurora PostgreSQL Serverless v2, Virtual Thread-parallelized reindex, and ECS Fargate deployment.
+This is a genealogical entity resolution engine built in Java 21/Spring AI with a 4-stage hybrid RAG pipeline (SQL narrowing → vector rerank → LLM semantic summary → spatio-temporal plausibility), Matryoshka embeddings via Bedrock Titan, pgvector on Aurora PostgreSQL Serverless v2, Virtual Thread-parallelized reindex, and ECS Fargate deployment.
 
 A Java 21 / Spring Boot service for **spatio-temporal genealogical record linkage** and **semantic entity resolution** using Spring AI + PostgreSQL/pgvector.
 
