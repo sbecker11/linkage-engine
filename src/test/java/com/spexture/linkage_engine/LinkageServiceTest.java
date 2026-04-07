@@ -53,7 +53,7 @@ class LinkageServiceTest {
 
         assertThat(response.totalCandidates()).isEqualTo(4);
         assertThat(response.deterministicMatches()).isEqualTo(1);
-        assertThat(response.candidates().get(0).recordId()).isEqualTo("R-1001");
+        assertThat(response.rankedCandidates().get(0).recordId()).isEqualTo("R-1001");
         assertThat(response.confidenceScore()).isGreaterThan(0.0);
         assertThat(response.reasons()).isNotEmpty();
         assertThat(response.rulesTriggered()).contains("sql_search");
@@ -90,8 +90,8 @@ class LinkageServiceTest {
             .resolve(new LinkageResolveRequest("John", "Smith", 1851, "Boston", null));
 
         assertThat(response.rulesTriggered()).contains("hybrid_vector_rerank");
-        assertThat(response.candidates().get(0).recordId()).isEqualTo("R-B");
-        assertThat(response.candidateScores().get(0).vectorSimilarity()).isEqualTo(0.9);
+        assertThat(response.rankedCandidates().get(0).recordId()).isEqualTo("R-B");
+        assertThat(response.rankedCandidates().get(0).vectorSimilarity()).isEqualTo(0.9);
     }
 
     @Test

@@ -44,8 +44,7 @@ class LinkageControllerTest {
             "deterministic SQL-style narrowing followed by probabilistic semantic ranking",
             4,
             1,
-            java.util.List.of(new CandidateRecord("R-1001", "John", "Smith", 1850, "Boston")),
-            java.util.List.of(new CandidateScore("R-1001", 0.91)),
+            java.util.List.of(new RankedCandidate("R-1001", "John", "Smith", 1850, "Boston", 0.91)),
             0.8,
             java.util.List.of("Deterministic filtering reduced records."),
             java.util.List.of("deterministic_name_match"),
@@ -60,9 +59,8 @@ class LinkageControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.strategy").exists())
             .andExpect(jsonPath("$.deterministicMatches").value(1))
-            .andExpect(jsonPath("$.candidates[0].recordId").value("R-1001"))
-            .andExpect(jsonPath("$.candidateScores[0].recordId").value("R-1001"))
-            .andExpect(jsonPath("$.candidateScores[0].vectorSimilarity").value(0.91))
+            .andExpect(jsonPath("$.rankedCandidates[0].recordId").value("R-1001"))
+            .andExpect(jsonPath("$.rankedCandidates[0].vectorSimilarity").value(0.91))
             .andExpect(jsonPath("$.confidenceScore").value(0.8))
             .andExpect(jsonPath("$.semanticSummary").value("Most likely match is R-1001 with high confidence."));
     }

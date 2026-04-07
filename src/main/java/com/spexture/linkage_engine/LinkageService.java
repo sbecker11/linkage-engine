@@ -78,6 +78,9 @@ public class LinkageService implements LinkageResolver {
             summary.llmUsed(), summary.summary().length());
         rulesTriggered.add(summary.llmUsed() ? "semantic_llm_summary" : "semantic_llm_summary_disabled");
 
+        // Merge candidates + scores into a single ranked list
+        List<RankedCandidate> rankedCandidates = mergeRanked(rerank.candidates(), rerank.scores());
+
         double confidenceScore = computeConfidenceScore(rerank.candidates().size(), request, rerank.scores());
 
         // Stage 4 — spatio-temporal validation on query→top-candidate pair
@@ -108,8 +111,7 @@ public class LinkageService implements LinkageResolver {
             "sql-search → vector-rerank → semantic-summary → spatiotemporal-validation",
             totalRecords,
             sqlCandidates.size(),
-            rerank.candidates(),
-            rerank.scores(),
+            rankedCandidates,
             confidenceScore,
             reasons,
             rulesTriggered,
@@ -170,6 +172,22 @@ public class LinkageService implements LinkageResolver {
             .max().orElse(0.0);
         if (topVec >= 0.85) score += 0.05;
         return Math.min(0.95, score);
+    }
+
+    /** Zips candidates and scores into a single inline list. */
+    private List<RankedCandidate> mergeRanked(List<CandidateRecord> candidates,
+                                               List<CandidateScore> scores) {
+        // Build a score lookup by recordId for O(1) access
+        java.util.Map<String, Double> scoreMap = new java.util.HashMap<>();
+        for (CandidateScore s : scores) {
+            scoreMap.put(s.recordId(), s.vectorSimilarity());
+        }
+        return candidates.stream()
+            .map(c -> new RankedCandidate(
+                c.recordId(), c.givenName(), c.familyName(), c.year(), c.location(),
+                scoreMap.get(c.recordId())
+            ))
+            .toList();
     }
 
     private boolean isBlank(String v) { return v == null || v.isBlank(); }

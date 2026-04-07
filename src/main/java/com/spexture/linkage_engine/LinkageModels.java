@@ -19,15 +19,29 @@ record CandidateRecord(String recordId, String givenName, String familyName, Int
 
 /**
  * Cosine similarity score after SQL narrowing; {@code vectorSimilarity} is null when no embedding exists for that row.
+ * Kept for internal pipeline use; the public API surface uses {@link RankedCandidate}.
  */
 record CandidateScore(String recordId, Double vectorSimilarity) {}
+
+/**
+ * A candidate with its inline similarity score — the public-facing shape returned in
+ * {@link LinkageResolveResponse#rankedCandidates()}.
+ * {@code vectorSimilarity} is {@code null} when embeddings are not active (local profile).
+ */
+record RankedCandidate(
+    String recordId,
+    String givenName,
+    String familyName,
+    Integer year,
+    String location,
+    Double vectorSimilarity
+) {}
 
 record LinkageResolveResponse(
     String strategy,
     int totalCandidates,
     int deterministicMatches,
-    List<CandidateRecord> candidates,
-    List<CandidateScore> candidateScores,
+    List<RankedCandidate> rankedCandidates,
     double confidenceScore,
     List<String> reasons,
     List<String> rulesTriggered,
