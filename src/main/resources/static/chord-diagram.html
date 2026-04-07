@@ -963,7 +963,7 @@
       function chordStory(p, srcRec, tgtRec, si, ti, sim, simSource) {
         const name = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
         const loc  = (r) => `${r.location}${r.year ? ", " + r.year : ""}`;
-        const born = (r) => r.birthYear ? `b. ${r.birthYear}` : null;
+        const born = (r) => r.birthYear ? `born ${r.birthYear}` : null;
 
         // ── Who ───────────────────────────────────────────────────────────────
         const srcLine = born(srcRec) ? `${name(srcRec)} (${born(srcRec)})` : name(srcRec);
@@ -1008,12 +1008,12 @@
             // Negative age — birth year is after event year (e.g. OCR error)
             const badRec  = ageA < 0 ? srcRec : tgtRec;
             const badAge  = ageA < 0 ? ageA   : ageB;
-            ageLine = `⚠ Impossible age: ${name(badRec)} (b. ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
+            ageLine = `⚠ Impossible age: ${name(badRec)} (born ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
             ageFlag = `Impossible age (${badAge})`;
           } else if (ageA !== null && ageB !== null) {
             const ageDelta  = Math.abs(ageB - ageA);
             const yearDelta = Math.abs(tgtRec.year - srcRec.year);
-            ageLine = `⚠ Age contradiction: ${name(srcRec)} was age ${ageA} in ${srcRec.year} (b. ${srcRec.birthYear}), but ${name(tgtRec)} was age ${ageB} in ${tgtRec.year} (b. ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
+            ageLine = `⚠ Age contradiction: ${name(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${name(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
             ageFlag = `Age gap ${ageDelta} yrs / ${yearDelta} calendar yr${yearDelta !== 1 ? "s" : ""}`;
           } else {
             ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
