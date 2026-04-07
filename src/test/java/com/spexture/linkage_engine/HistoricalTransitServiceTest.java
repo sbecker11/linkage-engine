@@ -10,7 +10,7 @@ class HistoricalTransitServiceTest {
     private final HistoricalTransitService service = new HistoricalTransitService();
 
     private static SpatioTemporalRecord rec(String location, int year) {
-        return new SpatioTemporalRecord("id", null, location, null, null, year, null);
+        return new SpatioTemporalRecord("id", null, location, null, null, year, null, null);
     }
 
     @Test
@@ -63,7 +63,7 @@ class HistoricalTransitServiceTest {
 
     @Test
     void coordResolutionFallsBackToCentralUS() {
-        SpatioTemporalRecord unknown = new SpatioTemporalRecord("id", null, "UnknownTown", null, null, 1850, null);
+        SpatioTemporalRecord unknown = new SpatioTemporalRecord("id", null, "UnknownTown", null, null, 1850, null, null);
         double[] coords = service.resolveCoords(unknown);
         // Central US default
         assertThat(coords[0]).isCloseTo(39.5, within(1.0));
@@ -71,7 +71,7 @@ class HistoricalTransitServiceTest {
 
     @Test
     void explicitLatLonOverridesCity() {
-        SpatioTemporalRecord rec = new SpatioTemporalRecord("id", null, "Boston", 51.5, -0.1, 1850, null);
+        SpatioTemporalRecord rec = new SpatioTemporalRecord("id", null, "Boston", 51.5, -0.1, 1850, null, null);
         double[] coords = service.resolveCoords(rec);
         assertThat(coords[0]).isEqualTo(51.5);
         assertThat(coords[1]).isEqualTo(-0.1);
@@ -79,7 +79,7 @@ class HistoricalTransitServiceTest {
 
     @Test
     void nullLocationFallsBackToCentralUS() {
-        SpatioTemporalRecord rec = new SpatioTemporalRecord("id", null, null, null, null, 1850, null);
+        SpatioTemporalRecord rec = new SpatioTemporalRecord("id", null, null, null, null, 1850, null, null);
         double[] coords = service.resolveCoords(rec);
         assertThat(coords[0]).isCloseTo(39.5, within(1.0));
     }

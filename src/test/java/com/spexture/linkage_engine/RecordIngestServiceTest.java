@@ -32,7 +32,7 @@ class RecordIngestServiceTest {
         RecordEmbeddingStore store = mock(RecordEmbeddingStore.class);
 
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-9", "A", "B", 1, "L", "src", null, Boolean.FALSE
+            "R-9", "A", "B", 1, null, "L", "src", null, Boolean.FALSE
         );
 
         service(writes, embed, store).ingest(req);
@@ -50,7 +50,7 @@ class RecordIngestServiceTest {
         when(embed.embed(any(Document.class))).thenReturn(new float[1024]);
 
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-9", "A", "B", 1, "L", "src", null, Boolean.TRUE
+            "R-9", "A", "B", 1, null, "L", "src", null, Boolean.TRUE
         );
 
         service(writes, embed, store).ingest(req);
@@ -66,7 +66,7 @@ class RecordIngestServiceTest {
         RecordEmbeddingStore store = mock(RecordEmbeddingStore.class);
 
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-9", "A", "B", 1, "L", "src", null, Boolean.TRUE
+            "R-9", "A", "B", 1, null, "L", "src", null, Boolean.TRUE
         );
 
         new RecordIngestService(writes, null, store, "model", CLEANSING).ingest(req);
@@ -81,7 +81,7 @@ class RecordIngestServiceTest {
             mock(LinkageRecordMutator.class), null, null, "model", CLEANSING
         );
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-1", "John", "Smith", 1850, "Philly", "src", "John Smith, Philly, 18S0", Boolean.FALSE
+            "R-1", "John", "Smith", 1850, null, "Philly", "src", "John Smith, Philly, 18S0", Boolean.FALSE
         );
 
         String text = svc.buildEmbeddingText(req);
@@ -93,7 +93,7 @@ class RecordIngestServiceTest {
     void ingestNoopsWhenMutatorNull() {
         EmbeddingModel embed = mock(EmbeddingModel.class);
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-9", "A", "B", 1, "L", "src", null, Boolean.TRUE
+            "R-9", "A", "B", 1, null, "L", "src", null, Boolean.TRUE
         );
         // Should not throw
         new RecordIngestService(null, embed, null, "model", CLEANSING).ingest(req);
@@ -106,7 +106,7 @@ class RecordIngestServiceTest {
             mock(LinkageRecordMutator.class), null, null, "model", CLEANSING
         );
         RecordIngestRequest req = new RecordIngestRequest(
-            "R-1", "John", "Smith", 1850, "Boston", "src", null, Boolean.FALSE
+            "R-1", "John", "Smith", 1850, null, "Boston", "src", null, Boolean.FALSE
         );
 
         String text = svc.buildEmbeddingText(req);

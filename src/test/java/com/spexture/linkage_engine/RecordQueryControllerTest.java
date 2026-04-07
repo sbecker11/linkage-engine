@@ -15,10 +15,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class RecordQueryControllerTest {
 
     private static final List<LinkageRecord> RECORDS = List.of(
-        new LinkageRecord("R-1001", "John",  "Smith", 1850, "Boston"),
-        new LinkageRecord("R-1002", "John",  "Smith", 1852, "San Francisco"),
-        new LinkageRecord("R-1003", "Jon",   "Smyth", 1851, "Boston"),
-        new LinkageRecord("R-1004", "Mary",  "Smith", 1850, "Boston")
+        new LinkageRecord("R-1001", "John",  "Smith", 1850, "Boston",         null),
+        new LinkageRecord("R-1002", "John",  "Smith", 1852, "San Francisco",  null),
+        new LinkageRecord("R-1003", "Jon",   "Smyth", 1851, "Boston",         null),
+        new LinkageRecord("R-1004", "Mary",  "Smith", 1850, "Boston",         null)
     );
 
     @Test

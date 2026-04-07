@@ -119,7 +119,7 @@ public class LinkageRecordRepository implements LinkageRecordStore {
     public List<LinkageRecord> findAll() {
         return jdbcTemplate.query(
             """
-                select record_id, given_name, family_name, event_year, location
+                select record_id, given_name, family_name, event_year, location, birth_year
                 from records
                 order by record_id
                 """,
@@ -128,7 +128,8 @@ public class LinkageRecordRepository implements LinkageRecordStore {
                 rs.getString("given_name"),
                 rs.getString("family_name"),
                 rs.getObject("event_year", Integer.class),
-                rs.getString("location")
+                rs.getString("location"),
+                rs.getObject("birth_year", Integer.class)
             )
         );
     }

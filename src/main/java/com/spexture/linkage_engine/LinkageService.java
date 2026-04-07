@@ -90,9 +90,9 @@ public class LinkageService implements LinkageResolver {
             if (top.year() != null && !isBlank(top.location())) {
                 SpatioTemporalRequest spatioReq = new SpatioTemporalRequest(
                     new SpatioTemporalRecord("query", request.givenName(), request.location(), null, null,
-                        request.approxYear(), null),
+                        request.approxYear(), null, null),
                     new SpatioTemporalRecord(top.recordId(), top.givenName(), top.location(), null, null,
-                        top.year(), null)
+                        top.year(), null, null)
                 );
                 spatioResult = conflictResolver.resolve(spatioReq);
                 log.info("[resolve] stage=spatiotemporal plausible={} adjustment={}",

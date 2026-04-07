@@ -71,7 +71,8 @@ record LinkageRecord(
     String givenName,
     String familyName,
     Integer year,
-    String location
+    String location,
+    Integer birthYear
 ) {}
 
 /** Full record projection used by the reindex pipeline. */
@@ -131,7 +132,9 @@ record SpatioTemporalRecord(
     Double lat,
     Double lon,
     int year,
-    Integer month
+    Integer month,
+    /** Optional birth year — used by AgeConsistencyRule and BiologicalPlausibilityRule. */
+    Integer birthYear
 ) {}
 
 record SpatioTemporalRequest(
@@ -157,6 +160,8 @@ record RecordIngestRequest(
     @NotBlank(message = "familyName is required")
     String familyName,
     Integer eventYear,
+    /** Birth year of the individual — used for age consistency checks across records. */
+    Integer birthYear,
     String location,
     String source,
     /** Raw transcription text from the original document (OCR output, typed notes, etc.). Cleansed before embedding. */

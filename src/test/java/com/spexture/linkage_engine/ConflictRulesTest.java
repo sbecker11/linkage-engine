@@ -14,8 +14,8 @@ class ConflictRulesTest {
 
     private static SpatioTemporalRequest req(String fromId, String toId, int fromYear, int toYear) {
         return new SpatioTemporalRequest(
-            new SpatioTemporalRecord(fromId, null, "Boston", null, null, fromYear, null),
-            new SpatioTemporalRecord(toId,   null, "Philadelphia", null, null, toYear, null)
+            new SpatioTemporalRecord(fromId, null, "Boston", null, null, fromYear, null, null),
+            new SpatioTemporalRecord(toId,   null, "Philadelphia", null, null, toYear, null, null)
         );
     }
 
@@ -125,12 +125,67 @@ class ConflictRulesTest {
         assertThat(result.triggered()).isFalse();
     }
 
+    // ── AgeEstimator ──────────────────────────────────────────────────────────
+
+    private final AgeEstimator ageEstimator = new AgeEstimator();
+    private final AgeConsistencyRule ageRule = new AgeConsistencyRule(ageEstimator);
+
+    private static SpatioTemporalRequest reqWithBirthYears(
+            int fromYear, Integer fromBirth, int toYear, Integer toBirth) {
+        return new SpatioTemporalRequest(
+            new SpatioTemporalRecord("R-A", null, "Boston",       null, null, fromYear, null, fromBirth),
+            new SpatioTemporalRecord("R-B", null, "Philadelphia", null, null, toYear,   null, toBirth)
+        );
+    }
+
+    @Test
+    void ageConsistency_consistentWhenAgesAdvanceNormally() {
+        // Born 1820: age 30 in 1850, age 31 in 1851 — consistent
+        ConflictRule.RuleResult result = ageRule.check(
+            reqWithBirthYears(1850, 1820, 1851, 1820), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(0);
+        assertThat(result.reason()).contains("consistent");
+    }
+
+    @Test
+    void ageConsistency_contradictsWhenAgeRegresses() {
+        // Record A is 1860, Record B is 1850 — age goes backwards
+        ConflictRule.RuleResult result = ageRule.check(
+            reqWithBirthYears(1860, 1820, 1850, 1820), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isTrue();
+        assertThat(result.implausible()).isTrue();
+        assertThat(result.confidencePenalty()).isEqualTo(40);
+        assertThat(result.reason()).contains("regressed");
+    }
+
+    @Test
+    void ageConsistency_implausibleWhenAgeOutsideLifespan() {
+        // Born 1700, record in 1850 → age 150 — outside [0, 120]
+        ConflictRule.RuleResult result = ageRule.check(
+            reqWithBirthYears(1850, 1700, 1851, 1700), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isTrue();
+        assertThat(result.implausible()).isTrue();
+        assertThat(result.confidencePenalty()).isEqualTo(50);
+        assertThat(result.reason()).contains("outside viable range");
+    }
+
+    @Test
+    void ageConsistency_skippedWhenNoBirthYear() {
+        // No birth year on either record — conservative skip
+        ConflictRule.RuleResult result = ageRule.check(
+            reqWithBirthYears(1850, null, 1851, null), ESTIMATE_2_DAYS, 365.0);
+        assertThat(result.triggered()).isFalse();
+        assertThat(result.confidencePenalty()).isEqualTo(0);
+        assertThat(result.reason()).contains("skipped");
+    }
+
     // ── GenderPlausibilityRule ─────────────────────────────────────────────────
 
     private static SpatioTemporalRequest reqWithNames(String givenA, String givenB) {
         return new SpatioTemporalRequest(
-            new SpatioTemporalRecord("R-A", givenA, "Boston",       null, null, 1850, null),
-            new SpatioTemporalRecord("R-B", givenB, "Philadelphia", null, null, 1851, null)
+            new SpatioTemporalRecord("R-A", givenA, "Boston",       null, null, 1850, null, null),
+            new SpatioTemporalRecord("R-B", givenB, "Philadelphia", null, null, 1851, null, null)
         );
     }
 
@@ -181,23 +236,23 @@ class ConflictRulesTest {
 
     @Test
     void availableDays_yearDeltaOnly() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1851, null);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1851, null, null);
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(365.0);
     }
 
     @Test
     void availableDays_withMonths() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, 1);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, 7);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, 1, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, 7, null);
         // 0 years + 6 months × 30 = 180 days
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(180.0);
     }
 
     @Test
     void availableDays_minimumOne() {
-        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null);
-        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, null);
+        SpatioTemporalRecord from = new SpatioTemporalRecord("id", null, "Boston", null, null, 1850, null, null);
+        SpatioTemporalRecord to   = new SpatioTemporalRecord("id", null, "Philadelphia", null, null, 1850, null, null);
         assertThat(ConflictResolver.computeAvailableDays(from, to)).isEqualTo(1.0);
     }
 }

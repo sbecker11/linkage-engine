@@ -15,8 +15,8 @@ class SpatioTemporalSerializationTest {
     @Test
     void requestSerializesAndDeserializes() throws Exception {
         SpatioTemporalRequest req = new SpatioTemporalRequest(
-            new SpatioTemporalRecord("R-1", null, "Boston", 42.36, -71.06, 1850, 3),
-            new SpatioTemporalRecord("R-2", null, "Philadelphia", null, null, 1851, null)
+            new SpatioTemporalRecord("R-1", null, "Boston", 42.36, -71.06, 1850, 3, null),
+            new SpatioTemporalRecord("R-2", null, "Philadelphia", null, null, 1851, null, null)
         );
 
         String json = mapper.writeValueAsString(req);

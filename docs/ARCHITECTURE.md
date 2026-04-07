@@ -182,13 +182,33 @@ Distances are straight-line haversine — actual routes are longer, so this is
 | Rule | Trigger | Effect |
 | :--- | :--- | :--- |
 | `PhysicalImpossibilityRule` | travelDays > availableDays | `plausible=false`, −50 pts |
-| `BiologicalPlausibilityRule` | implied age outside [0, 120] via `BORN:YYYY:` recordId prefix | `plausible=false`, −50 pts |
+| `BiologicalPlausibilityRule` | implied age outside [0, 120] (uses `birthYear` field; falls back to `BORN:YYYY:` recordId prefix) | `plausible=false`, −50 pts |
 | `NarrowMarginRule` | margin < 5 days (tight but possible) | `plausible=true`, −15 pts |
-| `GenderPlausibilityRule` _(planned)_ | inferred genders of the two records conflict | `plausible=true`, −20 pts |
+| `AgeConsistencyRule` | age regresses across records (CONTRADICTS), or age outside lifespan (IMPLAUSIBLE) | `plausible=false`, −40/−50 pts |
+| `GenderPlausibilityRule` | inferred genders of the two records conflict (via `GivenNameGenderProvider`, SSA 1880+ data) | `plausible=true`, −20 pts |
 
 `confidenceAdjustment` is capped at 50 regardless of how many rules fire.
 
-### Planned: `GenderPlausibilityRule`
+### `AgeConsistencyRule` and `AgeEstimator`
+
+`AgeEstimator` computes implied age at each record event year given a `birthYear`
+field on `SpatioTemporalRecord`. It returns an `AgeConsistencyResult` with one of
+four verdicts: `CONSISTENT`, `CONTRADICTS` (age regressed), `IMPLAUSIBLE` (age
+outside [0, 120]), or `UNKNOWN` (no birth year available — conservative skip).
+
+`AgeConsistencyRule` wraps `AgeEstimator` as a `ConflictRule`:
+- `CONTRADICTS` → `plausible=false`, −40 pts
+- `IMPLAUSIBLE` → `plausible=false`, −50 pts
+- `CONSISTENT` / `UNKNOWN` → no penalty
+
+`birthYear` is now a first-class field on `RecordIngestRequest`, `LinkageRecord`,
+and `SpatioTemporalRecord`, persisted in the `records.birth_year` column (V5
+migration). `BiologicalPlausibilityRule` prefers the field and falls back to the
+legacy `BORN:YYYY:` recordId prefix for backwards compatibility.
+
+---
+
+### `GenderPlausibilityRule`
 
 Gender is not currently stored on records, but it can be inferred from given names
 using US Social Security Administration name-frequency data. The SSA publishes
