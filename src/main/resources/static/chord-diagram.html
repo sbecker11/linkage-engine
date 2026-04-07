@@ -727,8 +727,9 @@
           "svg",
         );
         const headerH = document.querySelector("header").getBoundingClientRect().height;
-        const availH  = window.innerHeight - headerH - 60; // 60px for status+progress+padding
-        const side = Math.min(680, window.innerWidth - 48, availH);
+        const availH  = window.innerHeight - headerH - 40;
+        const availW  = window.innerWidth * 0.62 - 48; // centre column (100% - 20% detail - 18% legend - padding)
+        const side = Math.min(availW, availH);
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
         svgEl.setAttribute("width", side);
         svgEl.setAttribute("height", side);
