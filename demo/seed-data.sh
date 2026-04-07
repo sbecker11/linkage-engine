@@ -78,8 +78,19 @@ POST '{"recordId":"DEMO-M","givenName":"Elizabeth","familyName":"Harris","eventY
 POST '{"recordId":"DEMO-N","givenName":"William","familyName":"Harris","eventYear":1851,"birthYear":1828,"location":"New York","rawContent":"William Harris, New York, 1851 — census record"}' \
      "DEMO-N  William Harris    New York  1851  born 1828  (male, arrival)"
 
+# ── DEMO-O / DEMO-P : Travel + age conflict (→ green + cherry layers) ────────
+# Henry Moore departs Boston 1850 (born 1820, age 30);
+# Henry Moore arrives New York 1851 (born 1813, age 38).
+# Boston→NY in 1 year is trivially plausible (green travel layer),
+# but |ageA − ageB| = |30 − 38| = 8, yearDelta = 1, 8 > 1+5 → AgeConsistencyRule fires.
+# Chord shows green + cherry blend.
+POST '{"recordId":"DEMO-O","givenName":"Henry","familyName":"Moore","eventYear":1850,"birthYear":1820,"location":"Boston","rawContent":"Henry Moore, Boston, 1850 — city directory"}' \
+     "DEMO-O  Henry Moore  Boston    1850  born 1820  (age 30, departure)"
+POST '{"recordId":"DEMO-P","givenName":"Henry","familyName":"Moore","eventYear":1851,"birthYear":1813,"location":"New York","rawContent":"Henry Moore, New York, 1851 — census record"}' \
+     "DEMO-P  Henry Moore  New York  1851  born 1813  (age 38, arrival — 7 yrs older than expected)"
+
 echo ""
-echo "=== Seed complete: 14 records ingested ==="
+echo "=== Seed complete: 16 records ingested ==="
 echo ""
 echo "Expected chord colours:"
 echo "  Green        — DEMO-A ↔ DEMO-B  (plausible, comfortable)"
@@ -89,3 +100,4 @@ echo "  Red          — DEMO-G ↔ DEMO-H  (physical impossibility)"
 echo "  Cherry       — DEMO-I ↔ DEMO-J  (age contradiction)"
 echo "  Magenta      — DEMO-K ↔ DEMO-L  (gender conflict, same city)"
 echo "  Green+Magenta— DEMO-M ↔ DEMO-N  (plausible travel + gender conflict)"
+echo "  Green+Cherry — DEMO-O ↔ DEMO-P  (plausible travel + age contradiction)"
