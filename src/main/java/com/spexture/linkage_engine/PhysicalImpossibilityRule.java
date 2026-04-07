@@ -4,6 +4,7 @@ package com.spexture.linkage_engine;
  * Flags the movement as implausible when required travel days exceed available days.
  */
 @org.springframework.stereotype.Component
+@org.springframework.core.annotation.Order(1)
 public class PhysicalImpossibilityRule implements ConflictRule {
 
     @Override

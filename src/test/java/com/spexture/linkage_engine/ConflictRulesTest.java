@@ -149,14 +149,16 @@ class ConflictRulesTest {
     }
 
     @Test
-    void ageConsistency_contradictsWhenAgeRegresses() {
-        // Record A is 1860, Record B is 1850 — age goes backwards
+    void ageConsistency_contradictsWhenAgeDeltaExceedsYearDelta() {
+        // Record A: born 1820, event 1850 → age 30
+        // Record B: born 1780, event 1851 → age 71
+        // ageDelta = |71-30| = 41, yearDelta = 1, 41 > 1+5 → contradicts
         ConflictRule.RuleResult result = ageRule.check(
-            reqWithBirthYears(1860, 1820, 1850, 1820), ESTIMATE_2_DAYS, 365.0);
+            reqWithBirthYears(1850, 1820, 1851, 1780), ESTIMATE_2_DAYS, 365.0);
         assertThat(result.triggered()).isTrue();
         assertThat(result.implausible()).isTrue();
         assertThat(result.confidencePenalty()).isEqualTo(40);
-        assertThat(result.reason()).contains("regressed");
+        assertThat(result.reason()).contains("exceeds year delta");
     }
 
     @Test

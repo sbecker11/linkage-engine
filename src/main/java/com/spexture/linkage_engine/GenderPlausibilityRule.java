@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
  * List<ConflictRule> injection in ConflictResolver. Zero orchestrator changes needed.
  */
 @Component
+@org.springframework.core.annotation.Order(4)
 public class GenderPlausibilityRule implements ConflictRule {
 
     static final int PENALTY = 20;

@@ -9,6 +9,7 @@ package com.spexture.linkage_engine;
  * with existing seeded records. Skips silently when no birth year is available.
  */
 @org.springframework.stereotype.Component
+@org.springframework.core.annotation.Order(2)
 public class BiologicalPlausibilityRule implements ConflictRule {
 
     private static final int MIN_AGE = AgeEstimator.MIN_AGE;

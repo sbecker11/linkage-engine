@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
  * <p>Skipped silently when neither record carries a birth year.
  */
 @Component
+@org.springframework.core.annotation.Order(3)
 public class AgeConsistencyRule implements ConflictRule {
 
     static final String RULE_NAME = "AgeConsistencyRule";

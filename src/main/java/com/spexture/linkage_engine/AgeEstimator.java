@@ -49,23 +49,16 @@ public class AgeEstimator {
         Integer birthYearFrom = from.birthYear();
         Integer birthYearTo   = to.birthYear();
 
-        // Use whichever birth year is available; if both present, they should agree
-        Integer birthYear = birthYearFrom != null ? birthYearFrom : birthYearTo;
-        if (birthYear == null) {
+        if (birthYearFrom == null && birthYearTo == null) {
             return new AgeConsistencyResult(Verdict.UNKNOWN, null, null, null,
                 "No birth year available on either record; age consistency check skipped.");
         }
 
-        int ageAtFrom = from.year() - birthYear;
-        int ageAtTo   = to.year()   - birthYear;
+        // Derive each record's implied age using its own birth year when available,
+        // falling back to the other record's birth year if only one is known.
+        int ageAtFrom = from.year() - (birthYearFrom != null ? birthYearFrom : birthYearTo);
+        int ageAtTo   = to.year()   - (birthYearTo   != null ? birthYearTo   : birthYearFrom);
         int yearDelta = to.year()   - from.year();
-
-        // Age went backwards — same person cannot get younger
-        if (ageAtTo < ageAtFrom) {
-            return new AgeConsistencyResult(Verdict.CONTRADICTS, ageAtFrom, ageAtTo, yearDelta,
-                String.format("Age regressed: %d at %d → %d at %d (year delta %+d). Same person cannot get younger.",
-                    ageAtFrom, from.year(), ageAtTo, to.year(), yearDelta));
-        }
 
         // Either age is outside the human lifespan
         if (ageAtFrom < MIN_AGE || ageAtFrom > MAX_AGE || ageAtTo < MIN_AGE || ageAtTo > MAX_AGE) {
@@ -74,9 +67,19 @@ public class AgeEstimator {
                     ageAtFrom, ageAtTo, MIN_AGE, MAX_AGE));
         }
 
+        // |ageA - ageB| should equal |yearDelta| within a 5-year tolerance.
+        // A larger discrepancy means the two records cannot belong to the same person.
+        int ageDelta = Math.abs(ageAtTo - ageAtFrom);
+        int expectedDelta = Math.abs(yearDelta);
+        if (ageDelta > expectedDelta + 5) {
+            return new AgeConsistencyResult(Verdict.CONTRADICTS, ageAtFrom, ageAtTo, yearDelta,
+                String.format("Age delta %d exceeds year delta %d by more than 5 — records contradict same-person identity.",
+                    ageDelta, expectedDelta));
+        }
+
         return new AgeConsistencyResult(Verdict.CONSISTENT, ageAtFrom, ageAtTo, yearDelta,
-            String.format("Ages consistent: %d at %d → %d at %d (year delta %+d).",
-                ageAtFrom, from.year(), ageAtTo, to.year(), yearDelta));
+            String.format("Ages consistent: %d at %d → %d at %d (year delta %+d, age delta %d).",
+                ageAtFrom, from.year(), ageAtTo, to.year(), yearDelta, ageDelta));
     }
 
     public enum Verdict { CONSISTENT, CONTRADICTS, IMPLAUSIBLE, UNKNOWN }

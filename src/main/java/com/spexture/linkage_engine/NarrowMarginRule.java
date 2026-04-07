@@ -5,6 +5,7 @@ package com.spexture.linkage_engine;
  * is less than {@value #NARROW_MARGIN_DAYS} days — the movement is technically possible but tight.
  */
 @org.springframework.stereotype.Component
+@org.springframework.core.annotation.Order(5)
 public class NarrowMarginRule implements ConflictRule {
 
     static final int NARROW_MARGIN_DAYS = 5;

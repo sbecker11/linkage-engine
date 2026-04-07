@@ -469,10 +469,12 @@
               pairSet.set(key, {
                 i,
                 j,
-                locA: records[i].location,
+                nameA: records[i].givenName,
+                locA:  records[i].location,
                 yearA: records[i].year,
-                locB: cand.location || records[j].location,
-                yearB: cand.year || records[j].year,
+                nameB: cand.givenName || records[j].givenName,
+                locB:  cand.location  || records[j].location,
+                yearB: cand.year      || records[j].year,
               });
           });
         });
@@ -494,8 +496,8 @@
               matrix[i][j] = 60;
               pairSet.set(key, {
                 i, j,
-                locA: a.location, yearA: a.year,
-                locB: b.location, yearB: b.year,
+                nameA: a.givenName, locA: a.location, yearA: a.year,
+                nameB: b.givenName, locB: b.location, yearB: b.year,
               });
             }
           }
@@ -538,11 +540,11 @@
 
         await Promise.all(
           [...pairSet.values()].map(
-            async ({ i, j, locA, yearA, locB, yearB }) => {
+            async ({ i, j, nameA, locA, yearA, nameB, locB, yearB }) => {
               try {
                 const res = await apiPost("/v1/spatial/temporal-overlap", {
-                  from: { recordId: "q-a", location: locA, year: yearA },
-                  to:   { recordId: "q-b", location: locB, year: yearB },
+                  from: { recordId: "q-a", givenName: nameA, location: locA, year: yearA },
+                  to:   { recordId: "q-b", givenName: nameB, location: locB, year: yearB },
                 });
                 plausMap.set(`${i}-${j}`, res);
               } catch (e) {
