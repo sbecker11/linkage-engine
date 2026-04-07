@@ -1185,7 +1185,7 @@
         const verdictAnswer = isPhysImpossible && !isAgeConflict
                             ? "No — journey is physically impossible"
                             : isAgeConflict && ageGapYears !== null && calendarYears !== null
-                            ? `Unlikely — age gap is ${ageGapYears} year${ageGapYears !== 1 ? "s" : ""}, far more than ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""} elapsed`
+                            ? `Unlikely — birth years imply a ${ageGapYears}-year age gap across only ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""}`
                             : isAgeConflict
                             ? "Unlikely — age data contradicts identity"
                             : isGenderConflict
