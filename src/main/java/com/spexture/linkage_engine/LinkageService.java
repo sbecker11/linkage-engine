@@ -8,6 +8,24 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+/**
+ * Orchestrates the four-stage hybrid linkage resolution pipeline:
+ *
+ * <pre>
+ * POST /v1/linkage/resolve
+ *   └─ Stage 1: SQL search          — deterministic narrowing via name/year/location filters (always on)
+ *   └─ Stage 2: vector rerank       — cosine similarity reorder (gates on EmbeddingModel bean)
+ *   └─ Stage 3: semantic summary    — LLM narrative (gates on ChatModel + LINKAGE_SEMANTIC_LLM_ENABLED)
+ *   └─ Stage 4: spatio-temporal     — historical transit plausibility check (always on; no-op when location/year absent)
+ * </pre>
+ *
+ * <p>Each stage degrades gracefully when its dependency is absent. The local profile runs
+ * all four stages end-to-end without Bedrock credentials.
+ *
+ * <p>Dependency injection uses {@link org.springframework.beans.factory.ObjectProvider} for
+ * optional beans rather than {@code @ConditionalOnBean} — bean ordering in autoconfiguration
+ * is non-deterministic; runtime null-checks via ObjectProvider are not.
+ */
 @Service
 public class LinkageService implements LinkageResolver {
 
