@@ -132,6 +132,7 @@
         padding: 20px 16px;
         background: #f5f4ef;
         border-left: 1px solid #d3d1c7;
+        transition: background 0.3s, border-color 0.3s;
         font-size: 11px;
         color: #6b6b63;
         display: flex;
@@ -221,31 +222,31 @@
         padding: 0 2px;
       }
       .det-close:hover { color: #1a1a18; }
-      #detail.plausible {
+      #detail.plausible, #legend.plausible {
         background: #e4f7f0;   /* teal-green — very comfortable */
         border-color: #1D9E75;
       }
-      #detail.lowconf {
+      #detail.lowconf, #legend.lowconf {
         background: #e8f2fc;   /* steel-blue — comfortable */
         border-color: #4A90D9;
       }
-      #detail.moderate {
+      #detail.moderate, #legend.moderate {
         background: #f0eafa;   /* purple — moderate */
         border-color: #9B6FD4;
       }
-      #detail.verylow {
+      #detail.verylow, #legend.verylow {
         background: #fdf3e3;   /* amber — tight */
         border-color: #EF9F27;
       }
-      #detail.impossible {
+      #detail.impossible, #legend.impossible {
         background: #fcebeb;
         border-color: #f09595;
       }
-      #detail.age-conflict {
+      #detail.age-conflict, #legend.age-conflict {
         background: #fce4ec;
         border-color: #c2185b;
       }
-      #detail.gender-conflict {
+      #detail.gender-conflict, #legend.gender-conflict {
         background: #fce4ff;
         border-color: #e040fb;
       }
@@ -856,6 +857,7 @@
         function clearSelection() {
           selectedD = null;
           restoreAll();
+          document.getElementById("legend").className = "";
         }
 
         // Add a single transparent hit-area path per chord group AFTER initial paint.
@@ -1162,6 +1164,7 @@
         // else green — very comfortable → "plausible"
         det.className = detClass;
         det.style.display = "block";
+        document.getElementById("legend").className = detClass;
 
         const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
