@@ -201,6 +201,7 @@
         left: 0;
         width: 20%;
         height: 100%;
+        overflow-y: auto;
         padding: 20px 16px 20px 16px;
         border-right: 1px solid #d3d1c7;
         overflow-y: auto;
@@ -1136,7 +1137,16 @@
         const conflictItems = [ageLine, genderLine].filter(Boolean)
           .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
 
-        const verdictColor = flags.length === 0 ? "#2a7a5a" : "#a32d2d";
+        const hasConflict = flags.length > 0;
+        const isPhysImpossible = rules.some(r => r === "PhysicalImpossibilityRule") || isImpossible;
+        const verdictAnswer = isPhysImpossible  ? "No — journey is physically impossible"
+                            : isAgeConflict     ? "Unlikely — age data contradicts identity"
+                            : isGenderConflict  ? "Unlikely — gender conflict between records"
+                            : hasConflict       ? "Uncertain — conflicts detected"
+                            :                    "Yes — records are consistent";
+        const verdictColor  = isPhysImpossible || isAgeConflict || isGenderConflict ? "#a32d2d"
+                            : hasConflict ? "#b06000"
+                            : "#2a7a5a";
 
         const travelArrow = (() => {
           if (!p || sameCity) return `<span style="color:#aaa;font-size:18px">↕</span><span style="color:#aaa;font-size:10px"> same city</span>`;
@@ -1167,7 +1177,9 @@
 
             <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:10px 0">
 
-            <p class="det-sub" style="color:${verdictColor};font-weight:600">${verdict}</p>
+            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Should this link exist?</p>
+            <p class="det-sub" style="color:${verdictColor};font-weight:700;font-size:13px">${verdictAnswer}</p>
+            ${flags.length > 0 ? `<p class="det-sub" style="color:#888;font-size:10px;margin-top:4px">${flags.join(" · ")}</p>` : ""}
           </div>`;
         det.querySelector(".det-close").addEventListener("click", () => {
           det.style.display = "none";
