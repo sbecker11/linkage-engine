@@ -638,7 +638,6 @@
         if (!p) return [COL.grey];
         const penalties = p.rulePenalties || {};
         const layers = [travelHex(p)];   // travel layer always present
-        console.info("🎨 CHORD travelHex: avail=", p?.availableDays, "travel=", p?.travelDays, "→", layers[0]);
 
         if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
           layers.push(COL.red);
@@ -871,8 +870,10 @@
             .on("click", () => {
               hideTip();
               selectedD = d;
-              restoreAll();          // clears previous selection highlight, paints new selectedD
+              restoreAll();
               dimAllExcept(d);
+              const _p = plausGet(plausMap, d.source.index, d.target.index);
+              console.info("🎨 CHORD color: avail=", _p?.availableDays, "travel=", _p?.travelDays, "→", chordColor(d.source.index, d.target.index, plausMap));
               pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
             });
         });
