@@ -203,7 +203,21 @@
         transition:
           background 0.3s,
           border-color 0.3s;
+        position: relative;
       }
+      .det-close {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+        color: #888;
+        background: none;
+        border: none;
+        padding: 0 2px;
+      }
+      .det-close:hover { color: #1a1a18; }
       #detail.plausible {
         background: #e1f5ee;
         border-color: #5dcaa5;
@@ -1029,17 +1043,22 @@
         const travelLine= travel !== null ? `<span style="color:${travel >= 80 ? '#2a7a5a' : travel >= 50 ? '#b07a10' : '#e24b4a'};font-weight:600">Travel match ${travel}%</span>` : "";
         const signalRow = [travelLine, ageLine, genderLine].filter(Boolean).join(" &middot; ");
 
-        det.innerHTML = `<div class="det-row">
-       <div style="flex:1">
-         <p class="det-title">
-           ${src.givenName || ""} ${src.familyName || src.name || ""} &middot; ${src.location} ${src.year}
-           &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
-         </p>
-         <p class="det-sub">Similarity ${sim}% &middot; ${plausText}</p>
-         ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
-       </div>
-       <span class="det-conf ${confClass}">${conf}%</span>
-     </div>`;
+        det.innerHTML = `
+          <button class="det-close" title="Close">&times;</button>
+          <div class="det-row">
+            <div style="flex:1">
+              <p class="det-title">
+                ${src.givenName || ""} ${src.familyName || src.name || ""} &middot; ${src.location} ${src.year}
+                &rarr; ${tgt.givenName || ""} ${tgt.familyName || tgt.name || ""} &middot; ${tgt.location} ${tgt.year}
+              </p>
+              <p class="det-sub">Similarity ${sim}% &middot; ${plausText}</p>
+              ${signalRow ? `<p class="det-sub" style="margin-top:4px">${signalRow}</p>` : ""}
+            </div>
+            <span class="det-conf ${confClass}">${conf}%</span>
+          </div>`;
+        det.querySelector(".det-close").addEventListener("click", () => {
+          det.style.display = "none";
+        });
       }
 
       init();
