@@ -1060,22 +1060,23 @@
 
         // ── Age ───────────────────────────────────────────────────────────────
         let ageLine = null, ageFlag = null, ageColor = "#888";
+        let ageGapYears = null, calendarYears = null;
         const agePenalty = p?.rulePenalties?.["AgeConsistencyRule"] ?? null;
         if (agePenalty !== null) {
           const ageA = (srcRec.birthYear && srcRec.year) ? srcRec.year - srcRec.birthYear : null;
           const ageB = (tgtRec.birthYear && tgtRec.year) ? tgtRec.year - tgtRec.birthYear : null;
           ageColor = "#c2185b";
           if (ageA !== null && ageB !== null && (ageA < 0 || ageB < 0)) {
-            // Negative age — birth year is after event year (e.g. OCR error)
             const badRec  = ageA < 0 ? srcRec : tgtRec;
             const badAge  = ageA < 0 ? ageA   : ageB;
             ageLine = `⚠ Impossible age: ${fullName(badRec)} (born ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
             ageFlag = `Impossible age (${badAge})`;
+            ageGapYears = Math.abs(badAge);
           } else if (ageA !== null && ageB !== null) {
-            const ageDelta  = Math.abs(ageB - ageA);
-            const yearDelta = Math.abs(tgtRec.year - srcRec.year);
-            ageLine = `⚠ Age contradiction: ${fullName(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${fullName(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageDelta} years of ageing in ${yearDelta} calendar year${yearDelta !== 1 ? "s" : ""}.`;
-            ageFlag = `Age gap ${ageDelta} yrs / ${yearDelta} calendar yr${yearDelta !== 1 ? "s" : ""}`;
+            ageGapYears  = Math.abs(ageB - ageA);
+            calendarYears = Math.abs(tgtRec.year - srcRec.year);
+            ageLine = `⚠ Age contradiction: ${fullName(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${fullName(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageGapYears} years of ageing in ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""}.`;
+            ageFlag = `Age gap ${ageGapYears} yrs / ${calendarYears} calendar yr${calendarYears !== 1 ? "s" : ""}`;
           } else {
             ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
             ageFlag = "Age inconsistency";
@@ -1096,7 +1097,7 @@
           ? "No conflicts detected — records are consistent."
           : `${flags.length} conflict${flags.length > 1 ? "s" : ""} detected: ${flags.join("; ")}.`;
 
-        return { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags };
+        return { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags };
       }
 
       // Simple gender label for the story — mirrors GivenNameGenderProvider.
@@ -1174,18 +1175,24 @@
         det.className = detClass;
         det.style.display = "block";
 
-        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictItems = [ageLine, genderLine].filter(Boolean)
           .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
 
         const hasConflict = flags.length > 0;
         const isPhysImpossible = rules.some(r => r === "PhysicalImpossibilityRule") || isImpossible;
-        const verdictAnswer = isPhysImpossible  ? "No — journey is physically impossible"
-                            : isAgeConflict     ? "Unlikely — age data contradicts identity"
-                            : isGenderConflict  ? "Unlikely — gender conflict between records"
-                            : hasConflict       ? "Uncertain — conflicts detected"
-                            :                    "Yes — records are consistent";
+        const verdictAnswer = isPhysImpossible && !isAgeConflict
+                            ? "No — journey is physically impossible"
+                            : isAgeConflict && ageGapYears !== null && calendarYears !== null
+                            ? `Unlikely — age gap is ${ageGapYears} year${ageGapYears !== 1 ? "s" : ""}, far more than ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""} elapsed`
+                            : isAgeConflict
+                            ? "Unlikely — age data contradicts identity"
+                            : isGenderConflict
+                            ? "Unlikely — gender conflict between records"
+                            : hasConflict
+                            ? "Uncertain — conflicts detected"
+                            : "Yes — records are consistent";
         const verdictColor  = isPhysImpossible || isAgeConflict || isGenderConflict ? "#a32d2d"
                             : hasConflict ? "#b06000"
                             : "#2a7a5a";
