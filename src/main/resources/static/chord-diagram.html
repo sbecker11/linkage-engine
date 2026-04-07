@@ -638,6 +638,7 @@
         if (!p) return [COL.grey];
         const penalties = p.rulePenalties || {};
         const layers = [travelHex(p)];   // travel layer always present
+        console.log("[chordLayers] avail=", p?.availableDays, "travel=", p?.travelDays, "→", layers[0]);
 
         if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
           layers.push(COL.red);
@@ -1029,6 +1030,7 @@
           const margin = ratio >= 10 ? "very comfortable" : ratio >= 4 ? "comfortable" : ratio >= 2 ? "moderate" : "tight";
           travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
           travelFlag = null; travelColor = travelHex(p);
+          console.log("[travelColor] avail=", p.availableDays, "travel=", p.travelDays, "ratio=", p.availableDays/Math.max(0.1,p.travelDays), "→", travelColor);
         }
 
         // ── Age ───────────────────────────────────────────────────────────────
