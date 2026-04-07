@@ -42,6 +42,8 @@ record RecordIngestRequest(
     Integer eventYear,
     String location,
     String source,
+    /** Raw transcription text from the original document (OCR output, typed notes, etc.). Cleansed before embedding. */
+    String rawContent,
     /** When true (default), compute and store an embedding if an {@link org.springframework.ai.embedding.EmbeddingModel} bean exists. */
     Boolean computeEmbedding
 ) {

@@ -10,11 +10,9 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 
 @Service
-@ConditionalOnBean(LinkageRecordStore.class)
 public class LinkageService implements LinkageResolver {
 
     private final ChatModel chatModel;
@@ -23,8 +21,9 @@ public class LinkageService implements LinkageResolver {
     private final RecordEmbeddingStore recordEmbeddingStore;
     private final boolean semanticLlmEnabled;
 
+    @Autowired
     public LinkageService(
-        ChatModel chatModel,
+        @Autowired(required = false) ChatModel chatModel,
         LinkageRecordStore linkageRecordStore,
         @Autowired(required = false) EmbeddingModel embeddingModel,
         @Autowired(required = false) RecordEmbeddingStore recordEmbeddingStore,
@@ -90,7 +89,7 @@ public class LinkageService implements LinkageResolver {
         }
 
         String semanticSummary;
-        if (semanticLlmEnabled) {
+        if (semanticLlmEnabled && chatModel != null) {
             try {
                 semanticSummary = chatModel.call(buildPrompt(request, rankedCandidates));
                 rulesTriggered.add("semantic_llm_summary");
@@ -100,7 +99,7 @@ public class LinkageService implements LinkageResolver {
             }
         } else {
             semanticSummary = buildDeterministicSummary(rankedCandidates);
-            rulesTriggered.add("semantic_llm_summary_disabled");
+            rulesTriggered.add(chatModel == null ? "semantic_llm_summary_disabled" : "semantic_llm_summary_disabled");
         }
         double confidenceScore = computeConfidenceScore(rankedCandidates.size(), request, candidateScores);
 

@@ -1,11 +1,9 @@
 package com.spexture.linkage_engine;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
 public class LinkageRecordWriteRepository implements LinkageRecordMutator {
 
     private final JdbcTemplate jdbcTemplate;

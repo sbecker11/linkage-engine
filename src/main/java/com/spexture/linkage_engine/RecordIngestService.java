@@ -1,29 +1,39 @@
 package com.spexture.linkage_engine;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 
 public class RecordIngestService implements RecordIngestPort {
 
+    private static final Logger log = LoggerFactory.getLogger(RecordIngestService.class);
+
     private final LinkageRecordMutator recordMutator;
     private final EmbeddingModel embeddingModel;
     private final RecordEmbeddingStore recordEmbeddingStore;
     private final String embeddingModelId;
+    private final DataCleansingService cleansingService;
 
     public RecordIngestService(
         LinkageRecordMutator recordMutator,
         EmbeddingModel embeddingModel,
         RecordEmbeddingStore recordEmbeddingStore,
-        String embeddingModelId
+        String embeddingModelId,
+        DataCleansingService cleansingService
     ) {
         this.recordMutator = recordMutator;
         this.embeddingModel = embeddingModel;
         this.recordEmbeddingStore = recordEmbeddingStore;
         this.embeddingModelId = embeddingModelId;
+        this.cleansingService = cleansingService;
     }
 
     @Override
     public void ingest(RecordIngestRequest request) {
+        if (recordMutator == null) {
+            return;
+        }
         recordMutator.upsertRecord(request);
         if (!Boolean.TRUE.equals(request.computeEmbedding())) {
             return;
@@ -31,13 +41,25 @@ public class RecordIngestService implements RecordIngestPort {
         if (embeddingModel == null || recordEmbeddingStore == null) {
             return;
         }
-        String text = LinkageEmbeddingText.toEmbeddingText(
+        String textToEmbed = buildEmbeddingText(request);
+        log.debug("Embedding text for {}: {}", request.recordId(), textToEmbed);
+        float[] vector = embeddingModel.embed(new Document(textToEmbed));
+        recordEmbeddingStore.upsertEmbedding(request.recordId(), vector, embeddingModelId);
+    }
+
+    /**
+     * If {@code rawContent} is provided, cleanse it and use it as the embedding text.
+     * Otherwise fall back to the structured fields.
+     */
+    String buildEmbeddingText(RecordIngestRequest request) {
+        if (request.rawContent() != null && !request.rawContent().isBlank()) {
+            return cleansingService.cleanse(request.rawContent());
+        }
+        return LinkageEmbeddingText.toEmbeddingText(
             request.givenName(),
             request.familyName(),
             request.eventYear(),
             request.location()
         );
-        float[] vector = embeddingModel.embed(new Document(text));
-        recordEmbeddingStore.upsertEmbedding(request.recordId(), vector, embeddingModelId);
     }
 }

@@ -15,7 +15,7 @@ class LinkageRecordWriteRepositoryTest {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         LinkageRecordWriteRepository repository = new LinkageRecordWriteRepository(jdbcTemplate);
         RecordIngestRequest request = new RecordIngestRequest(
-            "R-x", "Ann", "Lee", 1920, "NYC", "unit-test", Boolean.FALSE
+            "R-x", "Ann", "Lee", 1920, "NYC", "unit-test", null, Boolean.FALSE
         );
 
         repository.upsertRecord(request);

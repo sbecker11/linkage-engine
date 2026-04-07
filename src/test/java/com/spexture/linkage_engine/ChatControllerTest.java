@@ -25,6 +25,12 @@ class ChatControllerTest {
     @MockBean
     private ChatModel chatModel;
 
+    @MockBean
+    private LinkageRecordStore linkageRecordStore;
+
+    @MockBean
+    private LinkageRecordMutator linkageRecordMutator;
+
     @Test
     void askReturnsModelResponse() throws Exception {
         when(chatModel.call("hello")).thenReturn("hi there");

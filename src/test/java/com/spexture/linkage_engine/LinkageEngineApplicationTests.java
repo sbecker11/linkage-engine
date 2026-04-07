@@ -15,6 +15,8 @@ class LinkageEngineApplicationTests {
 	ChatModel chatModel;
 	@MockBean
 	LinkageRecordStore linkageRecordStore;
+	@MockBean
+	LinkageRecordMutator linkageRecordMutator;
 
 	@Test
 	void contextLoads() {

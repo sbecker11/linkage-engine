@@ -3,9 +3,7 @@ package com.spexture.linkage_engine;
 import java.util.Map;
 
 import jakarta.validation.Valid;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,7 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/v1/linkage")
-@ConditionalOnBean(JdbcTemplate.class)
 public class LinkageController {
 
     private final LinkageResolver linkageResolver;
