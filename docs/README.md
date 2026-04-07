@@ -70,7 +70,7 @@ Notes:
 * `BEDROCK_MODEL_ID` should be an **inference profile ID** for your account/region (for example `us.amazon.nova-lite-v1:0`), not a base model ID.
 * The app uses the AWS SDK default credential provider chain, so credentials should come from your AWS profile/session or IAM role.
 * **Ingest:** `POST /v1/records` upserts into `records` and, when embeddings are enabled, writes Titan vectors to `record_embeddings`. Bulk raw files should follow the **S3 landing → ingest** standard in `DATA_PIPELINE_S3.md`.
-* **Resolve:** `POST /v1/linkage/resolve` narrows with SQL, then (if embeddings exist for those rows) reranks by cosine similarity; response includes `candidateScores[].vectorSimilarity`.
+* **Resolve:** `POST /v1/linkage/resolve` narrows with SQL, then (if embeddings exist for those rows) reranks by cosine similarity; response includes `rankedCandidates[].vectorSimilarity` (null on local profile — rank-estimated in the chord diagram UI).
 
 Verify your AWS setup before starting the app:
 ```bash
@@ -83,3 +83,18 @@ aws bedrock list-inference-profiles --region us-west-1 --output table
 ./mvnw test
 ./mvnw verify && open target/site/jacoco/index.html
 ```
+
+### 6. Chord Diagram UI
+With the server running, open [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html)
+to visualise seeded records as a D3.js directed chord diagram. Chord width reflects
+similarity score; chord colour reflects historical travel-time margin (green = comfortable,
+red = physically impossible). See `ARCHITECTURE.md §12` for the full colour scale.
+
+### 7. Planned Extensions
+The `ConflictRule` chain accepts new rules as single-file additions. Planned:
+
+| Rule | Approach |
+| :--- | :--- |
+| `GenderPlausibilityRule` | Infer gender from given name using SSA name-frequency data (1880+); penalise cross-gender candidate pairs by −20 pts |
+| `OccupationalPlausibilityRule` | Flag implausible occupational mobility between records |
+| `TemporalNormalizationProvider` | Normalise "circa 1850", "abt. 1850", "~1850" to a canonical year range before SQL search |
