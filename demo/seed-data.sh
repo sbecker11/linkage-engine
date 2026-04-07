@@ -78,26 +78,37 @@ POST '{"recordId":"DEMO-M","givenName":"Elizabeth","familyName":"Harris","eventY
 POST '{"recordId":"DEMO-N","givenName":"William","familyName":"Harris","eventYear":1851,"birthYear":1828,"location":"New York","rawContent":"William Harris, New York, 1851 — census record"}' \
      "DEMO-N  William Harris    New York  1851  born 1828  (male, arrival)"
 
-# ── DEMO-O / DEMO-P : Travel + age conflict (→ green + cherry layers) ────────
+# ── DEMO-O / DEMO-P : Travel + mild age conflict (→ green + cherry layers) ───
 # Henry Moore departs Boston 1850 (born 1820, age 30);
 # Henry Moore arrives New York 1851 (born 1813, age 38).
 # Boston→NY in 1 year is trivially plausible (green travel layer),
-# but |ageA − ageB| = |30 − 38| = 8, yearDelta = 1, 8 > 1+5 → AgeConsistencyRule fires.
+# but |ageA − ageB| = |30 − 38| = 8, yearDelta = 1, 8 > 1+5 → AgeConsistencyRule CONTRADICTS (−40 pts).
 # Chord shows green + cherry blend.
 POST '{"recordId":"DEMO-O","givenName":"Henry","familyName":"Moore","eventYear":1850,"birthYear":1820,"location":"Boston","rawContent":"Henry Moore, Boston, 1850 — city directory"}' \
      "DEMO-O  Henry Moore  Boston    1850  born 1820  (age 30, departure)"
 POST '{"recordId":"DEMO-P","givenName":"Henry","familyName":"Moore","eventYear":1851,"birthYear":1813,"location":"New York","rawContent":"Henry Moore, New York, 1851 — census record"}' \
      "DEMO-P  Henry Moore  New York  1851  born 1813  (age 38, arrival — 7 yrs older than expected)"
 
+# ── DEMO-Q / DEMO-R : Travel + impossible age (→ green + cherry layers, −50 pts) ─
+# George Moore departs Boston 1850 (born 1820, age 30 — plausible);
+# George Moore arrives New York 1851 (born 1860 — age −9, biologically impossible).
+# AgeConsistencyRule fires IMPLAUSIBLE verdict (−50 pts, plausible=false).
+# Chord shows green travel layer + cherry age layer, darker than DEMO-O/P.
+POST '{"recordId":"DEMO-Q","givenName":"George","familyName":"Moore","eventYear":1850,"birthYear":1820,"location":"Boston","rawContent":"George Moore, Boston, 1850 — voter roll"}' \
+     "DEMO-Q  George Moore  Boston    1850  born 1820  (age 30, departure)"
+POST '{"recordId":"DEMO-R","givenName":"George","familyName":"Moore","eventYear":1851,"birthYear":1860,"location":"New York","rawContent":"George Moore, New York, 1851 — census record (OCR error: birth year 1860)"}' \
+     "DEMO-R  George Moore  New York  1851  born 1860  (age -9, impossible — OCR error)"
+
 echo ""
-echo "=== Seed complete: 16 records ingested ==="
+echo "=== Seed complete: 18 records ingested ==="
 echo ""
 echo "Expected chord colours:"
-echo "  Green        — DEMO-A ↔ DEMO-B  (plausible, comfortable)"
-echo "  Blue         — DEMO-C ↔ DEMO-D  (plausible, moderate)"
-echo "  Amber        — DEMO-E ↔ DEMO-F  (plausible, narrow margin)"
-echo "  Red          — DEMO-G ↔ DEMO-H  (physical impossibility)"
-echo "  Cherry       — DEMO-I ↔ DEMO-J  (age contradiction)"
-echo "  Magenta      — DEMO-K ↔ DEMO-L  (gender conflict, same city)"
-echo "  Green+Magenta— DEMO-M ↔ DEMO-N  (plausible travel + gender conflict)"
-echo "  Green+Cherry — DEMO-O ↔ DEMO-P  (plausible travel + age contradiction)"
+echo "  Green              — DEMO-A ↔ DEMO-B  (plausible, comfortable)"
+echo "  Blue               — DEMO-C ↔ DEMO-D  (plausible, moderate)"
+echo "  Amber              — DEMO-E ↔ DEMO-F  (plausible, narrow margin)"
+echo "  Red                — DEMO-G ↔ DEMO-H  (physical impossibility)"
+echo "  Cherry             — DEMO-I ↔ DEMO-J  (age contradiction)"
+echo "  Magenta            — DEMO-K ↔ DEMO-L  (gender conflict, same city)"
+echo "  Green+Magenta      — DEMO-M ↔ DEMO-N  (plausible travel + gender conflict)"
+echo "  Green+Cherry(−40)  — DEMO-O ↔ DEMO-P  (plausible travel + age CONTRADICTS)"
+echo "  Green+Cherry(−50)  — DEMO-Q ↔ DEMO-R  (plausible travel + age IMPLAUSIBLE, negative age)"
