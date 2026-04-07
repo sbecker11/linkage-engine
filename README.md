@@ -4,7 +4,16 @@ A Java 21 / Spring Boot service for **spatio-temporal genealogical record linkag
 
 <img src="docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
 
-Each arc is a seeded record. Chord width reflects similarity score; chord colour reflects travel-time margin — green (comfortable) through blue, purple, amber, to red (physically impossible).  
+The diagram visualises up to 12 of the seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852. Each arc segment represents one record; chords connect pairs that the resolution pipeline considers candidate matches for the same person. **Chord width** reflects the similarity score between the pair. **Chord colour** reflects the historical travel-time margin between their locations and dates:
+
+| Colour | Meaning |
+| :--- | :--- |
+| Green | Comfortable margin — available time is 10× or more than travel time |
+| Blue | Moderate margin — 4–10× travel time |
+| Purple | Tight margin — 2–4× travel time |
+| Amber | Very tight — less than 2× travel time, but still plausible |
+| Red | Physically impossible — travel time exceeds the available window |
+
 Live at [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html) when the server is running.
 
 **Four-stage hybrid resolution pipeline:**
