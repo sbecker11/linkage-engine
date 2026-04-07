@@ -906,7 +906,7 @@
             .on("click", () => {
               hideTip();
               selectedD = d;
-              paintRibSelected(d3.select(this.parentNode), d);
+              restoreAll();          // clears previous selection highlight, paints new selectedD
               dimAllExcept(d);
               pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
             });
