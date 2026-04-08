@@ -28,6 +28,7 @@ import os
 import random
 import sys
 from dataclasses import dataclass, asdict
+from datetime import date
 from typing import Optional
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -174,10 +175,17 @@ def raw_content(given, family, birth_year, event_year, location):
 # ── Generation ────────────────────────────────────────────────────────────────
 records = []
 counter = 1
+_BATCH_DATE = date.today().strftime("%Y%m%d")
+_BATCH_SEED = args.seed
 
 def next_id():
+    """Return a globally-unique record ID: SYN-YYYYMMDD-sNNN-NNNNN.
+
+    Embedding the batch date and seed ensures two runs (on different days or
+    with different seeds) never produce colliding IDs.
+    """
     global counter
-    rid = f"SYN-{counter:05d}"
+    rid = f"SYN-{_BATCH_DATE}-s{_BATCH_SEED}-{counter:05d}"
     counter += 1
     return rid
 
