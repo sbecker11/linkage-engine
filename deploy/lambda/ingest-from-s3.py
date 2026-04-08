@@ -30,13 +30,19 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-s3 = boto3.client("s3")
+s3  = boto3.client("s3")
+sqs = boto3.client("sqs")
 
-API_URL   = os.environ.get("LINKAGE_API_URL", "").rstrip("/")
+API_URL    = os.environ.get("LINKAGE_API_URL", "").rstrip("/")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "50"))
-DRY_RUN   = os.environ.get("DRY_RUN", "false").lower() == "true"
+DRY_RUN    = os.environ.get("DRY_RUN", "false").lower() == "true"
+DLQ_URL    = os.environ.get("DLQ_URL", "")
 
 INGEST_ENDPOINT = f"{API_URL}/v1/records"
+
+# Retry config for transient 5xx (Aurora cold-start, ALB hiccup)
+MAX_RETRIES   = 4          # attempts: 1 original + 3 retries
+RETRY_BASE_S  = 1.0        # first backoff: 1 s → 2 s → 4 s
 
 
 def post_record(record: dict) -> tuple[int, str]:
@@ -55,6 +61,61 @@ def post_record(record: dict) -> tuple[int, str]:
         return e.code, e.read().decode("utf-8")
     except Exception as e:
         return 0, str(e)
+
+
+def post_record_with_retry(record: dict, bucket: str, key: str, line_no: int) -> tuple[int, str]:
+    """
+    Call post_record with exponential backoff on 5xx responses.
+    After MAX_RETRIES exhaustion, send a structured message to the DLQ and
+    return the last (status, body) so the caller can count it as failed.
+    """
+    delay = RETRY_BASE_S
+    for attempt in range(1, MAX_RETRIES + 1):
+        status, body = post_record(record)
+        if status in (200, 201, 204, 409):
+            return status, body
+        if status >= 500:
+            if attempt < MAX_RETRIES:
+                logger.warning(
+                    "  line %d: HTTP %d on attempt %d/%d — retrying in %.1fs",
+                    line_no, status, attempt, MAX_RETRIES, delay,
+                )
+                time.sleep(delay)
+                delay *= 2
+                continue
+            # All retries exhausted — route to DLQ for manual replay
+            _send_to_dlq(bucket, key, line_no, record, status, body)
+            return status, body
+        # 4xx other than 409 — not retryable
+        return status, body
+    return status, body  # unreachable, satisfies type checker
+
+
+def _send_to_dlq(bucket: str, key: str, line_no: int, record: dict,
+                 status: int, body: str) -> None:
+    """Send a structured failure message to the SQS Dead-Letter Queue."""
+    if not DLQ_URL:
+        logger.error(
+            "  DLQ_URL not set — cannot route failed record to DLQ "
+            "(recordId=%s line=%d)", record.get("recordId"), line_no,
+        )
+        return
+    payload = {
+        "bucket":   bucket,
+        "key":      key,
+        "line":     line_no,
+        "recordId": record.get("recordId"),
+        "status":   status,
+        "error":    body[:400],
+    }
+    try:
+        sqs.send_message(QueueUrl=DLQ_URL, MessageBody=json.dumps(payload))
+        logger.warning(
+            "  Sent to DLQ: recordId=%s line=%d status=%d",
+            record.get("recordId"), line_no, status,
+        )
+    except Exception as e:
+        logger.error("  Failed to send to DLQ: %s", e)
 
 
 def process_object(bucket: str, key: str) -> dict:
@@ -92,7 +153,7 @@ def process_object(bucket: str, key: str) -> dict:
             ok += 1
             continue
 
-        status, body = post_record(record)
+        status, body = post_record_with_retry(record, bucket, key, i)
 
         if status in (200, 201, 204):
             ok += 1
