@@ -62,25 +62,105 @@ Aurora cold-start timeouts without data loss or silent corruption.
 
 ---
 
-## Sprint 3 — Upload Safety and PII Redaction
+## Sprint 3 — Validation Pipeline
 
-**Objective:** Detect and quarantine truncated or malformed NDJSON files;
-strip PII from `rawContent` before it reaches the database or embeddings.
+**Objective:** Enforce a three-bucket pipeline (raw-intake → validated → quarantine)
+so that only fully-validated JSON records reach the database. Track ingress volume
+and quarantine spikes in CloudWatch with admin alerting.
 
-**Threats:** Partial S3 upload · PII in `rawContent` · malformed JSON lines
+**Pipeline architecture:**
+
+```
+External party
+      │  s3:PutObject (presigned URL or uploader role)
+      ▼
+┌─────────────────────────────┐
+│  raw-intake/                │  linkage-engine-landing-<account>
+│  (existing landing bucket)  │  unchanged — uploader writes here
+└────────────┬────────────────┘
+             │  S3 ObjectCreated → Lambda validate-and-route
+             ▼
+    ┌─────────────────┐       ┌──────────────────────┐
+    │  validated/     │       │  quarantine/          │
+    │  (same bucket,  │       │  (same bucket,        │
+    │   new prefix)   │       │   new prefix)         │
+    └────────┬────────┘       └──────────┬────────────┘
+             │                           │
+             │  S3 ObjectCreated         │  CloudWatch metric filter
+             │  → Lambda ingest          │  → alarm on spike
+             ▼                           ▼
+        /v1/records API            SNS → admin email
+```
+
+**Three prefixes in the same bucket** (no new bucket needed — avoids cross-bucket
+copy costs and simplifies IAM):
+
+| Prefix | Purpose | Written by |
+|---|---|---|
+| `landing/` | Raw intake — external party drops files here | Uploader role / presigned URL |
+| `validated/` | Passed all validation rules — safe to ingest | Validator Lambda |
+| `quarantine/` | Failed validation — preserved for audit/replay | Validator Lambda |
+
+**Validation rules applied in order:**
+
+1. **JSON format check** — file must be valid NDJSON (one JSON object per line); non-JSON files are quarantined immediately
+2. **JSON schema validation** — each record must match the `RecordIngestRequest` schema (required fields present, correct types)
+3. **Null disqualification** — records with null values in required fields (`recordId`, `givenName`, `familyName`, `eventYear`, `location`) are quarantined
+4. **Field format conversion** — normalise `givenName`/`familyName` to title-case; strip leading/trailing whitespace from all string fields; coerce numeric strings to integers where schema expects `int`
+5. **Out-of-range rules** — `eventYear` must be 1800–1950; `birthYear` (if present) must satisfy `birthYear < eventYear` and imply age 1–110; `location` must be non-empty after strip
+
+**Threats:**
+- Partial S3 upload (truncated file) reaching the ingest Lambda
+- Non-JSON or binary files dropped into the landing prefix
+- Records with null required fields silently inserted as incomplete rows
+- `eventYear` values in the future or impossibly distant past corrupting linkage scoring
+- PII (`rawContent` containing SSN, email, phone) reaching the database or embeddings
+- Quarantine spike (bulk bad data from external party) going unnoticed
 
 **Proof of success:**
-- Truncated file is rejected; quarantine event logged with S3 key
-- SSN, email, and phone patterns are redacted from `rawContent` before POST
-- One bad JSON line in 100 skips that line without aborting the batch
-- Admin log message includes file key, line number, and failure reason
+- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures
+- A non-JSON file dropped in `landing/` is copied to `quarantine/` and never reaches `validated/`
+- A valid NDJSON file is copied to `validated/` and triggers the ingest Lambda
+- A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/` (line-level routing)
+- CloudWatch metric `QuarantinedRecords` increments for every quarantined line
+- CloudWatch alarm fires when `QuarantinedRecords` > 50 in a 5-minute window → SNS admin notification
+- PII patterns (SSN, email, phone) in `rawContent` are redacted before the record is written to `validated/`
+- `IngressRecords` CloudWatch metric tracks total lines seen per invocation
 
 **Tasks:**
-- [ ] `test_partial_file_detected` — truncated NDJSON, assert `failed > 0` and quarantine logged
-- [ ] `test_empty_file_rejected` — zero-byte file, assert early exit with admin log
-- [ ] `test_pii_redacted_from_raw_content` — SSN/email in rawContent, assert stripped before POST
-- [ ] `test_invalid_json_line_skipped_not_fatal` — 1 bad line in 100, assert 99 ok + 1 error logged
-- [ ] Add `IngestValidator` class to `ingest-from-s3.py`: pre-flight checks + PII redaction regex
+
+*Bucket / infrastructure:*
+- [ ] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh` — Validator Lambda needs `s3:PutObject` on both; ingest Lambda needs `s3:GetObject` on `validated/` only
+- [ ] Provision second Lambda `linkage-engine-validate` triggered by `landing/` ObjectCreated events (replaces direct `landing/` → ingest trigger)
+- [ ] Re-point ingest Lambda trigger from `landing/` to `validated/` prefix
+
+*CloudWatch:*
+- [ ] CloudWatch metric filter on Validator Lambda logs: `IngressRecords` (total lines seen) and `QuarantinedRecords` (lines failed validation)
+- [ ] CloudWatch alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS topic `linkage-engine-alerts` → admin email
+- [ ] CloudWatch dashboard widget: ingress volume vs quarantine rate (ratio)
+
+*Validation Lambda (`deploy/lambda/validate-and-route.py`):*
+- [ ] Pre-flight: reject zero-byte files immediately → quarantine whole file
+- [ ] Pre-flight: reject files where >50% of lines are invalid JSON → quarantine whole file with reason
+- [ ] Per-line validation: JSON schema check against `RecordIngestRequest` schema
+- [ ] Per-line validation: null disqualification for required fields
+- [ ] Per-line validation: field format conversion (title-case names, strip whitespace, coerce numeric strings)
+- [ ] Per-line validation: out-of-range rules (`eventYear` 1800–1950, `birthYear` coherence, non-empty `location`)
+- [ ] Per-line: PII redaction from `rawContent` (SSN `\d{3}-\d{2}-\d{4}`, email, US phone)
+- [ ] Route valid lines → `validated/<original-key>`, invalid lines → `quarantine/<original-key>`
+- [ ] Emit structured log lines: `ingress=N validated=N quarantined=N` per invocation
+
+*Tests (`deploy/lambda/test_validate_and_route.py`):*
+- [ ] `test_non_json_file_quarantined` — binary/text file → quarantine, never reaches validated
+- [ ] `test_empty_file_quarantined` — zero-byte file → quarantine with reason logged
+- [ ] `test_valid_file_routed_to_validated` — clean NDJSON → all lines in validated
+- [ ] `test_schema_violation_quarantines_line` — missing `familyName` → that line quarantined, rest validated
+- [ ] `test_null_required_field_quarantines_line` — `recordId: null` → quarantined
+- [ ] `test_field_format_conversion_applied` — `"william"` → `"William"`, `" Boston "` → `"Boston"`
+- [ ] `test_out_of_range_event_year_quarantined` — `eventYear: 2099` → quarantined
+- [ ] `test_birth_year_incoherence_quarantined` — `birthYear >= eventYear` → quarantined
+- [ ] `test_pii_redacted_before_validated` — SSN/email in `rawContent` → redacted in validated copy
+- [ ] `test_cloudwatch_metrics_emitted` — assert log lines contain `ingress=` and `quarantined=`
 
 ---
 
@@ -354,5 +434,6 @@ For a demo app, prioritize in this order:
 2. **Sprint 1** (Generator Integrity) — needed before any bulk data load
 3. **Sprint 2** (Lambda Resilience) — needed before production ingest
 4. **Sprint 9a** (Intake Access Control) — lock down the bucket before sharing upload access
-5. **Sprint 8** (Reliability) — backup + memory before showing to anyone
-6. Sprints 3–7, 9–10 in order
+5. **Sprint 3** (Validation Pipeline) — three-bucket model, schema/null/range/PII validation, CloudWatch quarantine alarm
+6. **Sprint 8** (Reliability) — backup + memory before showing to anyone
+7. Sprints 4–7, 9–10 in order
