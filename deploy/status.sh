@@ -93,6 +93,7 @@ run_check() {
       ok "/actuator/health → ${APP_STATUS}  (db=${DB_COMP})"
     else
       fail "/actuator/health → ${APP_STATUS}"
+      printf "         \033[2m↳ https://${REGION}.console.aws.amazon.com/cloudwatch/home?region=${REGION}#logsV2:log-groups/log-group/\$252Fecs\$252Flinkage-engine/log-events\$3FfilterPattern\$3DERROR\033[0m\n"
     fi
 
     INGEST_JSON=$(curl -s --max-time 6 "http://${ALB_DNS}/v1/ingest/health" 2>/dev/null || echo "{}")
@@ -132,8 +133,12 @@ run_check() {
     ERR="${ERR:-0}"; ERR="${ERR/None/0}"
     ERR_INT=$(python3 -c "print(int(float('${ERR}')))" 2>/dev/null || echo 0)
     LABEL=$(printf '%-35s' "$fn")
+    # Clickable Logs Insights URL — pre-loads an ERROR filter for the last 1h
+    LOG_GROUP_ENC="${fn}"   # log group is /aws/lambda/<fn>; encode / as $252F for console URL
+    LOGS_URL="https://${REGION}.console.aws.amazon.com/cloudwatch/home?region=${REGION}#logsV2:log-groups/log-group/\$252Faws\$252Flambda\$252F${fn}/log-events\$3FfilterPattern\$3DERROR"
     if [[ "$ERR_INT" -gt 0 ]]; then
       fail "${LABEL}  invocations=${INV}  errors=${ERR}"
+      printf "         \033[2m↳ %s\033[0m\n" "$LOGS_URL"
     else
       ok  "${LABEL}  invocations=${INV}  errors=${ERR}"
     fi
@@ -157,11 +162,17 @@ run_check() {
     --output json 2>/dev/null || echo "[]")
   echo "$ALARMS" | python3 -c "
 import sys, json
+region = '$REGION'
 alarms = json.load(sys.stdin)
 for a in alarms:
     state = a['state']
+    name  = a['name']
     badge = '\033[1;37;42m  OK  \033[0m' if state == 'OK' else '\033[1;37;41m ALRM \033[0m'
-    print(f'  {badge}  {a[\"name\"]:<40} {state}')
+    print(f'  {badge}  {name:<40} {state}')
+    if state != 'OK':
+        enc = name.replace(' ', '+')
+        url = f'https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#alarmsV2:alarm/{enc}'
+        print(f'         \033[2m↳ {url}\033[0m')
 " 2>/dev/null || warn "could not fetch alarms"
 
   echo ""
