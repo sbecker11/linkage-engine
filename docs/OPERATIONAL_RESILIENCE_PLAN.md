@@ -64,7 +64,7 @@ Aurora cold-start timeouts without data loss or silent corruption.
 
 ## Sprint 3 — Validation Pipeline
 
-**Objective:** Enforce a three-prefix pipeline (raw-intake → validated → quarantine)
+**Objective:** Enforce a four-stage pipeline (raw bucket → landing → validated → quarantine)
 so that only fully-validated JSON records reach the database. Every output line
 carries full provenance so validated and quarantine records can always be paired
 back to their origin. Track ingress volume and quarantine spikes in CloudWatch
@@ -74,13 +74,21 @@ with admin alerting.
 
 ```
 External party
-      │  s3:PutObject (presigned URL or uploader role)
+      │  s3:PutObject  (presigned URL or uploader role — PutObject only)
       ▼
-┌─────────────────────────────┐
-│  landing/                   │  linkage-engine-landing-<account>
-│  (raw intake prefix)        │  unchanged — uploader writes here
-└────────────┬────────────────┘
+┌──────────────────────────────────┐
+│  linkage-engine-raw-<account>    │  separate bucket — external writes only
+│  (raw upload bucket)             │  no read/delete for uploader
+└────────────┬─────────────────────┘
+             │  S3 ObjectCreated → Lambda linkage-engine-ingestor
+             │  (splits file into ≤200-line chunks)
+             ▼
+┌──────────────────────────────────┐
+│  landing/                        │  linkage-engine-landing-<account>
+│  (chunked intake prefix)         │  written by ingestor Lambda only
+└────────────┬─────────────────────┘
              │  S3 ObjectCreated → Lambda linkage-engine-validate
+             │  (validates each chunk line-by-line)
              ▼
     ┌─────────────────┐       ┌──────────────────────┐
     │  validated/     │       │  quarantine/          │
@@ -89,19 +97,33 @@ External party
     └────────┬────────┘       └──────────┬────────────┘
              │                           │
              │  S3 ObjectCreated         │  CloudWatch metric filter
-             │  → Lambda ingest          │  → alarm on spike
+             │  → Lambda linkage-        │  → alarm on spike
+             │    engine-store           │
              ▼                           ▼
         /v1/records API            SNS → admin email
+        (X-Api-Key required)
+             │
+             ▼
+      Aurora PostgreSQL
+      (pgvector + Flyway)
 ```
 
-**Three prefixes in the same bucket** (no new bucket needed — avoids cross-bucket
-copy costs and simplifies IAM):
+**Four stages, two buckets:**
+
+| Stage | Location | Written by |
+|---|---|---|
+| Raw upload | `linkage-engine-raw-<account>/` | External party (presigned URL / uploader role) |
+| Chunked intake | `linkage-engine-landing-<account>/landing/` | `linkage-engine-ingestor` Lambda |
+| Validated | `linkage-engine-landing-<account>/validated/` | `linkage-engine-validate` Lambda |
+| Quarantined | `linkage-engine-landing-<account>/quarantine/` | `linkage-engine-validate` Lambda |
+
+**Landing bucket prefixes:**
 
 | Prefix | Purpose | Written by |
 |---|---|---|
-| `landing/` | Raw intake — external party drops files here | Uploader role / presigned URL |
-| `validated/` | Passed all validation rules — safe to ingest | Validator Lambda |
-| `quarantine/` | Failed validation — preserved for audit/replay | Validator Lambda |
+| `landing/` | Chunked intake — ingestor Lambda writes ≤200-line chunks here | `linkage-engine-ingestor` Lambda |
+| `validated/` | Passed all validation rules — safe to store | `linkage-engine-validate` Lambda |
+| `quarantine/` | Failed validation — preserved for audit/replay | `linkage-engine-validate` Lambda |
 
 **Validation rules applied in order:**
 
