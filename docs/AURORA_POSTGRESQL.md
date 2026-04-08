@@ -19,7 +19,7 @@ aws rds create-db-cluster \
   --region "$REGION" \
   --db-cluster-identifier "$CLUSTER_ID" \
   --engine aurora-postgresql \
-  --engine-version 15.4 \
+  --engine-version 16.13 \
   --serverless-v2-scaling-configuration MinCapacity=0.5,MaxCapacity=2 \
   --database-name "$DB_NAME" \
   --master-username "$DB_USER" \
