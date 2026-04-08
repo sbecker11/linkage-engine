@@ -715,9 +715,9 @@ detail "deny: s3:DeleteObject / DeleteObjectVersion / DeleteBucket — all princ
 detail "allow: s3:GetObject,HeadObject,ListBucket — Lambda ingest role only"
 detail "allow: s3:PutObject on landing/* — uploader role only"
 
-# ── 10. CloudWatch — metric filters, quarantine alarm, dashboard ──────────────
+# ── CloudWatch — SNS topic, metric filters, alarms, dashboard ─────────────────
 echo ""
-echo "▶  CloudWatch metrics, alarm, and dashboard"
+echo "▶  CloudWatch — SNS topic"
 
 # SNS topic for admin alerts
 SNS_ARN=$(aws sns list-topics --region "$REGION" \
@@ -736,7 +736,11 @@ else
   echo "  ✓ SNS topic exists: ${SNS_ARN}"
 fi
 
-# Metric filter — IngressRecords (total lines seen per invocation)
+# ── CloudWatch metric filters ─────────────────────────────────────────────────
+echo ""
+echo "▶  CloudWatch — metric filters"
+
+# IngressRecords — total lines seen per validate invocation
 aws_q aws logs put-metric-filter \
   --region "$REGION" \
   --log-group-name "$VALIDATE_LOG_GROUP" \
@@ -744,9 +748,9 @@ aws_q aws logs put-metric-filter \
   --filter-pattern "[level, msg, ..., ingress_label=\"ingress=*\", ingress_val, ...]" \
   --metric-transformations \
     metricName=IngressRecords,metricNamespace=LinkageEngine/Ingest,metricValue=1,unit=Count
-detail "metric filter: IngressRecords → LinkageEngine/Ingest"
+detail "IngressRecords → LinkageEngine/Ingest"
 
-# Metric filter — QuarantinedRecords (lines that failed validation)
+# QuarantinedRecords — lines that failed validation
 aws_q aws logs put-metric-filter \
   --region "$REGION" \
   --log-group-name "$VALIDATE_LOG_GROUP" \
@@ -754,12 +758,110 @@ aws_q aws logs put-metric-filter \
   --filter-pattern "[level, msg, ..., q_label=\"quarantined=*\", q_val, ...]" \
   --metric-transformations \
     metricName=QuarantinedRecords,metricNamespace=LinkageEngine/Ingest,metricValue=1,unit=Count
-detail "metric filter: QuarantinedRecords → LinkageEngine/Ingest"
+detail "QuarantinedRecords → LinkageEngine/Ingest"
 
-# CloudWatch alarm — quarantine spike
+echo "  ✓ metric filters configured"
+
+# ── CloudWatch alarms (Sprint 10) ─────────────────────────────────────────────
+echo ""
+echo "▶  CloudWatch — alarms (Sprint 10)"
+
+# 1. Validate Lambda TTL warning (duration > 10 min = 2/3 of 15 min limit)
 aws_q aws cloudwatch put-metric-alarm \
   --region "$REGION" \
-  --alarm-name "${APP}-quarantine-spike" \
+  --alarm-name "le-lambda-validate-ttl-warning" \
+  --alarm-description "validate Lambda duration > 600s — TTL exhaustion risk" \
+  --namespace "AWS/Lambda" \
+  --metric-name "Duration" \
+  --dimensions "Name=FunctionName,Value=${VALIDATE_FUNCTION_NAME}" \
+  --statistic Maximum \
+  --period 60 \
+  --evaluation-periods 1 \
+  --threshold 600000 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "le-lambda-validate-ttl-warning: Duration > 600s"
+
+# 2. Store Lambda TTL warning
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-lambda-store-ttl-warning" \
+  --alarm-description "store Lambda duration > 600s — TTL exhaustion risk" \
+  --namespace "AWS/Lambda" \
+  --metric-name "Duration" \
+  --dimensions "Name=FunctionName,Value=${FUNCTION_NAME}" \
+  --statistic Maximum \
+  --period 60 \
+  --evaluation-periods 1 \
+  --threshold 600000 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "le-lambda-store-ttl-warning: Duration > 600s"
+
+# 3. Validate Lambda errors (mid-file crash / OOM)
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-lambda-validate-errors" \
+  --alarm-description "validate Lambda unhandled error — mid-file crash or OOM" \
+  --namespace "AWS/Lambda" \
+  --metric-name "Errors" \
+  --dimensions "Name=FunctionName,Value=${VALIDATE_FUNCTION_NAME}" \
+  --statistic Sum \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 0 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "le-lambda-validate-errors: Errors > 0 / 5min"
+
+# 4. Store Lambda errors
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-lambda-store-errors" \
+  --alarm-description "store Lambda unhandled error" \
+  --namespace "AWS/Lambda" \
+  --metric-name "Errors" \
+  --dimensions "Name=FunctionName,Value=${FUNCTION_NAME}" \
+  --statistic Sum \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 0 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "le-lambda-store-errors: Errors > 0 / 5min"
+
+# 5. Store DLQ depth (Aurora 5xx exhaustion)
+DLQ_ARN_FOR_ALARM=$(aws sqs get-queue-attributes --region "$REGION" \
+  --queue-url "$DLQ_URL" \
+  --attribute-names QueueArn \
+  --query 'Attributes.QueueArn' --output text 2>/dev/null || echo "")
+
+if [ -n "$DLQ_ARN_FOR_ALARM" ]; then
+  aws_q aws cloudwatch put-metric-alarm \
+    --region "$REGION" \
+    --alarm-name "le-store-dlq-depth" \
+    --alarm-description "store DLQ has messages — Aurora 5xx exhaustion or unhandled error" \
+    --namespace "AWS/SQS" \
+    --metric-name "ApproximateNumberOfMessagesVisible" \
+    --dimensions "Name=QueueName,Value=${DLQ_NAME}" \
+    --statistic Sum \
+    --period 300 \
+    --evaluation-periods 1 \
+    --threshold 0 \
+    --comparison-operator GreaterThanThreshold \
+    --treat-missing-data notBreaching \
+    --alarm-actions "$SNS_ARN"
+  detail "le-store-dlq-depth: DLQ messages > 0 / 5min"
+fi
+
+# 6. Quarantine spike (carried forward from Sprint 3)
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-quarantine-spike" \
   --alarm-description "Quarantine rate spike: >50 records quarantined in 5 minutes" \
   --namespace "LinkageEngine/Ingest" \
   --metric-name "QuarantinedRecords" \
@@ -770,25 +872,234 @@ aws_q aws cloudwatch put-metric-alarm \
   --comparison-operator GreaterThanThreshold \
   --treat-missing-data notBreaching \
   --alarm-actions "$SNS_ARN"
-detail "alarm: QuarantinedRecords > 50 / 5min → ${SNS_TOPIC_NAME}"
+detail "le-quarantine-spike: QuarantinedRecords > 50 / 5min"
 
-# CloudWatch dashboard — ingress volume vs quarantine rate
-DASHBOARD_BODY=$(cat <<DASH
+# 7. Embedding gaps (Bedrock throttle — published by scheduled gap-publisher Lambda below)
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-embedding-gaps" \
+  --alarm-description "Embedding gaps detected — Bedrock throttled or timed out during ingest" \
+  --namespace "LinkageEngine/Health" \
+  --metric-name "EmbeddingGapCount" \
+  --statistic Maximum \
+  --period 900 \
+  --evaluation-periods 2 \
+  --threshold 0 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "le-embedding-gaps: EmbeddingGapCount > 0 for 2 consecutive 15min periods"
+
+echo "  ✓ 7 alarms configured"
+
+# ── Embedding gap publisher Lambda ────────────────────────────────────────────
+# Scheduled every 15 min: calls GET /v1/ingest/health and publishes
+# EmbeddingGapCount as a custom CloudWatch metric.
+echo ""
+echo "▶  Embedding gap publisher Lambda  (${APP}-gap-publisher)"
+
+GAP_PUBLISHER_NAME="${APP}-gap-publisher"
+GAP_PUBLISHER_LOG_GROUP="/aws/lambda/${GAP_PUBLISHER_NAME}"
+GAP_PUBLISHER_ZIP="/tmp/${GAP_PUBLISHER_NAME}.zip"
+
+# Inline the gap publisher as a heredoc — no separate file needed
+python3 - <<'PYEOF' > /tmp/gap_publisher_src.py
+# gap-publisher: called by EventBridge every 15 min
+import json, os, urllib.request
+import boto3
+
+cw  = boto3.client("cloudwatch", region_name=os.environ.get("AWS_REGION", "us-west-1"))
+API = os.environ.get("LINKAGE_API_URL", "").rstrip("/")
+
+def handler(event, context):
+    try:
+        with urllib.request.urlopen(f"{API}/v1/ingest/health", timeout=5) as r:
+            data = json.loads(r.read())
+        gap_count = data.get("embeddingGapCount", 0)
+    except Exception as e:
+        print(f"health check failed: {e}")
+        gap_count = 0
+
+    cw.put_metric_data(
+        Namespace="LinkageEngine/Health",
+        MetricData=[{
+            "MetricName": "EmbeddingGapCount",
+            "Value":      float(gap_count),
+            "Unit":       "Count",
+        }]
+    )
+    print(f"published EmbeddingGapCount={gap_count}")
+    return {"statusCode": 200}
+PYEOF
+
+cd /tmp && zip -q "$GAP_PUBLISHER_ZIP" gap_publisher_src.py && cd - > /dev/null
+
+# Reuse the store role (already has CloudWatch + Lambda basic execution)
+GAP_PUBLISHER_EXISTS=$(aws lambda get-function --region "$REGION" \
+  --function-name "$GAP_PUBLISHER_NAME" \
+  --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "not-found")
+
+GAP_PUBLISHER_ENV="Variables={LINKAGE_API_URL=${LINKAGE_API_URL}}"
+
+if [ "$GAP_PUBLISHER_EXISTS" = "not-found" ]; then
+  # Create a minimal IAM role for the gap publisher
+  GAP_ROLE_ARN=$(aws iam get-role --role-name "${APP}-gap-publisher-role" \
+    --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
+  if [ "$GAP_ROLE_ARN" = "not-found" ]; then
+    GAP_ROLE_ARN=$(aws iam create-role \
+      --role-name "${APP}-gap-publisher-role" \
+      --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
+      --query 'Role.Arn' --output text)
+    aws_q aws iam attach-role-policy --role-name "${APP}-gap-publisher-role" \
+      --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    aws_q aws iam put-role-policy --role-name "${APP}-gap-publisher-role" \
+      --policy-name CloudWatchPutMetrics \
+      --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:PutMetricData"],"Resource":"*"}]}'
+    echo "  ⏳ waiting 10s for IAM propagation…"
+    sleep 10
+  fi
+  aws_q aws lambda create-function \
+    --region "$REGION" \
+    --function-name "$GAP_PUBLISHER_NAME" \
+    --runtime python3.12 \
+    --role "$GAP_ROLE_ARN" \
+    --handler gap_publisher_src.handler \
+    --zip-file "fileb://${GAP_PUBLISHER_ZIP}" \
+    --timeout 30 \
+    --memory-size 128 \
+    --environment "$GAP_PUBLISHER_ENV"
+  echo "  ✓ gap publisher Lambda created"
+  aws lambda wait function-active --region "$REGION" --function-name "$GAP_PUBLISHER_NAME"
+else
+  aws_q aws lambda update-function-code \
+    --region "$REGION" \
+    --function-name "$GAP_PUBLISHER_NAME" \
+    --zip-file "fileb://${GAP_PUBLISHER_ZIP}"
+  aws lambda wait function-updated --region "$REGION" --function-name "$GAP_PUBLISHER_NAME"
+  aws_q aws lambda update-function-configuration \
+    --region "$REGION" \
+    --function-name "$GAP_PUBLISHER_NAME" \
+    --environment "$GAP_PUBLISHER_ENV"
+  echo "  ✓ gap publisher Lambda updated"
+fi
+
+GAP_PUBLISHER_ARN=$(aws lambda get-function --region "$REGION" \
+  --function-name "$GAP_PUBLISHER_NAME" \
+  --query 'Configuration.FunctionArn' --output text)
+
+# EventBridge rule: fire every 15 minutes
+aws_q aws events put-rule \
+  --region "$REGION" \
+  --name "${APP}-gap-publisher-schedule" \
+  --schedule-expression "rate(15 minutes)" \
+  --state ENABLED \
+  --description "Publishes EmbeddingGapCount metric to CloudWatch every 15 min"
+
+aws lambda add-permission \
+  --region "$REGION" \
+  --function-name "$GAP_PUBLISHER_NAME" \
+  --statement-id "EventBridgeInvokeGapPublisher" \
+  --action "lambda:InvokeFunction" \
+  --principal "events.amazonaws.com" \
+  --source-arn "arn:aws:events:${REGION}:${ACCOUNT_ID}:rule/${APP}-gap-publisher-schedule" \
+  2>/dev/null || true
+
+aws_q aws events put-targets \
+  --region "$REGION" \
+  --rule "${APP}-gap-publisher-schedule" \
+  --targets "Id=gap-publisher,Arn=${GAP_PUBLISHER_ARN}"
+
+aws logs create-log-group --region "$REGION" \
+  --log-group-name "$GAP_PUBLISHER_LOG_GROUP" 2>/dev/null || true
+aws_q aws logs put-retention-policy --region "$REGION" \
+  --log-group-name "$GAP_PUBLISHER_LOG_GROUP" --retention-in-days 30
+
+detail "schedule: rate(15 minutes) → ${GAP_PUBLISHER_NAME}"
+echo "  ✓ gap publisher scheduled"
+
+# ── CloudWatch dashboard — linkage-engine-ops (4-row unified view) ────────────
+echo ""
+echo "▶  CloudWatch — unified dashboard  (linkage-engine-ops)"
+
+OPS_DASHBOARD=$(cat <<DASH
 {
   "widgets": [
     {
-      "type": "metric",
+      "type": "alarm",
+      "x": 0, "y": 0, "width": 24, "height": 3,
       "properties": {
-        "title": "Ingest Pipeline — Ingress vs Quarantine",
+        "title": "Row 1 — Alarm States",
+        "alarms": [
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-lambda-validate-ttl-warning",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-lambda-store-ttl-warning",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-lambda-validate-errors",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-lambda-store-errors",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-store-dlq-depth",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-embedding-gaps",
+          "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:le-quarantine-spike"
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 3, "width": 12, "height": 6,
+      "properties": {
+        "title": "Row 2 — Lambda Duration p99 (validate + store)",
         "metrics": [
-          ["LinkageEngine/Ingest", "IngressRecords",   {"label":"Ingress",    "color":"#2ca02c"}],
-          ["LinkageEngine/Ingest", "QuarantinedRecords",{"label":"Quarantined","color":"#d62728"}]
+          ["AWS/Lambda","Duration","FunctionName","${VALIDATE_FUNCTION_NAME}",{"stat":"p99","label":"validate p99"}],
+          ["AWS/Lambda","Duration","FunctionName","${FUNCTION_NAME}",{"stat":"p99","label":"store p99"}]
         ],
-        "view": "timeSeries",
-        "stacked": false,
-        "period": 300,
-        "stat": "Sum",
-        "region": "${REGION}"
+        "view": "timeSeries", "period": 60, "region": "${REGION}"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 3, "width": 12, "height": 6,
+      "properties": {
+        "title": "Row 2 — Lambda Errors + DLQ Depth",
+        "metrics": [
+          ["AWS/Lambda","Errors","FunctionName","${VALIDATE_FUNCTION_NAME}",{"stat":"Sum","label":"validate errors","color":"#d62728"}],
+          ["AWS/Lambda","Errors","FunctionName","${FUNCTION_NAME}",{"stat":"Sum","label":"store errors","color":"#ff7f0e"}],
+          ["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${DLQ_NAME}",{"stat":"Maximum","label":"DLQ depth","color":"#9467bd"}]
+        ],
+        "view": "timeSeries", "period": 300, "region": "${REGION}"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 9, "width": 24, "height": 6,
+      "properties": {
+        "title": "Row 3 — Ingest Pipeline (ingress / validated / quarantined / embedding gaps)",
+        "metrics": [
+          ["LinkageEngine/Ingest","IngressRecords",{"stat":"Sum","label":"Ingress","color":"#2ca02c"}],
+          ["LinkageEngine/Ingest","QuarantinedRecords",{"stat":"Sum","label":"Quarantined","color":"#d62728"}],
+          ["LinkageEngine/Health","EmbeddingGapCount",{"stat":"Maximum","label":"Embedding gaps","color":"#ff7f0e"}]
+        ],
+        "view": "timeSeries", "period": 300, "region": "${REGION}"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 15, "width": 12, "height": 6,
+      "properties": {
+        "title": "Row 4 — Application Latency (linkage.resolve p50/p99)",
+        "metrics": [
+          ["LinkageEngine/App","linkage.resolve","quantile","0.5",{"stat":"Average","label":"resolve p50"}],
+          ["LinkageEngine/App","linkage.resolve","quantile","0.99",{"stat":"Average","label":"resolve p99","color":"#d62728"}]
+        ],
+        "view": "timeSeries", "period": 300, "region": "${REGION}"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 15, "width": 12, "height": 6,
+      "properties": {
+        "title": "Row 4 — ECS CPU + Memory Utilization",
+        "metrics": [
+          ["AWS/ECS","CPUUtilization","ClusterName","${APP}-cluster","ServiceName","${APP}-service",{"stat":"Average","label":"CPU %"}],
+          ["AWS/ECS","MemoryUtilization","ClusterName","${APP}-cluster","ServiceName","${APP}-service",{"stat":"Average","label":"Memory %","color":"#ff7f0e"}]
+        ],
+        "view": "timeSeries", "period": 300, "region": "${REGION}"
       }
     }
   ]
@@ -798,9 +1109,9 @@ DASH
 
 aws_q aws cloudwatch put-dashboard \
   --region "$REGION" \
-  --dashboard-name "${APP}-ingest" \
-  --dashboard-body "$DASHBOARD_BODY"
-detail "dashboard: ${APP}-ingest (ingress vs quarantine rate)"
+  --dashboard-name "${APP}-ops" \
+  --dashboard-body "$OPS_DASHBOARD"
+detail "dashboard: ${APP}-ops (4-row unified view)"
 
 echo "  ✓ CloudWatch configured"
 
@@ -826,6 +1137,10 @@ echo "  DLQ:             ${DLQ_NAME}"
 echo "  API:             ${LINKAGE_API_URL}"
 echo "  Uploader role:   ${UPLOADER_ROLE_ARN}"
 echo "  Alerts SNS:      ${SNS_ARN}"
+echo "  Alarms (7):      le-lambda-validate-ttl-warning, le-lambda-store-ttl-warning,"
+echo "                   le-lambda-validate-errors, le-lambda-store-errors,"
+echo "                   le-store-dlq-depth, le-embedding-gaps, le-quarantine-spike"
+echo "  Dashboard:       ${APP}-ops  (CloudWatch → Dashboards)"
 echo ""
 echo "  ── External upload access ──────────────────────────────────"
 echo ""

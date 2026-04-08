@@ -47,10 +47,13 @@ public class IngestHealthController {
 
         // LinkedHashMap preserves insertion order for readable JSON responses
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("embeddingGapCount", gaps);
-        body.put("flywayStatus",      flywayStatus);
-        body.put("pendingMigrations", pending);
-        body.put("status",            status);
+        body.put("embeddingGapCount",  gaps);
+        body.put("flywayStatus",       flywayStatus);
+        body.put("pendingMigrations",  pending);
+        body.put("lastBatchSize",      ingestHealthService.getLastBatchSize());
+        body.put("lastBatchAt",        ingestHealthService.getLastBatchAt());
+        body.put("ingestRatePerMin",   ingestHealthService.getIngestRatePerMin());
+        body.put("status",             status);
 
         return ResponseEntity.ok(body);
     }

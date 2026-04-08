@@ -1,5 +1,6 @@
 package com.spexture.linkage_engine;
 
+import io.micrometer.core.annotation.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
@@ -30,6 +31,7 @@ public class RecordIngestService implements RecordIngestPort {
     }
 
     @Override
+    @Timed(value = "linkage.ingest", description = "Time taken to ingest a single record including embedding")
     public void ingest(RecordIngestRequest request) {
         if (recordMutator == null) {
             return;

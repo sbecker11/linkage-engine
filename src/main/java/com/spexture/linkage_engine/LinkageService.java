@@ -3,6 +3,7 @@ package com.spexture.linkage_engine;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.micrometer.core.annotation.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,7 @@ public class LinkageService implements LinkageResolver {
     }
 
     @Override
+    @Timed(value = "linkage.resolve", description = "Time taken for the full four-stage linkage resolution pipeline")
     public LinkageResolveResponse resolve(LinkageResolveRequest request) {
         List<String> rulesTriggered = new ArrayList<>();
 

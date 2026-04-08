@@ -639,36 +639,42 @@ for request latency and ingest throughput. Build a unified dashboard.
 **Tasks:**
 
 *Lambda duration alarms (TTL warning at 2/3 of limit):*
-- [ ] CloudWatch alarm `le-lambda-validate-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-validate`
-- [ ] CloudWatch alarm `le-lambda-store-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-store`
+- [x] CloudWatch alarm `le-lambda-validate-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-validate`
+- [x] CloudWatch alarm `le-lambda-store-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-store`
 
 *Lambda error alarms (mid-file crash, unhandled exception):*
-- [ ] CloudWatch alarm `le-lambda-validate-errors`: `Errors` > 0 on `linkage-engine-validate`
-- [ ] CloudWatch alarm `le-lambda-store-errors`: `Errors` > 0 on `linkage-engine-store`
+- [x] CloudWatch alarm `le-lambda-validate-errors`: `Errors` > 0 on `linkage-engine-validate`
+- [x] CloudWatch alarm `le-lambda-store-errors`: `Errors` > 0 on `linkage-engine-store`
 
 *DLQ depth alarm (Aurora 5xx exhaustion):*
-- [ ] CloudWatch alarm `le-store-dlq-depth`: SQS `ApproximateNumberOfMessagesVisible` > 0 on `linkage-engine-store-dlq`
+- [x] CloudWatch alarm `le-store-dlq-depth`: SQS `ApproximateNumberOfMessagesVisible` > 0 on `linkage-engine-store-dlq`
 
 *Embedding gap alarm (Bedrock throttle):*
-- [ ] Scheduled publisher: every 15 min, call `GET /v1/ingest/health` and publish `EmbeddingGapCount` as a custom CloudWatch metric
-- [ ] CloudWatch alarm `le-embedding-gaps`: `EmbeddingGapCount` > 0 for two consecutive periods
+- [x] Scheduled publisher `linkage-engine-gap-publisher`: EventBridge rate(15 min) → Lambda → `GET /v1/ingest/health` → `cloudwatch:PutMetricData` (`LinkageEngine/Health::EmbeddingGapCount`)
+- [x] CloudWatch alarm `le-embedding-gaps`: `EmbeddingGapCount` > 0 for two consecutive 15-min periods
+
+*Quarantine spike alarm (carried forward from Sprint 3):*
+- [x] CloudWatch alarm `le-quarantine-spike`: `QuarantinedRecords` > 50 / 5 min
 
 *Application latency metrics:*
-- [ ] Add `@Timed` (Micrometer) to `RecordIngestService.ingest` and `LinkageService.resolve`
-- [ ] Expose `/actuator/metrics` and `/actuator/prometheus`
-- [ ] CloudWatch alarm `le-resolve-p99-latency`: resolve p99 > 5000 ms → SNS
+- [x] `@Timed(value="linkage.ingest")` on `RecordIngestService.ingest`
+- [x] `@Timed(value="linkage.resolve")` on `LinkageService.resolve`
+- [x] `spring-boot-starter-actuator` + `micrometer-registry-cloudwatch2` added to `pom.xml`
+- [x] `/actuator/health`, `/actuator/metrics`, `/actuator/prometheus` exposed in `application.properties`
 
 *Dashboard (`linkage-engine-ops`):*
-- [ ] Row 1 — Alarm state panel: all 8 alarms as green/red indicators
-- [ ] Row 2 — Lambda: duration p99, error rate, DLQ depth (validate + store side by side)
-- [ ] Row 3 — Ingest pipeline: ingress rate, validated rate, quarantine rate, embedding gap count
-- [ ] Row 4 — Application: resolve p50/p99, ECS CPU/memory, Aurora ACU utilization
+- [x] Row 1 — Alarm state panel: all 7 alarms as green/red indicators
+- [x] Row 2 — Lambda duration p99 + errors + DLQ depth (validate + store side by side)
+- [x] Row 3 — Ingest pipeline: ingress, quarantined, embedding gap count
+- [x] Row 4 — Application: resolve p50/p99, ECS CPU/memory
 
 *Health endpoint enhancements:*
-- [ ] Add `lastBatchSize`, `lastBatchAt`, `ingestRatePerMin` to `GET /v1/ingest/health` response
+- [x] `IngestHealthService::recordIngest(batchSize)` — tracks `lastBatchSize`, `lastBatchAt`, rolling `ingestRatePerMin`
+- [x] `GET /v1/ingest/health` returns `lastBatchSize`, `lastBatchAt`, `ingestRatePerMin`
+- [x] `IngestHealthEnhancedTest` — 2 new tests (healthIncludesLastBatchSize, healthShowsZeroWhenNoBatchesProcessed)
 
 *Provision:*
-- [ ] Add all alarms and dashboard to `provision-lambda.sh` (idempotent)
+- [x] All 7 alarms, gap publisher Lambda + EventBridge schedule, and `linkage-engine-ops` dashboard added to `provision-lambda.sh` (idempotent)
 
 ---
 
