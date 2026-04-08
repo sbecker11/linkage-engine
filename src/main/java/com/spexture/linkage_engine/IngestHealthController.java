@@ -21,8 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
  *     }
  *
  * status="degraded" when:
- *   - embeddingGapCount > 0  (Bedrock timed out for some records), OR
- *   - pendingMigrations > 0  (schema migration not yet applied)
+ *   - pendingMigrations > 0  (schema migration not yet applied — blocks ingest)
+ *
+ * embeddingGapCount > 0 is reported but does NOT set status=degraded; gaps are
+ * a monitoring/repair concern, not a reason to block new ingest batches.
  *
  * The store Lambda calls this endpoint before processing any records and
  * aborts ingest when status="degraded" to prevent writing to a stale schema.
@@ -43,7 +45,7 @@ public class IngestHealthController {
         int pending = ingestHealthService.countPendingMigrations();
 
         String flywayStatus = pending > 0 ? "pending" : "up-to-date";
-        String status       = (gaps > 0 || pending > 0) ? "degraded" : "ok";
+        String status       = pending > 0 ? "degraded" : "ok";
 
         // LinkedHashMap preserves insertion order for readable JSON responses
         Map<String, Object> body = new LinkedHashMap<>();

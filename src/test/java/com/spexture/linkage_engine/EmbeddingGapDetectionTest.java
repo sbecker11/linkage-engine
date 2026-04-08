@@ -37,7 +37,8 @@ class EmbeddingGapDetectionTest {
     /**
      * SIMULATE: Bedrock times out for 3 records during ingest — those records
      *           exist in `records` but have no row in `record_embeddings`.
-     * DETECT:   GET /v1/ingest/health must return embeddingGapCount=3 and status="degraded".
+     * DETECT:   GET /v1/ingest/health must return embeddingGapCount=3.
+     *           status remains "ok" — gaps are informational, not a migration blocker.
      */
     @Test
     void gapDetectedWhenEmbeddingMissing() throws Exception {
@@ -47,24 +48,25 @@ class EmbeddingGapDetectionTest {
         mvc(service).perform(get("/v1/ingest/health"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.embeddingGapCount").value(3))
-            .andExpect(jsonPath("$.status").value("degraded"));
+            .andExpect(jsonPath("$.status").value("ok"));
     }
 
     // ── test 2 ────────────────────────────────────────────────────────────────
 
     /**
      * SIMULATE: same gap scenario.
-     * DETECT:   health endpoint returns HTTP 200 with status="degraded" when gaps > 0.
-     *           (200 not 503 — degraded is informational, not a service failure.)
+     * DETECT:   health endpoint returns HTTP 200 with status="ok" when gaps > 0
+     *           but no migrations are pending. Gaps are surfaced for monitoring
+     *           but do not block new ingest batches.
      */
     @Test
-    void healthEndpointReportsDegradedWhenGapsExist() throws Exception {
+    void healthEndpointReportsOkWhenOnlyGapsExist() throws Exception {
         IngestHealthService service = mock(IngestHealthService.class);
         when(service.countEmbeddingGaps()).thenReturn(1);
 
         mvc(service).perform(get("/v1/ingest/health"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("degraded"))
+            .andExpect(jsonPath("$.status").value("ok"))
             .andExpect(jsonPath("$.embeddingGapCount").value(1));
     }
 
