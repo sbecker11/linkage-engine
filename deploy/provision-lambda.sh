@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # deploy/provision-lambda.sh
 #
-# Provisions the S3-triggered Lambda ingest function for linkage-engine.
+# Provisions the S3-triggered Lambda functions for linkage-engine.
 # Run once after deploy/provision-aws.sh. Safe to re-run (idempotent).
 #
 # What it creates:
 #   1. S3 landing bucket  (linkage-engine-landing-<account>)
-#   2. SQS dead-letter queue  (linkage-engine-ingest-dlq)
-#   3. IAM role for Lambda  (linkage-engine-ingest-role)
-#   4. Lambda function  (linkage-engine-ingest)  from deploy/lambda/ingest-from-s3.py
-#   5. S3 event notification  (ObjectCreated → Lambda on landing/ prefix)
+#   2. SQS dead-letter queue  (linkage-engine-store-dlq)
+#   3. IAM role for store Lambda  (linkage-engine-store-role)
+#   4. Lambda function  (linkage-engine-store)   from deploy/lambda/linkage-engine-store.py
+#   5. Lambda function  (linkage-engine-validate) from deploy/lambda/linkage-engine-validate.py
+#   6. S3 event notifications  (landing/ → validate, validated/ → store)
 #
 # Usage:
 #   ./deploy/provision-lambda.sh
@@ -23,12 +24,12 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 APP=linkage-engine
 BUCKET="${LINKAGE_S3_BUCKET:-${APP}-landing-${ACCOUNT_ID}}"
 PREFIX="${LINKAGE_S3_PREFIX:-landing}"
-FUNCTION_NAME="${APP}-ingest"
+FUNCTION_NAME="${APP}-store"
 VALIDATE_FUNCTION_NAME="${APP}-validate"
 VALIDATE_ROLE_NAME="${APP}-validate-role"
-ROLE_NAME="${APP}-ingest-role"
+ROLE_NAME="${APP}-store-role"
 UPLOADER_ROLE_NAME="${APP}-uploader-role"
-DLQ_NAME="${APP}-ingest-dlq"
+DLQ_NAME="${APP}-store-dlq"
 LOG_GROUP="/aws/lambda/${FUNCTION_NAME}"
 VALIDATE_LOG_GROUP="/aws/lambda/${VALIDATE_FUNCTION_NAME}"
 VALIDATED_PREFIX="validated"
@@ -153,7 +154,7 @@ echo "▶ 4/5  Lambda function  (${FUNCTION_NAME})"
 LAMBDA_DIR="$(dirname "$0")/lambda"
 ZIP_FILE="/tmp/${FUNCTION_NAME}.zip"
 cd "$LAMBDA_DIR"
-zip -q "$ZIP_FILE" ingest-from-s3.py
+zip -q "$ZIP_FILE" linkage-engine-store.py
 cd - > /dev/null
 detail "package: ${ZIP_FILE}  ($(wc -c < "$ZIP_FILE" | tr -d ' ') bytes)"
 
@@ -169,7 +170,7 @@ if [ "$FUNC_EXISTS" = "not-found" ]; then
     --function-name "$FUNCTION_NAME" \
     --runtime python3.12 \
     --role "$ROLE_ARN" \
-    --handler ingest-from-s3.handler \
+    --handler linkage-engine-store.handler \
     --zip-file "fileb://${ZIP_FILE}" \
     --timeout 300 \
     --memory-size 256 \
@@ -267,7 +268,7 @@ echo "▶ 6/10  Validate Lambda function  (${VALIDATE_FUNCTION_NAME})"
 
 VALIDATE_ZIP="/tmp/${VALIDATE_FUNCTION_NAME}.zip"
 cd "$LAMBDA_DIR"
-zip -q "$VALIDATE_ZIP" validate-and-route.py
+zip -q "$VALIDATE_ZIP" linkage-engine-validate.py
 cd - > /dev/null
 detail "package: ${VALIDATE_ZIP}  ($(wc -c < "$VALIDATE_ZIP" | tr -d ' ') bytes)"
 
@@ -283,7 +284,7 @@ if [ "$VALIDATE_EXISTS" = "not-found" ]; then
     --function-name "$VALIDATE_FUNCTION_NAME" \
     --runtime python3.12 \
     --role "$VALIDATE_ROLE_ARN" \
-    --handler validate-and-route.handler \
+    --handler linkage-engine-validate.handler \
     --zip-file "fileb://${VALIDATE_ZIP}" \
     --timeout 300 \
     --memory-size 256 \

@@ -1,8 +1,8 @@
 """
-deploy/lambda/ingest-from-s3.py
+deploy/lambda/linkage-engine-store.py
 
-Lambda function triggered by S3 ObjectCreated events on the landing bucket.
-Reads each NDJSON file line by line and POSTs each record to the
+Lambda function triggered by S3 ObjectCreated events on the validated/ prefix.
+Reads each validated NDJSON file line by line and POSTs each record to the
 linkage-engine /v1/records API via the internal ALB.
 
 Environment variables (set by deploy/provision-lambda.sh):
@@ -11,7 +11,7 @@ Environment variables (set by deploy/provision-lambda.sh):
     DRY_RUN           — set to "true" to parse without POSTing (default: false)
 
 Trigger:
-    S3 event notification: s3:ObjectCreated:* on prefix landing/
+    S3 event notification: s3:ObjectCreated:* on prefix validated/
 
 Dead-letter queue:
     Any unprocessed event is sent to the Lambda DLQ (SQS) configured by
@@ -45,7 +45,7 @@ INGEST_ENDPOINT = f"{API_URL}/v1/records"
 MAX_RETRIES   = 4          # attempts: 1 original + 3 retries
 RETRY_BASE_S  = 1.0        # first backoff: 1 s → 2 s → 4 s
 
-# Fields injected by validate-and-route.py for provenance tracking.
+# Fields injected by linkage-engine-validate.py for provenance tracking.
 # RecordIngestRequest is a strict Java record — unknown fields cause HTTP 400.
 # Strip these before POSTing so that quarantine files can be safely replayed.
 _PROVENANCE_FIELDS = frozenset({
@@ -277,13 +277,13 @@ def handler(event, context):
     }
 
 
-# Allow local testing: python3 ingest-from-s3.py bucket key
+# Allow local testing: python3 linkage-engine-store.py bucket key
 if __name__ == "__main__":
     import sys
     import urllib.parse
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     if len(sys.argv) != 3:
-        print("Usage: python3 ingest-from-s3.py <bucket> <key>")
+        print("Usage: python3 linkage-engine-store.py <bucket> <key>")
         sys.exit(1)
     fake_event = {"Records": [{"eventName": "ObjectCreated:Put",
                                 "s3": {"bucket": {"name": sys.argv[1]},

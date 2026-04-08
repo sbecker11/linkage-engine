@@ -1,5 +1,5 @@
 """
-deploy/lambda/test_validate_and_route.py
+deploy/lambda/test_linkage_engine_validate.py
 
 Sprint 3 — Validation Pipeline
 Tests that simulate, detect, and verify fixes for every validation rule:
@@ -26,7 +26,7 @@ Sprint 3c — Quarantine Manifest
     replayStatus ("pending" until the ingest Lambda updates it)
 
 Run:
-    pytest deploy/lambda/test_validate_and_route.py -v
+    pytest deploy/lambda/test_linkage_engine_validate.py -v
 """
 
 import importlib.util
@@ -39,7 +39,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-LAMBDA_PATH = Path(__file__).parent / "validate-and-route.py"
+LAMBDA_PATH = Path(__file__).parent / "linkage-engine-validate.py"
 
 BUCKET = "test-bucket"
 LANDING_KEY = "landing/batch.ndjson"
@@ -60,7 +60,7 @@ def load_lambda(fake_boto3=None, fake_s3=None):
     if fake_boto3 is None:
         fake_boto3, fake_s3 = _make_fake_boto3()
     with patch.dict("sys.modules", {"boto3": fake_boto3}):
-        spec = importlib.util.spec_from_file_location("validate_lambda", LAMBDA_PATH)
+        spec = importlib.util.spec_from_file_location("linkage_engine_validate", LAMBDA_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
     mod.s3 = fake_s3

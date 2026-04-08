@@ -1,5 +1,5 @@
 """
-deploy/lambda/test_ingest_from_s3.py
+deploy/lambda/test_linkage_engine_store.py
 
 Sprint 2 — Lambda Idempotency and Retry
 Sprint 3 — Provenance field stripping on quarantine replay
@@ -11,11 +11,11 @@ Tests that simulate, detect, and verify fixes for:
   - 503 exhaustion not routing failed record to DLQ
   - DLQ message missing context (bucket/key/line/recordId)
   - Provenance fields (_sourceKey, _sourceLine, _batchId, _reasons) in a
-    quarantine file causing HTTP 400 when replayed through the ingest Lambda
+    quarantine file causing HTTP 400 when replayed through the store Lambda
   - Quarantine .manifest not updated after replay (replayStatus stays "pending")
 
 Run:
-    pytest deploy/lambda/test_ingest_from_s3.py -v
+    pytest deploy/lambda/test_linkage_engine_store.py -v
 """
 
 import importlib.util
@@ -40,13 +40,13 @@ def _make_fake_boto3():
     return fake_boto3, fake_s3, fake_sqs
 
 
-LAMBDA_PATH = Path(__file__).parent / "ingest-from-s3.py"
+LAMBDA_PATH = Path(__file__).parent / "linkage-engine-store.py"
 
 
 def load_lambda(api_url="http://test-alb", dry_run="false",
                 fake_boto3=None, fake_s3=None, fake_sqs=None):
     """
-    Import ingest-from-s3.py in isolation with controlled env vars and boto3 stub.
+    Import linkage-engine-store.py in isolation with controlled env vars and boto3 stub.
     Returns (module, fake_s3_client, fake_sqs_client).
     """
     if fake_boto3 is None:
@@ -61,7 +61,7 @@ def load_lambda(api_url="http://test-alb", dry_run="false",
     # Each load gets a fresh module object so state doesn't bleed between tests
     with patch.dict("os.environ", env_patch, clear=False), \
          patch.dict("sys.modules", {"boto3": fake_boto3}):
-        spec = importlib.util.spec_from_file_location("ingest_lambda", LAMBDA_PATH)
+        spec = importlib.util.spec_from_file_location("linkage_engine_store", LAMBDA_PATH)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
@@ -283,7 +283,7 @@ class TestProvenanceFieldStripping:
 
     def test_quarantine_replay_strips_provenance_fields(self):
         """
-        SIMULATE: a quarantine file (written by validate-and-route.py) is fed
+        SIMULATE: a quarantine file (written by linkage-engine-validate.py) is fed
                   to the ingest Lambda for replay.  Every line contains the
                   validator's provenance fields: _sourceKey, _sourceLine,
                   _batchId, _reasons.

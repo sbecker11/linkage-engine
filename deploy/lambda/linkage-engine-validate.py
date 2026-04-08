@@ -1,9 +1,9 @@
 """
-deploy/lambda/validate-and-route.py
+deploy/lambda/linkage-engine-validate.py
 
 Lambda function triggered by S3 ObjectCreated events on the landing/ prefix.
 Validates each NDJSON file line by line and routes records to:
-  - validated/<key>   — passed all rules; safe for the ingest Lambda to consume
+  - validated/<key>   — passed all rules; safe for the store Lambda to consume
   - quarantine/<key>  — failed one or more rules; preserved for audit and replay
 
 Validation rules applied in order per line:
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     if len(sys.argv) != 3:
-        print("Usage: python3 validate-and-route.py <bucket> <key>")
+        print("Usage: python3 linkage-engine-validate.py <bucket> <key>")
         sys.exit(1)
     fake_event = {"Records": [{"eventName": "ObjectCreated:Put",
                                 "s3": {"bucket": {"name": sys.argv[1]},

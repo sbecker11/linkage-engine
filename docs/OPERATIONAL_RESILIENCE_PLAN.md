@@ -47,7 +47,7 @@ Aurora cold-start timeouts without data loss or silent corruption.
 **Threats:** Double S3 invocation · Aurora cold start (503) · DLQ on exhaustion
 
 **Proof of success:**
-- `pytest deploy/lambda/test_ingest_from_s3.py` passes with 0 failures
+- `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures
 - Invoking Lambda twice with the same event produces identical DB state
 - 503 triggers exponential backoff; after N retries the record goes to DLQ
 - DLQ message contains bucket, key, line number, and `recordId`
@@ -58,7 +58,7 @@ Aurora cold-start timeouts without data loss or silent corruption.
 - [x] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
 - [x] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
 - [x] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
-- [x] Add exponential backoff + DLQ send to `ingest-from-s3.py` (`post_record_with_retry`, `_send_to_dlq`)
+- [x] Add exponential backoff + DLQ send to `linkage-engine-store.py` (`post_record_with_retry`, `_send_to_dlq`)
 
 ---
 
@@ -80,7 +80,7 @@ External party
 │  landing/                   │  linkage-engine-landing-<account>
 │  (raw intake prefix)        │  unchanged — uploader writes here
 └────────────┬────────────────┘
-             │  S3 ObjectCreated → Lambda validate-and-route
+             │  S3 ObjectCreated → Lambda linkage-engine-validate
              ▼
     ┌─────────────────┐       ┌──────────────────────┐
     │  validated/     │       │  quarantine/          │
@@ -156,8 +156,8 @@ This means:
 - Quarantine files accumulating silently with no record of whether they were ever reviewed or replayed (addressed in Sprint 3c)
 
 **Proof of success:**
-- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (13 tests)
-- `pytest deploy/lambda/test_ingest_from_s3.py` passes with 0 failures (6 tests, including quarantine-replay test)
+- `pytest deploy/lambda/test_linkage_engine_validate.py` passes with 0 failures (13 tests)
+- `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures (6 tests, including quarantine-replay test)
 - A non-JSON file dropped in `landing/` is copied to `quarantine/` and never reaches `validated/`
 - A valid NDJSON file is copied to `validated/` and triggers the ingest Lambda
 - A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/`
@@ -178,7 +178,7 @@ This means:
 - [x] Alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS `linkage-engine-alerts`
 - [x] Dashboard widget: ingress volume vs quarantine rate
 
-*Validation Lambda (`deploy/lambda/validate-and-route.py`):*
+*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`):*
 - [x] Pre-flight: quarantine zero-byte files and files with no valid JSON lines
 - [x] Per-line: JSON schema check, null disqualification, format conversion, out-of-range rules
 - [x] Per-line: PII redaction from `rawContent` (SSN, email, US phone → `[REDACTED]`)
@@ -186,11 +186,11 @@ This means:
 - [x] Inject provenance (`_sourceKey`, `_sourceLine`, `_batchId`) into every output line
 - [x] Emit structured log line: `ingress=N validated=N quarantined=N` per invocation
 
-*Ingest Lambda (`deploy/lambda/ingest-from-s3.py`):*
+*Ingest Lambda (`deploy/lambda/linkage-engine-store.py`):*
 - [x] Strip all underscore-prefixed provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`, `_reason`, `_raw`) from each record before POSTing — keeps the `/v1/records` API strict while making quarantine-file replay safe
 - [x] When source key starts with `quarantine/`, read existing `.manifest` (if present), append a replay entry, write updated manifest back to `<quarantine-key>.manifest`
 
-*Tests (`deploy/lambda/test_validate_and_route.py`) — 16 tests:*
+*Tests (`deploy/lambda/test_linkage_engine_validate.py`) — 16 tests:*
 - [x] `test_non_json_file_quarantined`
 - [x] `test_empty_file_quarantined`
 - [x] `test_valid_file_routed_to_validated`
@@ -208,7 +208,7 @@ This means:
 - [x] `test_manifest_contains_required_fields` — manifest has `quarantineKey`, `sourceKey`, `batchId`, `quarantinedAt`, `lineCount`, `reasons`, `replayStatus: "pending"`
 - [x] `test_manifest_line_count_matches_quarantine_output` — `lineCount` equals the number of lines written to the quarantine file
 
-*Tests (`deploy/lambda/test_ingest_from_s3.py`) — 8 tests:*
+*Tests (`deploy/lambda/test_linkage_engine_store.py`) — 8 tests:*
 - [x] `test_quarantine_replay_strips_provenance_fields` — POST body must not contain any `_`-prefixed keys when ingesting a quarantine file
 - [x] `test_manifest_updated_after_successful_replay` — after full replay, manifest `replayStatus` is `"replayed"` and `replays[0]` contains `ok`, `failed`, `replayedAt`
 - [x] `test_manifest_status_partial_when_some_lines_fail` — if any lines fail, `replayStatus` is `"partial"`
@@ -229,7 +229,7 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 
 **Two-phase lifecycle:**
 
-*Phase 1 — written by `validate-and-route.py` at quarantine time:*
+*Phase 1 — written by `linkage-engine-validate.py` at quarantine time:*
 ```json
 {
   "quarantineKey": "quarantine/batch-20260406.ndjson",
@@ -242,7 +242,7 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 }
 ```
 
-*Phase 2 — updated by `ingest-from-s3.py` when a `quarantine/` file is replayed:*
+*Phase 2 — updated by `linkage-engine-store.py` when a `quarantine/` file is replayed:*
 ```json
 {
   "quarantineKey": "quarantine/batch-20260406.ndjson",
@@ -278,8 +278,8 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 - Multiple replay attempts producing ambiguous state — `replays` array preserves full history
 
 **Proof of success:**
-- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (16 tests)
-- `pytest deploy/lambda/test_ingest_from_s3.py` passes with 0 failures (8 tests)
+- `pytest deploy/lambda/test_linkage_engine_validate.py` passes with 0 failures (16 tests)
+- `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures (8 tests)
 - After validation, `quarantine/<key>.manifest` exists with `replayStatus: "pending"`
 - After successful replay, manifest `replayStatus` is `"replayed"` and `replays[0].ok` matches line count
 - After partial replay, manifest `replayStatus` is `"partial"`
@@ -287,21 +287,21 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 
 **Tasks:**
 
-*Validation Lambda (`deploy/lambda/validate-and-route.py`):*
+*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`):*
 - [x] After writing quarantine lines, write `<quarantine-key>.manifest` with phase-1 fields
 - [x] `reasons` field = deduplicated list of all `_reasons` values seen across quarantined lines
 
-*Ingest Lambda (`deploy/lambda/ingest-from-s3.py`):*
+*Ingest Lambda (`deploy/lambda/linkage-engine-store.py`):*
 - [x] Detect when source key starts with `quarantine/`
 - [x] After processing, read existing `.manifest` (if present), append replay entry, write back
 - [x] Set `replayStatus` to `"replayed"` if `failed == 0`, else `"partial"`
 
-*Tests (`deploy/lambda/test_validate_and_route.py`):*
+*Tests (`deploy/lambda/test_linkage_engine_validate.py`):*
 - [x] `test_manifest_written_alongside_quarantine_file`
 - [x] `test_manifest_contains_required_fields`
 - [x] `test_manifest_line_count_matches_quarantine_output`
 
-*Tests (`deploy/lambda/test_ingest_from_s3.py`):*
+*Tests (`deploy/lambda/test_linkage_engine_store.py`):*
 - [x] `test_manifest_updated_after_successful_replay`
 - [x] `test_manifest_status_partial_when_some_lines_fail`
 
@@ -407,7 +407,7 @@ surface migration status in the health endpoint.
 - [ ] `IngestHealthControllerTest::pendingMigrationCausesDegradedStatus`
 - [ ] `test_aborts_when_health_degraded` — mock health returning degraded, assert Lambda exits early
 - [ ] Add Flyway status to `IngestHealthController`
-- [ ] Add pre-flight health check call to `ingest-from-s3.py`
+- [ ] Add pre-flight health check call to `linkage-engine-store.py`
 
 ---
 
@@ -504,7 +504,7 @@ external party give attacker read/list access to the bucket
 |---|---|---|
 | External AWS party | Assume `linkage-engine-uploader-role` | `s3:PutObject` on `landing/*` only |
 | External non-AWS party | Presigned PUT URL (1-hour TTL) | Single object PUT, scoped by URL |
-| Lambda ingest | `linkage-engine-ingest-role` | `s3:GetObject`, `s3:HeadObject`, `s3:ListBucket` on `landing/*` |
+| Lambda store | `linkage-engine-store-role` | `s3:GetObject`, `s3:HeadObject`, `s3:ListBucket` on `validated/*` |
 | Everyone | Bucket policy `Deny` | `s3:DeleteObject`, `s3:DeleteObjectVersion`, `s3:DeleteBucket` — always denied |
 
 **Tasks:**
