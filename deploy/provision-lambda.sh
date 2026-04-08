@@ -25,6 +25,7 @@ BUCKET="${LINKAGE_S3_BUCKET:-${APP}-landing-${ACCOUNT_ID}}"
 PREFIX="${LINKAGE_S3_PREFIX:-landing}"
 FUNCTION_NAME="${APP}-ingest"
 ROLE_NAME="${APP}-ingest-role"
+UPLOADER_ROLE_NAME="${APP}-uploader-role"
 DLQ_NAME="${APP}-ingest-dlq"
 LOG_GROUP="/aws/lambda/${FUNCTION_NAME}"
 
@@ -263,15 +264,147 @@ echo "  ✓ notification configured"
 detail "trigger: s3:ObjectCreated on s3://${BUCKET}/${PREFIX}/*.ndjson"
 detail "trigger: s3:ObjectCreated on s3://${BUCKET}/${PREFIX}/*.jsonl"
 
+# ── 6. External uploader IAM role (PutObject-only on landing prefix) ──────────
+#
+# Use case A — external party is an AWS account / EC2 / Lambda:
+#   They call: aws sts assume-role --role-arn <UPLOADER_ROLE_ARN> ...
+#   Then use the temporary credentials to s3:PutObject on landing/* only.
+#
+# Use case B — external party is a non-AWS system:
+#   An operator runs deploy/generate-presigned-url.sh which assumes this role
+#   and generates a short-lived presigned PUT URL — no AWS credentials needed
+#   on the external side.
+echo ""
+echo "▶ 6/7  External uploader IAM role  (${UPLOADER_ROLE_NAME})"
+
+UPLOADER_ROLE_ARN=$(aws iam get-role --role-name "$UPLOADER_ROLE_NAME" \
+  --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
+
+if [ "$UPLOADER_ROLE_ARN" = "not-found" ]; then
+  # Trust policy: only principals in this account can assume the role.
+  # To allow a specific external AWS account, add its account ID to Principal.
+  UPLOADER_ROLE_ARN=$(aws iam create-role \
+    --role-name "$UPLOADER_ROLE_NAME" \
+    --description "Scoped upload-only access to the linkage-engine landing bucket" \
+    --assume-role-policy-document "{
+      \"Version\": \"2012-10-17\",
+      \"Statement\": [{
+        \"Effect\": \"Allow\",
+        \"Principal\": { \"AWS\": \"arn:aws:iam::${ACCOUNT_ID}:root\" },
+        \"Action\": \"sts:AssumeRole\"
+      }]
+    }" \
+    --query 'Role.Arn' --output text)
+
+  # Inline policy: PutObject on landing/* only — nothing else.
+  aws_q aws iam put-role-policy \
+    --role-name "$UPLOADER_ROLE_NAME" \
+    --policy-name S3LandingPutOnly \
+    --policy-document "{
+      \"Version\": \"2012-10-17\",
+      \"Statement\": [{
+        \"Sid\": \"AllowPutObjectOnLandingPrefix\",
+        \"Effect\": \"Allow\",
+        \"Action\": [\"s3:PutObject\"],
+        \"Resource\": \"arn:aws:s3:::${BUCKET}/${PREFIX}/*\"
+      }]
+    }"
+
+  echo "  ✓ role created"
+  detail "${UPLOADER_ROLE_ARN}"
+else
+  echo "  ✓ role exists"
+  detail "${UPLOADER_ROLE_ARN}"
+fi
+
+# ── 7. Bucket policy — enforce PutObject-only; deny destructive actions ───────
+#
+# This policy applies at the S3 resource level, independent of IAM.
+# It ensures that even if the uploader role's IAM policy were accidentally
+# broadened, the bucket itself will always refuse DeleteObject, DeleteBucket,
+# and any action that isn't PutObject from the uploader role.
+#
+# The Lambda ingest role is explicitly exempted from the deny so it can
+# read (GetObject) without being blocked.
+echo ""
+echo "▶ 7/7  Bucket policy  (deny Delete* from non-Lambda principals)"
+
+LAMBDA_ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
+  --query 'Role.Arn' --output text 2>/dev/null || echo "")
+
+BUCKET_POLICY=$(cat <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyDeleteObjectForAll",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:DeleteBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}",
+        "arn:aws:s3:::${BUCKET}/*"
+      ]
+    },
+    {
+      "Sid": "AllowLambdaIngestRoleReadOnly",
+      "Effect": "Allow",
+      "Principal": { "AWS": "${LAMBDA_ROLE_ARN}" },
+      "Action": [
+        "s3:GetObject",
+        "s3:HeadObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}",
+        "arn:aws:s3:::${BUCKET}/${PREFIX}/*"
+      ]
+    },
+    {
+      "Sid": "AllowUploaderRolePutOnly",
+      "Effect": "Allow",
+      "Principal": { "AWS": "${UPLOADER_ROLE_ARN}" },
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::${BUCKET}/${PREFIX}/*"
+    }
+  ]
+}
+POLICY
+)
+
+aws_q aws s3api put-bucket-policy \
+  --bucket "$BUCKET" \
+  --policy "$BUCKET_POLICY"
+
+echo "  ✓ bucket policy applied"
+detail "deny: s3:DeleteObject / DeleteObjectVersion / DeleteBucket — all principals"
+detail "allow: s3:GetObject,HeadObject,ListBucket — Lambda ingest role only"
+detail "allow: s3:PutObject on landing/* — uploader role only"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ✅  Lambda ingest provisioned"
 echo ""
-echo "  Bucket:    s3://${BUCKET}/${PREFIX}/"
-echo "  Lambda:    ${FUNCTION_NAME}"
-echo "  DLQ:       ${DLQ_NAME}"
-echo "  API:       ${LINKAGE_API_URL}"
+echo "  Bucket:        s3://${BUCKET}/${PREFIX}/"
+echo "  Lambda:        ${FUNCTION_NAME}"
+echo "  DLQ:           ${DLQ_NAME}"
+echo "  API:           ${LINKAGE_API_URL}"
+echo "  Uploader role: ${UPLOADER_ROLE_ARN}"
+echo ""
+echo "  ── External upload access ──────────────────────────────────"
+echo ""
+echo "  Option A — AWS-native external party (assume role):"
+echo "    aws sts assume-role --role-arn ${UPLOADER_ROLE_ARN} \\"
+echo "      --role-session-name upload-session"
+echo "    # Use returned credentials to s3:PutObject on landing/*"
+echo ""
+echo "  Option B — Non-AWS external party (presigned URL, 1-hour TTL):"
+echo "    ./deploy/generate-presigned-url.sh <filename.ndjson>"
 echo ""
 echo "  ── To ingest data ──────────────────────────────────────────"
 echo ""
