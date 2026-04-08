@@ -40,3 +40,9 @@ build/
 # Local copies of AWS secret payloads (example template is committed)
 deploy/secrets/runtime-secret.json
 deploy/secrets/*.local.json
+
+### Python ###
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
