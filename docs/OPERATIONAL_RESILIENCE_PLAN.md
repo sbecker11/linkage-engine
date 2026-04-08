@@ -317,55 +317,87 @@ the simplest fix ships first and complexity is added only when throughput demand
 (worst case ~7 s/record), a file of just 130 records can exhaust the budget. A file
 of 10,000 records would take ~19 hours sequentially — impossible in a single invocation.
 
+**Full pipeline architecture (all three phases complete):**
+
+```
+linkage-engine-raw-<account>        ← external party writes here (PutObject only)
+      │  S3 ObjectCreated → linkage-engine-ingestor  (splits into CHUNK_SIZE chunks)
+      ▼
+linkage-engine-landing-<account>    ← ingestor writes chunks here
+      │  S3 ObjectCreated → linkage-engine-validate  (validates, routes)
+      ▼
+validated/  +  quarantine/          ← same landing bucket, existing prefixes
+      │  S3 ObjectCreated → linkage-engine-store     (persists to DB)
+      ▼
+Aurora PostgreSQL
+```
+
+**Bucket responsibilities:**
+
+| Bucket | Written by | IAM access |
+|---|---|---|
+| `linkage-engine-raw-<account>` | External party | Uploader role: `s3:PutObject` only — no list, no get, no delete |
+| `linkage-engine-landing-<account>` | `linkage-engine-ingestor` | Ingestor role: `s3:GetObject` on raw bucket, `s3:PutObject` on landing bucket |
+
+**Why a separate raw bucket (not a prefix):**
+- Uploader role scoped to the entire raw bucket — no prefix filter needed, zero risk of touching landing chunks
+- Each bucket has one purpose and one bucket policy — no cross-prefix confusion
+- S3 event triggers are per-bucket — no prefix filter gymnastics, no trigger loops
+- Clean audit trail: raw bucket shows exactly what external parties uploaded, unmodified
+
 **Phased approach:**
 
-| Phase | What changes | When to do it |
+| Phase | What changes | Prerequisite |
 |---|---|---|
-| **3d-i** (now) | Cap upload file size at `CHUNK_SIZE = 200` lines in `generate-synthetic-data.py` and `upload-to-s3.sh`; document the constant | Immediately — zero infrastructure change |
-| **3d-ii** (later) | Add a splitter Lambda that breaks any oversized `landing/` file into chunks on arrival and re-uploads them; original file moved to `landing/archive/` | When bulk uploads from external parties cannot be pre-chunked |
-| **3d-iii** (future) | Add a parent manifest per original file that aggregates status across all chunk manifests; use DynamoDB atomic counter to detect when all chunks are complete | When per-file (not per-chunk) status tracking is required |
+| **3d-i** (now) | Cap `generate-synthetic-data.py` and `upload-to-s3.sh` at `CHUNK_SIZE = 200` lines | None — zero infrastructure change |
+| **3d-ii** (before accepting external uploads) | Create `linkage-engine-raw` bucket; build `linkage-engine-ingestor` Lambda; update uploader IAM role | **Must be complete before any external party uploads raw data** |
+| **3d-iii** (when needed) | Parent manifest aggregation via DynamoDB atomic counter | Phase 3d-ii complete |
 
-**`CHUNK_SIZE` tuning formula** (for Phase 3d-ii and beyond):
+**`CHUNK_SIZE` tuning formula:**
 
 ```
 CHUNK_SIZE = floor(safe_budget_seconds / p99_latency_per_record)
 ```
 
-Where `safe_budget_seconds = 600` (half the TTL, leaving headroom for manifest
-writes and S3 I/O). Measure `p99_latency_per_record` from CloudWatch Lambda
-duration logs once the system is running under real load. Starting default: **200**.
+Where `safe_budget_seconds = 600` (half the TTL). Measure `p99_latency_per_record`
+from CloudWatch Lambda duration logs under real load. Starting default: **200**.
 
 **Threats addressed:**
-- Single Lambda invocation timing out mid-file on large uploads (TTL = 15 min hard limit)
-- Partial ingest leaving manifest `replayStatus: "pending"` with no indication of how far processing got
-- Retry of a timed-out invocation re-processing already-ingested records (mitigated by 409 idempotency, but wasteful)
+- Single Lambda invocation timing out mid-file (TTL = 15 min hard limit)
+- Partial ingest leaving manifest `replayStatus: "pending"` with no progress indicator
 - External party uploading an arbitrarily large file that cannot be controlled at source
+- External party accessing or deleting landing chunks (separate bucket prevents this entirely)
 
 **Proof of success (Phase 3d-i):**
 - `generate-synthetic-data.py --count 1000` produces 5 files of 200 lines each, not one file of 1000
-- `upload-to-s3.sh` refuses to upload a file with more than `CHUNK_SIZE` lines and prints a clear error
-- `CHUNK_SIZE` is defined as a single named constant in both scripts — not a magic number
+- `upload-to-s3.sh` refuses to upload a file exceeding `CHUNK_SIZE` lines and prints a clear error
+- `CHUNK_SIZE` is a single named constant in both scripts — not a magic number
 
 **Proof of success (Phase 3d-ii):**
-- A 1000-line file dropped in `landing/` triggers 5 parallel validator invocations, each processing 200 lines
-- Original file is moved to `landing/archive/` after splitting
+- `linkage-engine-raw-<account>` bucket exists; uploader role has `s3:PutObject` only
+- A 1,000-line file dropped in the raw bucket triggers 5 parallel validate invocations, each ≤ 200 lines
+- Original file archived to `raw/archive/` after splitting; landing bucket contains only chunks
 - Each chunk has its own `quarantine/<chunk-key>.manifest`
 
 **Tasks:**
 
 *Phase 3d-i — upload-time chunking (implement now):*
-- [ ] Add `CHUNK_SIZE = 200` constant to `generate-synthetic-data.py`; split output into multiple files when `--count > CHUNK_SIZE`
-- [ ] Add `CHUNK_SIZE` guard to `upload-to-s3.sh`; print error and exit if any file exceeds limit
-- [ ] Document `CHUNK_SIZE` tuning formula as a comment in both files
+- [x] Add `CHUNK_SIZE = 200` constant to `generate-synthetic-data.py`; split output into multiple files when `--count > CHUNK_SIZE`
+- [x] Add `CHUNK_SIZE` guard to `upload-to-s3.sh`; print error and exit if any single file exceeds limit
+- [x] Document `CHUNK_SIZE` tuning formula as a comment in both files
+- [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
 
-*Phase 3d-ii — splitter Lambda (implement when needed):*
-- [ ] New Lambda `linkage-engine-split` triggered by `landing/` ObjectCreated on files > `CHUNK_SIZE` lines
-- [ ] Splits file into `landing/<original-stem>-chunk-NNN.ndjson` and archives original to `landing/archive/`
+*Phase 3d-ii — ingestor Lambda and raw bucket (implement before external uploads):*
+- [ ] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
+- [ ] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
+- [ ] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to landing bucket, archives original to `raw/archive/`
+- [ ] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
+- [ ] Update `generate-presigned-url.sh` to target raw bucket
 - [ ] Provision in `provision-lambda.sh`
 
 *Phase 3d-iii — parent manifest aggregation (implement when needed):*
-- [ ] DynamoDB table `linkage-engine-chunk-counter` with item per original file; atomic decrement on each chunk completion
-- [ ] When counter reaches 0, write `landing/<original-key>.manifest` aggregating all chunk manifests
+- [ ] DynamoDB table `linkage-engine-chunk-counter`: atomic decrement per chunk completion
+- [ ] When counter reaches 0, write `raw/archive/<original-key>.manifest` aggregating all chunk manifests
 
 ---
 

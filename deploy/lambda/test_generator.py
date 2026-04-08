@@ -6,11 +6,18 @@ Tests that simulate, detect, and verify fixes for:
   #1 Duplicate recordId across runs
   #4 birthYear >= eventYear (person not yet born at event time)
 
+Sprint 3d-i — Upload-time chunking
+Tests that verify CHUNK_SIZE enforcement:
+  #5 --count > CHUNK_SIZE produces multiple output files
+  #6 each output file contains at most CHUNK_SIZE lines
+  #7 recordIds are unique across all chunks from one run
+
 Run:
     pytest deploy/lambda/test_generator.py -v
 """
 
 import importlib.util
+import glob as _glob
 import json
 import os
 import sys
@@ -246,3 +253,113 @@ class TestBirthYearCoherence:
                 for r in out_of_range[:5]
             )
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 3d-i — CHUNK_SIZE enforcement
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_to_dir(count, seed=0):
+    """
+    Run the generator with --count and a temp directory as --out base.
+    Returns (tmp_dir, list_of_output_paths).
+    The generator is expected to write one or more chunk files into tmp_dir.
+    """
+    tmp_dir = tempfile.mkdtemp()
+    out_path = os.path.join(tmp_dir, "synthetic.ndjson")
+    orig_argv = sys.argv
+    sys.argv = [
+        "generate-synthetic-data.py",
+        "--count", str(count),
+        "--seed",  str(seed),
+        "--out",   out_path,
+    ]
+    try:
+        spec = importlib.util.spec_from_file_location("generator", GENERATOR_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    finally:
+        sys.argv = orig_argv
+
+    # Collect all .ndjson files written into the directory
+    files = sorted(_glob.glob(os.path.join(tmp_dir, "*.ndjson")))
+    return tmp_dir, files
+
+
+def read_all_records(file_paths):
+    records = []
+    for path in file_paths:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+    return records
+
+
+class TestChunkSizeEnforcement:
+
+    def test_large_count_produces_multiple_files(self):
+        """
+        SIMULATE: --count 500 is passed to the generator (exceeds CHUNK_SIZE=200).
+        DETECT:   generator writes a single 500-line file — one Lambda invocation
+                  would process all 500 records and risk TTL exhaustion.
+        MITIGATE: when count > CHUNK_SIZE, split output into multiple files of
+                  at most CHUNK_SIZE lines each.
+        VERIFY:   more than one .ndjson file is produced.
+        """
+        tmp_dir, files = generate_to_dir(count=500, seed=0)
+        try:
+            assert len(files) > 1, (
+                f"Expected multiple chunk files for count=500, got {len(files)} file(s): {files}\n"
+                "Fix: when --count > CHUNK_SIZE, write multiple files "
+                "e.g. synthetic-chunk-001.ndjson, synthetic-chunk-002.ndjson, ..."
+            )
+        finally:
+            import shutil; shutil.rmtree(tmp_dir)
+
+    def test_each_chunk_within_chunk_size(self):
+        """
+        SIMULATE: generator splits 500 records into chunks but one chunk has 300 lines.
+        DETECT:   any chunk exceeding CHUNK_SIZE would still risk TTL exhaustion.
+        MITIGATE: each output file must contain at most CHUNK_SIZE lines.
+        VERIFY:   line count of every produced file ≤ CHUNK_SIZE.
+        """
+        tmp_dir, files = generate_to_dir(count=500, seed=0)
+        try:
+            assert len(files) >= 1, "No output files produced"
+            oversized = []
+            for path in files:
+                with open(path) as f:
+                    line_count = sum(1 for l in f if l.strip())
+                if line_count > 200:
+                    oversized.append((path, line_count))
+            assert not oversized, (
+                f"The following chunk files exceed CHUNK_SIZE=200:\n" +
+                "\n".join(f"  {p}: {n} lines" for p, n in oversized) +
+                "\nFix: ensure each output file contains at most CHUNK_SIZE lines."
+            )
+        finally:
+            import shutil; shutil.rmtree(tmp_dir)
+
+    def test_chunk_ids_unique_across_chunks(self):
+        """
+        SIMULATE: generator splits 500 records into chunks but resets the counter
+                  for each chunk — producing duplicate recordIds across files.
+        DETECT:   recordId collision across chunk files would cause silent upsert
+                  overwrites in the database.
+        MITIGATE: counter is global across all chunks in one run — never reset.
+        VERIFY:   all recordIds across all chunk files are unique.
+        """
+        tmp_dir, files = generate_to_dir(count=500, seed=0)
+        try:
+            assert len(files) >= 1, "No output files produced"
+            records = read_all_records(files)
+            ids = [r["recordId"] for r in records]
+            duplicates = [rid for rid in set(ids) if ids.count(rid) > 1]
+            assert not duplicates, (
+                f"Duplicate recordIds found across chunk files: {duplicates[:5]}\n"
+                "Fix: use a single global counter across all chunks — never reset per file."
+            )
+        finally:
+            import shutil; shutil.rmtree(tmp_dir)

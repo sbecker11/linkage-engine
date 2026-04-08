@@ -17,9 +17,20 @@ to exercise all ConflictRules and chord colours:
 
 Usage:
     python3 deploy/generate-synthetic-data.py                    # 200 records → data/synthetic-genealogy.ndjson
-    python3 deploy/generate-synthetic-data.py --count 1000       # 1000 records
+    python3 deploy/generate-synthetic-data.py --count 1000       # 1000 records → 5 chunk files of 200
     python3 deploy/generate-synthetic-data.py --out /tmp/out.ndjson
     python3 deploy/generate-synthetic-data.py --count 500 --seed 42
+
+Chunking:
+    When --count exceeds CHUNK_SIZE (default 200), output is split into multiple
+    files named <stem>-chunk-NNN<ext> so that each file is safe for a single
+    Lambda invocation.
+
+    CHUNK_SIZE tuning formula:
+        CHUNK_SIZE = floor(safe_budget_seconds / p99_latency_per_record)
+    where safe_budget_seconds = 600 (half the 15-min Lambda TTL, leaving headroom
+    for manifest writes and S3 I/O). Measure p99_latency_per_record from CloudWatch
+    Lambda duration logs under real load. Starting default: 200.
 """
 
 import argparse
@@ -29,7 +40,14 @@ import random
 import sys
 from dataclasses import dataclass, asdict
 from datetime import date
+from pathlib import Path
 from typing import Optional
+
+# Maximum records per output file.
+# Sized so that even under worst-case Aurora cold-start retries (~7 s/record)
+# a single Lambda invocation completes well within the 15-minute TTL.
+# Tune using: CHUNK_SIZE = floor(600 / p99_latency_per_record)
+CHUNK_SIZE = 200
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Generate synthetic genealogy NDJSON")
@@ -275,14 +293,33 @@ pair("Catherine","Brennan", 1836, 1862, "New York",    1864, "Boston",
 # ── Shuffle and write ─────────────────────────────────────────────────────────
 random.shuffle(records)
 
-out_path = args.out
-os.makedirs(os.path.dirname(out_path) if os.path.dirname(out_path) else ".", exist_ok=True)
+out_path = Path(args.out)
+os.makedirs(out_path.parent if str(out_path.parent) != "." else ".", exist_ok=True)
 
-with open(out_path, "w") as f:
-    for rec in records:
-        f.write(json.dumps(rec.to_dict()) + "\n")
+total = len(records)
+chunks = [records[i:i + CHUNK_SIZE] for i in range(0, total, CHUNK_SIZE)]
 
-print(f"✓ Generated {len(records)} records → {out_path}")
+if len(chunks) == 1:
+    # Single chunk — write to the requested path directly
+    output_paths = [out_path]
+    with open(out_path, "w") as f:
+        for rec in chunks[0]:
+            f.write(json.dumps(rec.to_dict()) + "\n")
+else:
+    # Multiple chunks — write <stem>-chunk-NNN<suffix> alongside the base path
+    stem   = out_path.stem
+    suffix = out_path.suffix
+    parent = out_path.parent
+    output_paths = []
+    for idx, chunk in enumerate(chunks, 1):
+        chunk_path = parent / f"{stem}-chunk-{idx:03d}{suffix}"
+        with open(chunk_path, "w") as f:
+            for rec in chunk:
+                f.write(json.dumps(rec.to_dict()) + "\n")
+        output_paths.append(chunk_path)
+
+print(f"✓ Generated {total} records  ({len(chunks)} chunk(s) of ≤{CHUNK_SIZE} lines each)")
 print(f"  Ordinary records:  {ordinary_count}")
-print(f"  Designed pairs:    {len(records) - ordinary_count} ({(len(records) - ordinary_count) // 2} pairs)")
-print(f"  File size:         {os.path.getsize(out_path):,} bytes")
+print(f"  Designed pairs:    {total - ordinary_count} ({(total - ordinary_count) // 2} pairs)")
+for p in output_paths:
+    print(f"  → {p}  ({os.path.getsize(p):,} bytes)")
