@@ -58,7 +58,7 @@ Aurora cold-start timeouts without data loss or silent corruption.
 - [x] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
 - [x] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
 - [x] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
-- [x] Add exponential backoff + DLQ send to `linkage-engine-store.py` (`post_record_with_retry`, `_send_to_dlq`)
+- [x] Add exponential backoff + DLQ send to Storage Lambda `linkage-engine-store.py` (`post_record_with_retry`, `_send_to_dlq`)
 
 ---
 
@@ -166,7 +166,7 @@ This means:
 ```
 
 **Threats:**
-- Partial S3 upload (truncated file) reaching the ingest Lambda
+- Partial S3 upload (truncated file) reaching the storage Lambda
 - Non-JSON or binary files dropped into the landing prefix
 - Records with null required fields silently inserted as incomplete rows
 - `eventYear` values in the future or impossibly distant past corrupting linkage scoring
@@ -174,7 +174,7 @@ This means:
 - Quarantine spike (bulk bad data from external party) going unnoticed
 - Mid-file Lambda crash leaving no audit trail of rejected records
 - Replay of the same S3 event producing undetectable duplicate ingestion
-- **Provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`) injected by the validator cause HTTP 400 when a quarantine file is replayed through the ingest Lambda** — `RecordIngestRequest` is a strict Java record; Spring Boot's Jackson deserialiser rejects unknown properties by default, so every line in a replayed quarantine file fails with 400 and is never inserted
+- **Provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`) injected by the validator cause HTTP 400 when a quarantine file is replayed through the storage Lambda** — `RecordIngestRequest` is a strict Java record; Spring Boot's Jackson deserialiser rejects unknown properties by default, so every line in a replayed quarantine file fails with 400 and is never inserted
 - Quarantine files accumulating silently with no record of whether they were ever reviewed or replayed (addressed in Sprint 3c)
 - `linkage-engine-validate` Lambda timing out on oversized input files (addressed in Sprint 3d — `CHUNK_SIZE=200` enforced at upload time; `linkage-engine-ingestor` Lambda for external parties in Phase 3d-ii)
 
@@ -182,26 +182,26 @@ This means:
 - `pytest deploy/lambda/test_linkage_engine_validate.py` passes with 0 failures (13 tests)
 - `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures (6 tests, including quarantine-replay test)
 - A non-JSON file dropped in `landing/` is copied to `quarantine/` and never reaches `validated/`
-- A valid NDJSON file is copied to `validated/` and triggers the ingest Lambda
+- A valid NDJSON file is copied to `validated/` and triggers the storage Lambda
 - A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/`
 - Every output line carries `_sourceKey`, `_sourceLine`, and `_batchId`
 - All output lines from one invocation share the same `_batchId`
 - CloudWatch alarm fires when `QuarantinedRecords` > 50 in a 5-minute window → SNS admin notification
-- A quarantine file replayed through the ingest Lambda succeeds (provenance fields stripped before POST)
+- A quarantine file replayed through the storage Lambda succeeds (provenance fields stripped before POST)
 
 **Tasks:**
 
 *Bucket / infrastructure:*
 - [x] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh`
 - [x] Provision `linkage-engine-validate` Lambda triggered by `landing/` ObjectCreated events
-- [x] Re-point ingest Lambda trigger from `landing/` to `validated/` prefix
+- [x] Re-point storage Lambda trigger from `landing/` to `validated/` prefix
 
 *CloudWatch:*
 - [x] Metric filters: `IngressRecords` and `QuarantinedRecords` on Validator Lambda logs
 - [x] Alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS `linkage-engine-alerts`
 - [x] Dashboard widget: ingress volume vs quarantine rate
 
-*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`):*
+*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`) — stage 2:*
 - [x] Pre-flight: quarantine zero-byte files and files with no valid JSON lines
 - [x] Per-line: JSON schema check, null disqualification, format conversion, out-of-range rules
 - [x] Per-line: PII redaction from `rawContent` (SSN, email, US phone → `[REDACTED]`)
@@ -209,7 +209,7 @@ This means:
 - [x] Inject provenance (`_sourceKey`, `_sourceLine`, `_batchId`) into every output line
 - [x] Emit structured log line: `ingress=N validated=N quarantined=N` per invocation
 
-*Ingest Lambda (`deploy/lambda/linkage-engine-store.py`):*
+*Storage Lambda (`deploy/lambda/linkage-engine-store.py`) — stage 3:*
 - [x] Strip all underscore-prefixed provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`, `_reason`, `_raw`) from each record before POSTing — keeps the `/v1/records` API strict while making quarantine-file replay safe
 - [x] When source key starts with `quarantine/`, read existing `.manifest` (if present), append a replay entry, write updated manifest back to `<quarantine-key>.manifest`
 
@@ -310,11 +310,11 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 
 **Tasks:**
 
-*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`):*
+*Validation Lambda (`deploy/lambda/linkage-engine-validate.py`) — stage 2:*
 - [x] After writing quarantine lines, write `<quarantine-key>.manifest` with phase-1 fields
 - [x] `reasons` field = deduplicated list of all `_reasons` values seen across quarantined lines
 
-*Ingest Lambda (`deploy/lambda/linkage-engine-store.py`):*
+*Storage Lambda (`deploy/lambda/linkage-engine-store.py`) — stage 3:*
 - [x] Detect when source key starts with `quarantine/`
 - [x] After processing, read existing `.manifest` (if present), append replay entry, write back
 - [x] Set `replayStatus` to `"replayed"` if `failed == 0`, else `"partial"`
@@ -410,10 +410,10 @@ from CloudWatch Lambda duration logs under real load. Starting default: **200**.
 - [x] Document `CHUNK_SIZE` tuning formula as a comment in both files
 - [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
 
-*Phase 3d-ii — ingestor Lambda and raw bucket:*
+*Phase 3d-ii — Ingestor Lambda and raw bucket (`deploy/lambda/linkage-engine-ingestor.py`) — stage 1:*
 - [x] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
 - [x] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
-- [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to landing bucket, archives original to `archive/`
+- [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to `landing/` in landing bucket, archives original to `archive/`
 - [x] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
 - [x] Update `generate-presigned-url.sh` to target raw bucket
 - [x] Provision in `provision-lambda.sh`
@@ -466,8 +466,8 @@ surface migration status in the health endpoint.
 - [x] `TestPreflightHealthCheck::test_proceeds_when_health_check_fails`
 - [x] `IngestHealthService::countPendingMigrations()` — queries Flyway `MigrationInfo` for `PENDING` state
 - [x] `IngestHealthController::health()` — adds `flywayStatus` and `pendingMigrations` to response; `status="degraded"` when either gaps > 0 or pending > 0
-- [x] `linkage-engine-store.py::check_api_health()` — GET /v1/ingest/health, returns status string
-- [x] `linkage-engine-store.py::handler()` — pre-flight call to `check_api_health()`; aborts with HTTP 503 when degraded; proceeds on network error
+- [x] Storage Lambda `linkage-engine-store.py::check_api_health()` — GET /v1/ingest/health, returns status string
+- [x] Storage Lambda `linkage-engine-store.py::handler()` — pre-flight call to `check_api_health()`; aborts with HTTP 503 when degraded; proceeds on network error
 
 ---
 
