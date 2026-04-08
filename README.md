@@ -16,7 +16,7 @@ The diagram visualises 12 seeded genealogical records — variants of John Smith
 | Amber | Very tight — less than 2× travel time, but still plausible |
 | Red | Physically impossible — travel time exceeds the available window |
 
-Live at [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html) when the server is running.
+Live at [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html) when running locally, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) in AWS.
 
 **Four-stage hybrid resolution pipeline:**
 
@@ -256,16 +256,18 @@ Requires valid AWS credentials with `bedrock:InvokeModel` permissions.
 ./demo/demo-calls.sh
 ```
 
-See `demo/README.md` for the full story.
+See [demo/README.md](demo/README.md) for the full story.
 
 ---
 
 ## Documentation
 
-| File | Contents |
+| Document | Contents |
 | :--- | :--- |
-| `docs/ARCHITECTURE.md` | Four-stage pipeline, design patterns, Mermaid diagrams |
-| `docs/DEPLOYMENT_ECS_FARGATE.md` | ECS / Fargate task definition, IAM, health checks |
-| `docs/SECRETS_MANAGER.md` | AWS Secrets Manager for runtime DB credentials in ECS |
-| `docs/DATA_PIPELINE_S3.md` | S3 landing zone conventions, IAM, local vs AWS |
-| `docs/ELEVATOR.md` | One-page project summary |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy |
+| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md) | ECS / Fargate task definition, IAM, health checks, demo lifecycle |
+| [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md) | AWS Secrets Manager for runtime DB credentials in ECS |
+| [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md) | S3 bucket layout, ingest pipeline, archival policy, Athena DDL |
+| [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md) | Aurora provisioning, PITR disaster recovery, version notes |
+| [OPERATIONAL_RESILIENCE_PLAN.md](docs/OPERATIONAL_RESILIENCE_PLAN.md) | All sprints — generator integrity, Lambda idempotency, validation pipeline, security hardening, observability |
+| [ELEVATOR.md](docs/ELEVATOR.md) | One-page project summary |
