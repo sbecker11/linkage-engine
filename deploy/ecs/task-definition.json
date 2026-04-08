@@ -4,7 +4,7 @@
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "1024",
   "memory": "2048",
-  "executionRoleArn": "arn:aws:iam::286103606369:role/ecsTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::286103606369:role/linkage-engine-execution-role",
   "taskRoleArn": "arn:aws:iam::286103606369:role/linkage-engine-task-role",
   "containerDefinitions": [
     {
@@ -19,24 +19,25 @@
         }
       ],
       "environment": [
-        { "name": "AWS_REGION", "value": "us-west-1" },
-        { "name": "BEDROCK_MODEL_ID", "value": "us.amazon.nova-lite-v1:0" },
-        { "name": "SPRING_AI_MODEL_EMBEDDING", "value": "bedrock-titan" },
-        { "name": "BEDROCK_EMBEDDING_MODEL_ID", "value": "amazon.titan-embed-text-v2:0" },
+        { "name": "AWS_REGION",                  "value": "us-west-1" },
+        { "name": "SPRING_PROFILES_ACTIVE",       "value": "bedrock" },
+        { "name": "BEDROCK_MODEL_ID",             "value": "us.amazon.nova-lite-v1:0" },
+        { "name": "SPRING_AI_MODEL_EMBEDDING",    "value": "bedrock-titan" },
+        { "name": "BEDROCK_EMBEDDING_MODEL_ID",   "value": "amazon.titan-embed-text-v2:0" },
         { "name": "LINKAGE_SEMANTIC_LLM_ENABLED", "value": "true" }
       ],
       "secrets": [
         {
           "name": "DB_URL",
-          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_URL::"
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-SUFFIX:DB_URL::"
         },
         {
           "name": "DB_USER",
-          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_USER::"
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-SUFFIX:DB_USER::"
         },
         {
           "name": "DB_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-a1b2c3:DB_PASSWORD::"
+          "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-SUFFIX:DB_PASSWORD::"
         }
       ],
       "logConfiguration": {

@@ -1,71 +1,178 @@
-# ECS/Fargate Deployment (Phase 1)
+# ECS/Fargate Deployment
 
-This project now includes starter assets for ECS/Fargate deployment:
+Linkage Engine runs on AWS ECS Fargate with Aurora PostgreSQL Serverless v2 and Bedrock for embeddings.
 
-- `Dockerfile`
-- `.github/workflows/deploy-ecr-ecs.yml` (manual trigger; region/ECR/ECS via inputs with defaults; OIDC role from repository secret `AWS_DEPLOY_ROLE_ARN` only)
-- `deploy/ecs/task-definition.json` (runtime **DB_* from AWS Secrets Manager** — not from GitHub)
-- `deploy/ecs/service-definition.md`
-- **`docs/SECRETS_MANAGER.md`** — how to create secrets, IAM, and ECS `valueFrom` format
-- `deploy/secrets/runtime-secret.json.example` — JSON body for the recommended single runtime secret
-- `deploy/iam/ecs-execution-role-secrets-statement.json` — attach to **ECS task execution role**
+## Architecture
 
-## 1) AWS prerequisites
+```
+Internet
+  │
+  ▼
+Application Load Balancer  (port 80 → HTTP)
+  │
+  ▼
+ECS Fargate task  (linkage-engine container, port 8080)
+  │         │
+  │         └─► Amazon Bedrock  (nova-lite + titan-embed, via IAM task role)
+  ▼
+Aurora PostgreSQL Serverless v2  (linkage_db, pgvector)
+  │
+  └─► Secrets Manager  (DB_URL / DB_USER / DB_PASSWORD injected at task start)
+```
 
-- Existing VPC with private subnets for ECS tasks
-- Application Load Balancer and target group
-- RDS PostgreSQL (or Aurora PostgreSQL) reachable from ECS subnets
-- ECR repository (for example `linkage-engine`)
-- CloudWatch log group `/ecs/linkage-engine`
-- IAM roles:
-  - ECS task execution role (ECR pull + logs)
-  - ECS task role (Bedrock invoke + **S3 read** on landing prefix if batch ingest runs in ECS; runtime DB secrets are injected by the execution role, not read by the app from SM at runtime)
-- **S3 landing bucket** (optional but standard for raw data): create a bucket and prefix per `docs/DATA_PIPELINE_S3.md`; grant the task role `s3:ListBucket` / `s3:GetObject` on that prefix.
+## Files
 
-## 2) Configure GitHub repository settings
+| File | Purpose |
+| :--- | :--- |
+| `Dockerfile` | Multi-stage build (Maven → JRE 21) |
+| `deploy/provision-aws.sh` | **One-shot** provisioning script — run once before first deploy |
+| `deploy/ecs/task-definition.json` | ECS task definition template (updated by provision script) |
+| `deploy/ecs/service-definition.md` | ECS service configuration reference |
+| `deploy/iam/ecs-execution-role-secrets-statement.json` | IAM policy fragment for execution role |
+| `deploy/secrets/runtime-secret.json.example` | Secrets Manager JSON body template |
+| `.github/workflows/deploy-ecr-ecs.yml` | GitHub Actions deploy workflow (manual trigger) |
+| `docs/SECRETS_MANAGER.md` | Secrets Manager patterns and IAM details |
+| `docs/AURORA_POSTGRESQL.md` | Aurora Serverless v2 provisioning and pgvector setup |
 
-Optional **Repository Variables** (for documentation or other workflows only — the deploy workflow uses **workflow_dispatch defaults**; override per run in the Actions UI if needed):
+---
 
-- `AWS_REGION` (example: `us-west-1`)
-- `ECR_REPOSITORY` (example: `linkage-engine`)
-- `ECS_CLUSTER` (example: `linkage-engine-cluster`)
-- `ECS_SERVICE` (example: `linkage-engine-service`)
+## Step 1 — Run the provisioning script (once)
 
-Set this **Repository Secret**:
+```bash
+cd /path/to/linkage-engine
+./deploy/provision-aws.sh
+```
 
-- `AWS_DEPLOY_ROLE_ARN` (OIDC assumable role used by GitHub Actions)
+The script provisions (idempotent — safe to re-run):
 
-## 3) Create runtime secrets (AWS Secrets Manager)
+1. **ECR repository** `linkage-engine`
+2. **CloudWatch log group** `/ecs/linkage-engine` (30-day retention)
+3. **Security groups** — ALB, ECS task, Aurora (least-privilege ingress rules)
+4. **Aurora PostgreSQL Serverless v2** cluster `linkage-engine-aurora` (scales to 0 when idle)
+5. **Secrets Manager** secret `linkage-engine/runtime` with `DB_URL`, `DB_USER`, `DB_PASSWORD`
+6. **IAM roles**
+   - `linkage-engine-execution-role` — ECR pull + CloudWatch logs + Secrets Manager read
+   - `linkage-engine-task-role` — Bedrock `InvokeModel` permissions
+7. **ECS cluster** `linkage-engine-cluster`
+8. **ALB** `linkage-engine-alb` + target group + HTTP listener (port 80)
+9. **ECS service** `linkage-engine-service` (1 task, Fargate, wired to ALB)
+10. **OIDC deploy role** `linkage-engine-github-deploy-role` for GitHub Actions
 
-**Do not** put `DB_URL`, `DB_USER`, or `DB_PASSWORD` in GitHub Secrets for the running service — store them in **Secrets Manager** and let ECS inject them at task start.
+At the end the script prints:
 
-1. Follow **`docs/SECRETS_MANAGER.md`** and `deploy/ecs/README.md`.
-2. Create the JSON secret (example: `linkage-engine/runtime`) using `deploy/secrets/runtime-secret.json.example` as a template.
-3. Grant the **ECS task execution role** permission to read that secret (`deploy/iam/ecs-execution-role-secrets-statement.json`).
+```
+  Next steps:
+  1. Add this GitHub repository secret:
+     AWS_DEPLOY_ROLE_ARN = arn:aws:iam::286103606369:role/linkage-engine-github-deploy-role
 
-## 4) Verify ECS task definition
+  2. Run the deploy workflow:
+     GitHub → Actions → deploy-ecr-ecs → Run workflow
 
-Edit `deploy/ecs/task-definition.json` as needed:
+  3. After first deploy, seed the database:
+     BASE_URL=http://<alb-dns> ./demo/seed-data.sh
 
-- Confirm `executionRoleArn` and `taskRoleArn` match your account.
-- Replace Secrets Manager `valueFrom` ARNs for `DB_URL`, `DB_USER`, `DB_PASSWORD` with your real ARNs + JSON keys (see `deploy/ecs/README.md`).
-- Adjust Bedrock `environment` entries as needed (non-secret model IDs / flags).
-- Optional: add plain `environment` entries for `LINKAGE_S3_BUCKET` and `LINKAGE_S3_PREFIX` when ingest runs in ECS (see `docs/DATA_PIPELINE_S3.md`).
+  4. Open the chord diagram:
+     http://<alb-dns>/chord-diagram.html
+```
 
-## 5) Deploy
+---
 
-- Push changes to your branch.
-- In GitHub Actions, run `deploy-ecr-ecs` via **Run workflow**.
-- The deploy job assumes **only** the IAM role in the **`AWS_DEPLOY_ROLE_ARN` repository secret**. It is **not** a workflow input (prevents privilege escalation).
-- The workflow will:
-  1. Build Docker image
-  2. Push image to ECR
-  3. Render task definition with pushed image tag
-  4. Update ECS service and wait for stability
+## Step 2 — Add GitHub repository secret
 
-## 6) Notes
+In your GitHub repository → **Settings → Secrets and variables → Actions → New repository secret**:
 
-- SQL retrieval remains in PostgreSQL (wherever `DB_URL` points).
-- Bedrock is used by the application for semantic summarization/embeddings, not as a database.
-- For ALB health checks, add a lightweight non-LLM endpoint (for example `/health`) to avoid calling Bedrock on every probe.
-- Raw data standard: `docs/DATA_PIPELINE_S3.md` (S3 landing → PostgreSQL; Bedrock does not replace the database).
+| Name | Value |
+| :--- | :--- |
+| `AWS_DEPLOY_ROLE_ARN` | ARN printed by the provision script |
+
+---
+
+## Step 3 — Deploy via GitHub Actions
+
+1. Push your branch (or use `main`).
+2. Go to **GitHub → Actions → deploy-ecr-ecs → Run workflow**.
+3. Accept the defaults (region `us-west-1`, repo `linkage-engine`, cluster `linkage-engine-cluster`, service `linkage-engine-service`) or override per run.
+
+The workflow:
+1. Assumes the OIDC role (no long-lived AWS keys in GitHub)
+2. Builds the Docker image and pushes to ECR
+3. Renders the task definition with the new image tag
+4. Registers the task definition and updates the ECS service
+5. Waits for service stability
+
+---
+
+## Step 4 — Verify
+
+```bash
+ALB=http://$(aws elbv2 describe-load-balancers \
+  --region us-west-1 --names linkage-engine-alb \
+  --query 'LoadBalancers[0].DNSName' --output text)
+
+# Health check
+curl "$ALB/actuator/health"
+
+# Flyway migration status
+curl "$ALB/actuator/flyway"
+
+# Ingest a test record
+curl -X POST "$ALB/v1/records" \
+  -H "Content-Type: application/json" \
+  -d '{"recordId":"SMOKE-001","givenName":"John","familyName":"Smith","eventYear":1850,"location":"Philadelphia"}'
+
+# Open the chord diagram
+open "$ALB/chord-diagram.html"
+```
+
+---
+
+## Subsequent deploys
+
+Just push to `main` and re-run the **deploy-ecr-ecs** workflow. No re-provisioning needed.
+
+To force a re-deploy without a code change (e.g. to pick up a new secret value):
+
+```bash
+aws ecs update-service \
+  --region us-west-1 \
+  --cluster linkage-engine-cluster \
+  --service linkage-engine-service \
+  --force-new-deployment
+```
+
+---
+
+## Tear down
+
+```bash
+# Stop the service
+aws ecs update-service --region us-west-1 \
+  --cluster linkage-engine-cluster --service linkage-engine-service --desired-count 0
+
+# Delete in reverse order of creation
+aws ecs delete-service --region us-west-1 \
+  --cluster linkage-engine-cluster --service linkage-engine-service --force
+aws ecs delete-cluster --region us-west-1 --cluster linkage-engine-cluster
+aws elbv2 delete-load-balancer --region us-west-1 \
+  --load-balancer-arn $(aws elbv2 describe-load-balancers \
+    --region us-west-1 --names linkage-engine-alb \
+    --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws rds delete-db-instance --region us-west-1 \
+  --db-instance-identifier linkage-engine-aurora-writer --skip-final-snapshot
+aws rds delete-db-cluster --region us-west-1 \
+  --db-cluster-identifier linkage-engine-aurora --skip-final-snapshot
+aws secretsmanager delete-secret --region us-west-1 \
+  --secret-id linkage-engine/runtime --force-delete-without-recovery
+```
+
+---
+
+## Notes
+
+- **Bedrock** is called via the IAM task role (default credential chain) — no API keys needed.
+- **Flyway** migrations run automatically on first ECS task start.
+- **ALB health check** hits `/actuator/health` — a lightweight Spring Boot endpoint that does not invoke Bedrock.
+- **Aurora cold start**: with `MinCapacity=0` the cluster pauses after ~5 min of inactivity; first connection after pause takes ~15 s. Acceptable for a portfolio/demo workload.
+- **HTTPS**: the ALB is HTTP-only. To add HTTPS, provision an ACM certificate and add an HTTPS listener (port 443) pointing to the same target group.
+- See `docs/AURORA_POSTGRESQL.md` for Aurora-specific details (pgvector, cost control, cluster pause).
+- See `docs/SECRETS_MANAGER.md` for Secrets Manager patterns and rotation.
