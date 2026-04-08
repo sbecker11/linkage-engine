@@ -233,18 +233,32 @@ echo "▶ 5/10  Secrets Manager  (${SECRET_NAME})"
 SECRET_EXISTS=$(aws secretsmanager describe-secret --region "$REGION" \
   --secret-id "$SECRET_NAME" --query 'Name' --output text 2>/dev/null || echo "not-found")
 
+# Sprint 9: generate a random API key if not already set
+INGEST_API_KEY_VAL=$(openssl rand -hex 32)
+
 if [ "$SECRET_EXISTS" = "not-found" ]; then
   aws_q aws secretsmanager create-secret \
     --region "$REGION" \
     --name "$SECRET_NAME" \
-    --description "linkage-engine runtime DB credentials" \
-    --secret-string "{\"DB_URL\":\"${DB_URL}\",\"DB_USER\":\"${DB_USER}\",\"DB_PASSWORD\":\"${DB_PASSWORD}\"}"
-  echo "  ✓ secret created"
+    --description "linkage-engine runtime credentials" \
+    --secret-string "{\"DB_URL\":\"${DB_URL}\",\"DB_USER\":\"${DB_USER}\",\"DB_PASSWORD\":\"${DB_PASSWORD}\",\"INGEST_API_KEY\":\"${INGEST_API_KEY_VAL}\"}"
+  echo "  ✓ secret created (includes INGEST_API_KEY)"
 else
-  echo "  ✓ secret exists — updating DB_URL"
+  echo "  ✓ secret exists — updating DB_URL; preserving existing INGEST_API_KEY if present"
   CURRENT=$(aws secretsmanager get-secret-value --region "$REGION" \
     --secret-id "$SECRET_NAME" --query SecretString --output text)
-  UPDATED=$(echo "$CURRENT" | jq --arg url "$DB_URL" '.DB_URL = $url')
+  # Preserve existing INGEST_API_KEY; only generate a new one if the field is absent
+  EXISTING_KEY=$(echo "$CURRENT" | jq -r '.INGEST_API_KEY // empty')
+  if [ -z "$EXISTING_KEY" ]; then
+    UPDATED=$(echo "$CURRENT" | jq \
+      --arg url "$DB_URL" \
+      --arg key "$INGEST_API_KEY_VAL" \
+      '.DB_URL = $url | .INGEST_API_KEY = $key')
+    echo "  ✓ INGEST_API_KEY added to secret"
+  else
+    UPDATED=$(echo "$CURRENT" | jq --arg url "$DB_URL" '.DB_URL = $url')
+    echo "  ✓ INGEST_API_KEY already present — not rotated"
+  fi
   aws_q aws secretsmanager put-secret-value --region "$REGION" \
     --secret-id "$SECRET_NAME" --secret-string "$UPDATED"
 fi
@@ -390,6 +404,121 @@ ALB_DNS=$(aws elbv2 describe-load-balancers --region "$REGION" \
   --query 'LoadBalancers[0].DNSName' --output text)
 detail "DNS: ${ALB_DNS}"
 
+# ── Sprint 9 — HTTPS listener (ACM cert) ──────────────────────────────────────
+# ACM certificate must be requested and validated before the HTTPS listener can
+# be created. This step requests the cert (DNS validation) and creates the
+# listener if the cert is already ISSUED. If the cert is still PENDING_VALIDATION
+# the listener creation is skipped with a warning — re-run provision-aws.sh after
+# adding the CNAME record that ACM prints to your DNS provider.
+#
+# To use HTTPS, set DOMAIN_NAME before running:
+#   DOMAIN_NAME=linkage.example.com ./deploy/provision-aws.sh
+echo ""
+echo "▶  Sprint 9 — HTTPS / ACM / WAF"
+
+DOMAIN_NAME="${DOMAIN_NAME:-}"
+if [ -n "$DOMAIN_NAME" ]; then
+  # Request or find existing ACM certificate
+  CERT_ARN=$(aws acm list-certificates --region "$REGION" \
+    --query "CertificateSummaryList[?DomainName=='${DOMAIN_NAME}'].CertificateArn | [0]" \
+    --output text 2>/dev/null || echo "")
+  if [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ]; then
+    CERT_ARN=$(aws acm request-certificate \
+      --region "$REGION" \
+      --domain-name "$DOMAIN_NAME" \
+      --validation-method DNS \
+      --query CertificateArn --output text)
+    echo "  ✓ ACM certificate requested for ${DOMAIN_NAME}: ${CERT_ARN}"
+    echo "  ⚠  Add the DNS CNAME record shown in ACM console, then re-run to create HTTPS listener."
+  else
+    echo "  ✓ ACM certificate exists: ${CERT_ARN}"
+  fi
+
+  # Create HTTPS listener only if cert is ISSUED
+  CERT_STATUS=$(aws acm describe-certificate --region "$REGION" \
+    --certificate-arn "$CERT_ARN" \
+    --query 'Certificate.Status' --output text 2>/dev/null || echo "UNKNOWN")
+  if [ "$CERT_STATUS" = "ISSUED" ]; then
+    HTTPS_LISTENER=$(aws elbv2 describe-listeners --region "$REGION" \
+      --load-balancer-arn "$ALB_ARN" \
+      --query 'Listeners[?Port==`443`].ListenerArn' --output text 2>/dev/null || echo "")
+    if [ -z "$HTTPS_LISTENER" ]; then
+      # Add port 443 to ALB security group
+      aws ec2 authorize-security-group-ingress --region "$REGION" \
+        --group-id "$ALB_SG_ID" --protocol tcp --port 443 --cidr 0.0.0.0/0 2>/dev/null || true
+      aws_q aws elbv2 create-listener --region "$REGION" \
+        --load-balancer-arn "$ALB_ARN" \
+        --protocol HTTPS --port 443 \
+        --certificates "CertificateArn=${CERT_ARN}" \
+        --ssl-policy ELBSecurityPolicy-TLS13-1-2-2021-06 \
+        --default-actions "Type=forward,TargetGroupArn=${TG_ARN}"
+      echo "  ✓ HTTPS listener created (:443 → target group)"
+    else
+      echo "  ✓ HTTPS listener exists"
+    fi
+  else
+    echo "  ⚠  Certificate status: ${CERT_STATUS} — HTTPS listener not created yet"
+  fi
+else
+  echo "  ℹ  DOMAIN_NAME not set — skipping ACM/HTTPS (HTTP only)"
+fi
+
+# WAF WebACL with rate-based rule (100 requests per 5-minute window per IP)
+WAF_ACL_NAME="${APP}-rate-limit"
+WAF_ACL_ARN=$(aws wafv2 list-web-acls --region "$REGION" --scope REGIONAL \
+  --query "WebACLs[?Name=='${WAF_ACL_NAME}'].ARN | [0]" \
+  --output text 2>/dev/null || echo "")
+if [ -z "$WAF_ACL_ARN" ] || [ "$WAF_ACL_ARN" = "None" ]; then
+  WAF_ACL_ARN=$(aws wafv2 create-web-acl --region "$REGION" \
+    --name "$WAF_ACL_NAME" \
+    --scope REGIONAL \
+    --default-action Allow={} \
+    --visibility-config \
+      SampledRequestsEnabled=true,CloudWatchMetricsEnabled=true,MetricName="${APP}-waf" \
+    --rules '[{
+      "Name": "RateLimitPerIP",
+      "Priority": 1,
+      "Action": {"Block": {}},
+      "VisibilityConfig": {
+        "SampledRequestsEnabled": true,
+        "CloudWatchMetricsEnabled": true,
+        "MetricName": "RateLimitPerIP"
+      },
+      "Statement": {
+        "RateBasedStatement": {
+          "Limit": 500,
+          "EvaluationWindowSec": 300,
+          "AggregateKeyType": "IP"
+        }
+      }
+    }]' \
+    --query 'Summary.ARN' --output text 2>/dev/null || echo "")
+  if [ -n "$WAF_ACL_ARN" ] && [ "$WAF_ACL_ARN" != "None" ]; then
+    echo "  ✓ WAF WebACL created: ${WAF_ACL_NAME} (500 req/5min per IP)"
+  else
+    echo "  ⚠  WAF WebACL creation failed — check IAM permissions for wafv2:CreateWebACL"
+    WAF_ACL_ARN=""
+  fi
+else
+  echo "  ✓ WAF WebACL exists: ${WAF_ACL_NAME}"
+fi
+
+# Associate WAF WebACL with the ALB
+if [ -n "$WAF_ACL_ARN" ] && [ "$WAF_ACL_ARN" != "None" ]; then
+  ASSOC=$(aws wafv2 get-web-acl-for-resource --region "$REGION" \
+    --resource-arn "$ALB_ARN" \
+    --query 'WebACL.ARN' --output text 2>/dev/null || echo "")
+  if [ -z "$ASSOC" ] || [ "$ASSOC" = "None" ]; then
+    aws_q aws wafv2 associate-web-acl --region "$REGION" \
+      --web-acl-arn "$WAF_ACL_ARN" \
+      --resource-arn "$ALB_ARN" 2>/dev/null || \
+      echo "  ⚠  WAF association failed — associate manually in console"
+    echo "  ✓ WAF WebACL associated with ALB"
+  else
+    echo "  ✓ WAF WebACL already associated"
+  fi
+fi
+
 # ── 9. ECS task definition ────────────────────────────────────────────────────
 echo ""
 echo "▶ 9/10  ECS task definition  (family: ${TASK_FAMILY})"
@@ -419,9 +548,10 @@ cat > /tmp/task-def-rendered.json <<EOF
         { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" }
       ],
       "secrets": [
-        { "name": "DB_URL",      "valueFrom": "${SECRET_ARN}:DB_URL::" },
-        { "name": "DB_USER",     "valueFrom": "${SECRET_ARN}:DB_USER::" },
-        { "name": "DB_PASSWORD", "valueFrom": "${SECRET_ARN}:DB_PASSWORD::" }
+        { "name": "DB_URL",          "valueFrom": "${SECRET_ARN}:DB_URL::" },
+        { "name": "DB_USER",         "valueFrom": "${SECRET_ARN}:DB_USER::" },
+        { "name": "DB_PASSWORD",     "valueFrom": "${SECRET_ARN}:DB_PASSWORD::" },
+        { "name": "INGEST_API_KEY",  "valueFrom": "${SECRET_ARN}:INGEST_API_KEY::" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

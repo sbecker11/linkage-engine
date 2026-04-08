@@ -7,6 +7,7 @@ linkage-engine /v1/records API via the internal ALB.
 
 Environment variables (set by deploy/provision-lambda.sh):
     LINKAGE_API_URL   — ALB base URL, e.g. http://linkage-engine-alb-xxx.us-west-1.elb.amazonaws.com
+    INGEST_API_KEY    — value of X-Api-Key header required by POST /v1/records (Sprint 9)
     BATCH_SIZE        — records per batch pause (default: 50)
     DRY_RUN           — set to "true" to parse without POSTing (default: false)
 
@@ -34,10 +35,11 @@ logger.setLevel(logging.INFO)
 s3  = boto3.client("s3")
 sqs = boto3.client("sqs")
 
-API_URL    = os.environ.get("LINKAGE_API_URL", "").rstrip("/")
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "50"))
-DRY_RUN    = os.environ.get("DRY_RUN", "false").lower() == "true"
-DLQ_URL    = os.environ.get("DLQ_URL", "")
+API_URL        = os.environ.get("LINKAGE_API_URL", "").rstrip("/")
+INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
+BATCH_SIZE     = int(os.environ.get("BATCH_SIZE", "50"))
+DRY_RUN        = os.environ.get("DRY_RUN", "false").lower() == "true"
+DLQ_URL        = os.environ.get("DLQ_URL", "")
 
 INGEST_ENDPOINT  = f"{API_URL}/v1/records"
 HEALTH_ENDPOINT  = f"{API_URL}/v1/ingest/health"
@@ -69,10 +71,13 @@ def check_api_health() -> str:
 def post_record(record: dict) -> tuple[int, str]:
     """POST a single record to /v1/records. Returns (status_code, body)."""
     payload = json.dumps(record).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if INGEST_API_KEY:
+        headers["X-Api-Key"] = INGEST_API_KEY
     req = urllib.request.Request(
         INGEST_ENDPOINT,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

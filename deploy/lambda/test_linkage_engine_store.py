@@ -5,6 +5,7 @@ Sprint 2  — Lambda Idempotency and Retry
 Sprint 3  — Provenance field stripping on quarantine replay
 Sprint 3c — Quarantine manifest updated after replay
 Sprint 5  — Pre-flight health check: abort ingest when API health is degraded
+Sprint 9  — API key header sent with every POST /v1/records request
 
 Tests that simulate, detect, and verify fixes for:
   - Double S3 invocation producing duplicate DB writes
@@ -46,10 +47,12 @@ LAMBDA_PATH = Path(__file__).parent / "linkage-engine-store.py"
 
 
 def load_lambda(api_url="http://test-alb", dry_run="false",
-                fake_boto3=None, fake_s3=None, fake_sqs=None):
+                fake_boto3=None, fake_s3=None, fake_sqs=None,
+                extra_env: dict | None = None):
     """
     Import linkage-engine-store.py in isolation with controlled env vars and boto3 stub.
     Returns (module, fake_s3_client, fake_sqs_client).
+    extra_env: additional env vars to merge (e.g. {"INGEST_API_KEY": "..."}).
     """
     if fake_boto3 is None:
         fake_boto3, fake_s3, fake_sqs = _make_fake_boto3()
@@ -58,7 +61,10 @@ def load_lambda(api_url="http://test-alb", dry_run="false",
         "LINKAGE_API_URL": api_url,
         "DRY_RUN": dry_run,
         "BATCH_SIZE": "50",
+        "INGEST_API_KEY": "",
     }
+    if extra_env:
+        env_patch.update(extra_env)
 
     # Each load gets a fresh module object so state doesn't bleed between tests
     with patch.dict("os.environ", env_patch, clear=False), \
@@ -567,3 +573,94 @@ class TestPreflightHealthCheck:
             "s3.get_object was NOT called when health check threw an exception.\n"
             "Fix: wrap check_api_health() in try/except; on error, log and proceed."
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 9 — API key authentication
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestApiKeyHeader:
+    """
+    Verify that linkage-engine-store sends X-Api-Key on every POST /v1/records
+    request when INGEST_API_KEY is configured.
+    """
+
+    def test_api_key_sent_when_configured(self):
+        """
+        SIMULATE: INGEST_API_KEY is set in the Lambda environment but the
+                  post_record function does not include it in the request headers.
+        DETECT:   POST /v1/records reaches the Spring Boot API without the header
+                  and is rejected with 401.
+        MITIGATE: post_record() reads INGEST_API_KEY and adds X-Api-Key header.
+        VERIFY:   post_record() is called with a record dict AND the module-level
+                  INGEST_API_KEY is set; inspect the Request built inside post_record
+                  by patching post_record itself and verifying the header directly.
+        """
+        mod, fake_s3, _ = load_lambda(
+            api_url="http://test-alb",
+            extra_env={"INGEST_API_KEY": "secret-test-key"},
+        )
+
+        # Capture the urllib.request.Request objects built by post_record
+        built_requests = []
+        original_request_cls = mod.urllib.request.Request
+
+        def capturing_request(url, data=None, headers=None, method=None):
+            req = original_request_cls(url, data=data, headers=headers or {}, method=method)
+            built_requests.append(req)
+            return req
+
+        with patch.object(mod.urllib.request, "Request", side_effect=capturing_request), \
+             patch.object(mod.urllib.request, "urlopen",
+                          return_value=MagicMock(
+                              __enter__=lambda s: MagicMock(status=204, read=lambda: b""),
+                              __exit__=MagicMock(return_value=False))), \
+             patch.object(mod, "check_api_health", return_value="ok"):
+            fake_s3.get_object.return_value = _ndjson_body(SAMPLE_RECORD)
+            mod.handler(_s3_event(key="validated/test.ndjson"), None)
+
+        post_reqs = [r for r in built_requests
+                     if r.get_method() == "POST"]
+        assert post_reqs, (
+            "No POST Request objects were built — check post_record() creates a Request"
+        )
+        for req in post_reqs:
+            assert req.get_header("X-api-key") == "secret-test-key", (
+                "POST /v1/records request is missing X-Api-Key header.\n"
+                f"Headers present: {dict(req.headers)}\n"
+                "Fix: add 'X-Api-Key': INGEST_API_KEY to headers in post_record()."
+            )
+
+    def test_no_api_key_header_when_key_blank(self):
+        """
+        VERIFY: when INGEST_API_KEY is blank (local dev), no X-Api-Key header
+                is added — the filter is disabled and requests pass through.
+        """
+        mod, fake_s3, _ = load_lambda(
+            api_url="http://test-alb",
+            extra_env={"INGEST_API_KEY": ""},
+        )
+
+        built_requests = []
+        original_request_cls = mod.urllib.request.Request
+
+        def capturing_request(url, data=None, headers=None, method=None):
+            req = original_request_cls(url, data=data, headers=headers or {}, method=method)
+            built_requests.append(req)
+            return req
+
+        with patch.object(mod.urllib.request, "Request", side_effect=capturing_request), \
+             patch.object(mod.urllib.request, "urlopen",
+                          return_value=MagicMock(
+                              __enter__=lambda s: MagicMock(status=204, read=lambda: b""),
+                              __exit__=MagicMock(return_value=False))), \
+             patch.object(mod, "check_api_health", return_value="ok"):
+            fake_s3.get_object.return_value = _ndjson_body(SAMPLE_RECORD)
+            mod.handler(_s3_event(key="validated/test.ndjson"), None)
+
+        post_reqs = [r for r in built_requests if r.get_method() == "POST"]
+        for req in post_reqs:
+            assert req.get_header("X-api-key") is None, (
+                "X-Api-Key header was sent even though INGEST_API_KEY is blank.\n"
+                "Fix: only add the header when INGEST_API_KEY is non-empty."
+            )

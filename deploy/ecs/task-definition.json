@@ -23,9 +23,10 @@
         { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" }
       ],
       "secrets": [
-        { "name": "DB_URL",      "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_URL::" },
-        { "name": "DB_USER",     "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_USER::" },
-        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_PASSWORD::" }
+        { "name": "DB_URL",         "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_URL::" },
+        { "name": "DB_USER",        "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_USER::" },
+        { "name": "DB_PASSWORD",    "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_PASSWORD::" },
+        { "name": "INGEST_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:INGEST_API_KEY::" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

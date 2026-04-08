@@ -343,7 +343,19 @@ FUNC_EXISTS=$(aws lambda get-function --region "$REGION" \
   --function-name "$FUNCTION_NAME" \
   --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "not-found")
 
-ENV_VARS="Variables={LINKAGE_API_URL=${LINKAGE_API_URL},BATCH_SIZE=50,DRY_RUN=false}"
+# Sprint 9: read INGEST_API_KEY from Secrets Manager at provision time so the
+# Lambda can authenticate against POST /v1/records.
+INGEST_API_KEY_SECRET=$(aws secretsmanager get-secret-value \
+  --region "$REGION" \
+  --secret-id "${APP}/runtime" \
+  --query SecretString --output text 2>/dev/null | \
+  python3 -c "import sys,json; print(json.load(sys.stdin).get('INGEST_API_KEY',''))" 2>/dev/null || echo "")
+if [ -z "$INGEST_API_KEY_SECRET" ]; then
+  echo "  ⚠  INGEST_API_KEY not found in Secrets Manager — store Lambda will send unauthenticated requests"
+  echo "     Run provision-aws.sh first to generate the key, then re-run provision-lambda.sh"
+fi
+
+ENV_VARS="Variables={LINKAGE_API_URL=${LINKAGE_API_URL},INGEST_API_KEY=${INGEST_API_KEY_SECRET},BATCH_SIZE=50,DRY_RUN=false}"
 
 if [ "$FUNC_EXISTS" = "not-found" ]; then
   aws_q aws lambda create-function \

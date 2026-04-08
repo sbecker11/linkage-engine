@@ -583,12 +583,19 @@ and rate-limit the ingest API.
 - `GET /chord-diagram.html` remains publicly accessible (no auth required)
 
 **Tasks:**
-- [ ] Provision ACM certificate + HTTPS listener in `deploy/provision-aws.sh`
-- [ ] Add API key header validation to `RecordIngestController` (Spring Security or simple filter)
-- [ ] Store API key in Secrets Manager; inject via ECS task definition
-- [ ] ALB rate limiting rule (WAF or ALB request count condition)
-- [ ] `RecordIngestControllerTest::ingestReturns401WithoutApiKey`
-- [ ] `RecordIngestControllerTest::ingestReturns204WithValidApiKey`
+- [x] Provision ACM certificate + HTTPS listener in `deploy/provision-aws.sh` — requests cert via DNS validation when `DOMAIN_NAME` is set; creates HTTPS listener once cert is `ISSUED`; adds port 443 to ALB SG
+- [x] `ApiKeyFilter` (`OncePerRequestFilter`) — checks `X-Api-Key` header on `/v1/records`; returns 401 when missing or wrong; disabled (passes through) when `INGEST_API_KEY` env var is blank (local dev)
+- [x] `RecordIngestConfiguration` — registers `ApiKeyFilter` on `/v1/records` via `FilterRegistrationBean`; reads key from `${INGEST_API_KEY:}` env var
+- [x] `application.properties` — `ingest.api-key=${INGEST_API_KEY:}` binding
+- [x] Store API key in Secrets Manager — `provision-aws.sh` generates a random 32-byte hex key and stores it as `INGEST_API_KEY` field in the existing `linkage-engine/runtime` secret; preserves existing key on re-run
+- [x] ECS task definition — `INGEST_API_KEY` injected from Secrets Manager via `secretOptions` in both `provision-aws.sh` template and `deploy/ecs/task-definition.json`
+- [x] `linkage-engine-store` Lambda — reads `INGEST_API_KEY` env var and sends it as `X-Api-Key` header on every `POST /v1/records`; `provision-lambda.sh` reads key from Secrets Manager and sets it as Lambda env var
+- [x] WAF WebACL `linkage-engine-rate-limit` — rate-based rule: 500 requests per 5-minute window per IP → Block; associated with ALB; provisioned in `provision-aws.sh`
+- [x] `RecordIngestControllerTest::ingestReturns401WithoutApiKey` — missing header → 401, ingest port never called
+- [x] `RecordIngestControllerTest::ingestReturns401WithWrongApiKey` — wrong key → 401, ingest port never called
+- [x] `RecordIngestControllerTest::ingestReturns204WithValidApiKey` — correct key → 204, ingest port called
+- [x] `TestApiKeyHeader::test_api_key_sent_when_configured` — Lambda POST includes `X-Api-Key` header when key is set
+- [x] `TestApiKeyHeader::test_no_api_key_header_when_key_blank` — no header when key is blank
 
 ---
 
