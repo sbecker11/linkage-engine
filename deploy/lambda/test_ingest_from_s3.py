@@ -3,6 +3,7 @@ deploy/lambda/test_ingest_from_s3.py
 
 Sprint 2 — Lambda Idempotency and Retry
 Sprint 3 — Provenance field stripping on quarantine replay
+Sprint 3c — Quarantine manifest updated after replay
 
 Tests that simulate, detect, and verify fixes for:
   - Double S3 invocation producing duplicate DB writes
@@ -11,6 +12,7 @@ Tests that simulate, detect, and verify fixes for:
   - DLQ message missing context (bucket/key/line/recordId)
   - Provenance fields (_sourceKey, _sourceLine, _batchId, _reasons) in a
     quarantine file causing HTTP 400 when replayed through the ingest Lambda
+  - Quarantine .manifest not updated after replay (replayStatus stays "pending")
 
 Run:
     pytest deploy/lambda/test_ingest_from_s3.py -v
@@ -324,4 +326,160 @@ class TestProvenanceFieldStripping:
             f"POST body still contains provenance fields: {provenance_keys}\n"
             "Fix: filter out all underscore-prefixed keys before POSTing.\n"
             f"Full body sent: {json.dumps(posted_bodies[0], indent=2)}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 3c — Quarantine manifest updated after replay
+# ══════════════════════════════════════════════════════════════════════════════
+
+QUARANTINE_KEY = "quarantine/batch-20260406.ndjson"
+MANIFEST_KEY   = f"{QUARANTINE_KEY}.manifest"
+
+INITIAL_MANIFEST = {
+    "quarantineKey": QUARANTINE_KEY,
+    "sourceKey":     "landing/batch-20260406.ndjson",
+    "batchId":       "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d",
+    "quarantinedAt": "2026-04-06T14:23:00Z",
+    "lineCount":     1,
+    "reasons":       ["eventYear out of range"],
+    "replayStatus":  "pending",
+}
+
+QUARANTINE_RECORD = {
+    **SAMPLE_RECORD,
+    "_sourceKey":  "landing/batch-20260406.ndjson",
+    "_sourceLine": 7,
+    "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d",
+    "_reasons":    ["eventYear out of range"],
+}
+
+
+def _manifest_s3_body(manifest: dict):
+    """Return a fake S3 get_object response containing the manifest JSON."""
+    import io as _io
+    body = json.dumps(manifest).encode("utf-8")
+    return {"Body": _io.BytesIO(body)}
+
+
+class TestQuarantineManifestReplay:
+
+    def _setup_s3(self, fake_s3, manifest=None):
+        """Configure fake_s3 to serve the quarantine file and optionally a manifest."""
+        ndjson_response = _ndjson_body(QUARANTINE_RECORD)
+        if manifest is None:
+            manifest = INITIAL_MANIFEST
+
+        def get_object_side_effect(Bucket, Key):
+            if Key == MANIFEST_KEY:
+                return _manifest_s3_body(manifest)
+            return ndjson_response
+
+        fake_s3.get_object.side_effect = get_object_side_effect
+
+    def test_manifest_updated_after_successful_replay(self):
+        """
+        SIMULATE: a quarantine file with a companion .manifest (replayStatus="pending")
+                  is fed to the ingest Lambda and all records succeed (204).
+        DETECT:   after processing, the manifest is not updated — replayStatus stays
+                  "pending" and no replay entry is appended.
+        MITIGATE: when source key starts with quarantine/, read existing manifest,
+                  append replay entry, set replayStatus="replayed", write back.
+        VERIFY:   put_object is called with MANIFEST_KEY; parsed manifest has
+                  replayStatus="replayed" and replays[0].ok == 1.
+        """
+        mod, fake_s3, _ = load_lambda()
+        self._setup_s3(fake_s3)
+
+        with patch.object(mod, "post_record", return_value=(204, "")):
+            mod.process_object("test-bucket", QUARANTINE_KEY)
+
+        # Find the put_object call that wrote the manifest back
+        manifest_put = next(
+            (c for c in fake_s3.put_object.call_args_list
+             if c.kwargs.get("Key") == MANIFEST_KEY),
+            None,
+        )
+        assert manifest_put is not None, (
+            f"Expected put_object(Key='{MANIFEST_KEY}') after replay, but it was not called.\n"
+            "Fix: detect quarantine/ source key and write updated manifest after ingest."
+        )
+
+        body = manifest_put.kwargs.get("Body", b"")
+        if isinstance(body, bytes):
+            body = body.decode("utf-8")
+        updated = json.loads(body)
+
+        assert updated.get("replayStatus") == "replayed", (
+            f"Expected replayStatus='replayed' after full success, "
+            f"got '{updated.get('replayStatus')}'"
+        )
+        assert "replays" in updated and len(updated["replays"]) >= 1, (
+            "Expected at least one entry in 'replays' list after replay"
+        )
+        replay_entry = updated["replays"][-1]
+        assert replay_entry.get("ok") == 1, (
+            f"Expected replays[-1].ok=1, got {replay_entry.get('ok')}"
+        )
+        assert replay_entry.get("failed") == 0, (
+            f"Expected replays[-1].failed=0, got {replay_entry.get('failed')}"
+        )
+        assert "replayedAt" in replay_entry, (
+            "Expected 'replayedAt' timestamp in replay entry"
+        )
+
+    def test_manifest_status_partial_when_some_lines_fail(self):
+        """
+        SIMULATE: a quarantine file with 2 records is replayed; one succeeds (204),
+                  one fails (400 — not retryable).
+        DETECT:   manifest replayStatus is set to "replayed" even though one line failed.
+        MITIGATE: set replayStatus="partial" when failed > 0 after replay.
+        VERIFY:   updated manifest has replayStatus="partial" and replays[-1].failed==1.
+        """
+        two_record_manifest = dict(INITIAL_MANIFEST, lineCount=2)
+        record2 = dict(QUARANTINE_RECORD, recordId="SYN-20260406-s0-00002")
+
+        mod, fake_s3, _ = load_lambda()
+
+        ndjson_response = _ndjson_body(QUARANTINE_RECORD, record2)
+        import io as _io
+
+        def get_object_side_effect(Bucket, Key):
+            if Key == MANIFEST_KEY:
+                return _manifest_s3_body(two_record_manifest)
+            return ndjson_response
+
+        fake_s3.get_object.side_effect = get_object_side_effect
+
+        call_count = {"n": 0}
+
+        def mixed_post(record):
+            call_count["n"] += 1
+            return (204, "") if call_count["n"] == 1 else (400, "Bad Request")
+
+        with patch.object(mod, "post_record", side_effect=mixed_post):
+            mod.process_object("test-bucket", QUARANTINE_KEY)
+
+        manifest_put = next(
+            (c for c in fake_s3.put_object.call_args_list
+             if c.kwargs.get("Key") == MANIFEST_KEY),
+            None,
+        )
+        assert manifest_put is not None, (
+            f"Expected put_object(Key='{MANIFEST_KEY}') after partial replay."
+        )
+
+        body = manifest_put.kwargs.get("Body", b"")
+        if isinstance(body, bytes):
+            body = body.decode("utf-8")
+        updated = json.loads(body)
+
+        assert updated.get("replayStatus") == "partial", (
+            f"Expected replayStatus='partial' when some lines fail, "
+            f"got '{updated.get('replayStatus')}'\n"
+            "Fix: set replayStatus='partial' when failed > 0."
+        )
+        replay_entry = updated["replays"][-1]
+        assert replay_entry.get("failed") == 1, (
+            f"Expected replays[-1].failed=1, got {replay_entry.get('failed')}"
         )

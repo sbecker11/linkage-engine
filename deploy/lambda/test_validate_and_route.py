@@ -19,6 +19,12 @@ Sprint 3b — Output Provenance
     _sourceLine — 1-based line number in the source file
     _batchId    — UUID generated once per Lambda invocation (detects replays)
 
+Sprint 3c — Quarantine Manifest
+  When any lines are quarantined, a companion .manifest file is written to
+  quarantine/<key>.manifest containing the lifecycle record for that file:
+    quarantineKey, sourceKey, batchId, quarantinedAt, lineCount, reasons,
+    replayStatus ("pending" until the ingest Lambda updates it)
+
 Run:
     pytest deploy/lambda/test_validate_and_route.py -v
 """
@@ -492,9 +498,13 @@ class TestOutputProvenance:
 
         mod.process_object(BUCKET, LANDING_KEY)
 
-        put_calls = fake_s3.put_object.call_args_list
+        # Filter out the manifest write — only inspect data files
+        put_calls = [
+            c for c in fake_s3.put_object.call_args_list
+            if not str(c.kwargs.get("Key", "")).endswith(".manifest")
+        ]
         assert len(put_calls) == 2, \
-            f"Expected 2 put_object calls (validated + quarantine), got {len(put_calls)}"
+            f"Expected 2 data put_object calls (validated + quarantine), got {len(put_calls)}"
 
         batch_ids = set()
         for c in put_calls:
@@ -509,4 +519,121 @@ class TestOutputProvenance:
         assert len(batch_ids) == 1, (
             f"Expected all output lines to share one _batchId, got {batch_ids}\n"
             "Fix: generate uuid.uuid4() once per process_object call, not per line"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 3c — Quarantine Manifest
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_manifest_put_call(fake_s3):
+    """Return the put_object call that wrote the .manifest file, or None."""
+    return next(
+        (c for c in fake_s3.put_object.call_args_list
+         if str(c.kwargs.get("Key", "")).endswith(".manifest")),
+        None,
+    )
+
+
+def _parse_manifest(call):
+    """Parse the JSON body from a put_object call."""
+    body = call.kwargs.get("Body", b"")
+    if isinstance(body, bytes):
+        body = body.decode("utf-8")
+    return json.loads(body)
+
+
+class TestQuarantineManifestCreation:
+
+    def test_manifest_written_alongside_quarantine_file(self):
+        """
+        SIMULATE: a file with one bad record is processed — one line goes to quarantine.
+        DETECT:   no .manifest file is written next to the quarantine file.
+        MITIGATE: after writing quarantine lines, write <quarantine-key>.manifest.
+        VERIFY:   put_object is called with a Key ending in '.manifest' under quarantine/.
+        """
+        mod, fake_s3 = load_lambda()
+        bad = {k: v for k, v in GOOD_RECORD.items() if k != "familyName"}
+        fake_s3.get_object.return_value = _s3_body(_ndjson(bad))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        manifest_call = _get_manifest_put_call(fake_s3)
+        assert manifest_call is not None, (
+            "No put_object call with a .manifest key was found.\n"
+            "Fix: after writing quarantine lines, call s3.put_object with "
+            "Key=f'{quarantine_key}.manifest' and the manifest JSON as Body."
+        )
+        manifest_key = manifest_call.kwargs.get("Key", "")
+        assert manifest_key.startswith("quarantine/"), (
+            f"Manifest key should be under quarantine/, got: {manifest_key}"
+        )
+        assert manifest_key.endswith(".manifest"), (
+            f"Manifest key should end with .manifest, got: {manifest_key}"
+        )
+
+    def test_manifest_contains_required_fields(self):
+        """
+        SIMULATE: a file with one bad record is quarantined.
+        DETECT:   the .manifest JSON is missing required lifecycle fields.
+        MITIGATE: write a manifest with quarantineKey, sourceKey, batchId,
+                  quarantinedAt, lineCount, reasons, replayStatus.
+        VERIFY:   all required fields are present and replayStatus is "pending".
+        """
+        mod, fake_s3 = load_lambda()
+        bad = {k: v for k, v in GOOD_RECORD.items() if k != "familyName"}
+        fake_s3.get_object.return_value = _s3_body(_ndjson(bad))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        manifest_call = _get_manifest_put_call(fake_s3)
+        assert manifest_call is not None, (
+            "No .manifest written — implement manifest creation first."
+        )
+        manifest = _parse_manifest(manifest_call)
+
+        required = ["quarantineKey", "sourceKey", "batchId",
+                    "quarantinedAt", "lineCount", "reasons", "replayStatus"]
+        missing = [f for f in required if f not in manifest]
+        assert not missing, (
+            f"Manifest is missing required fields: {missing}\n"
+            f"Actual manifest: {json.dumps(manifest, indent=2)}"
+        )
+        assert manifest["replayStatus"] == "pending", (
+            f"Expected replayStatus='pending' on initial write, "
+            f"got '{manifest['replayStatus']}'"
+        )
+        assert manifest["sourceKey"] == LANDING_KEY, (
+            f"sourceKey should be '{LANDING_KEY}', got '{manifest['sourceKey']}'"
+        )
+        assert manifest["quarantineKey"].startswith("quarantine/"), (
+            f"quarantineKey should start with 'quarantine/', "
+            f"got '{manifest['quarantineKey']}'"
+        )
+
+    def test_manifest_line_count_matches_quarantine_output(self):
+        """
+        SIMULATE: a file with 2 bad records and 1 good record is processed.
+        DETECT:   manifest lineCount does not match the number of quarantined lines.
+        MITIGATE: count quarantined lines and write that count to the manifest.
+        VERIFY:   manifest lineCount == 2 (the number of quarantined lines).
+        """
+        mod, fake_s3 = load_lambda()
+        bad1 = {k: v for k, v in GOOD_RECORD.items() if k != "familyName"}
+        bad2 = dict(GOOD_RECORD, recordId="SYN-20260406-s0-00002", eventYear=2099)
+        good = dict(GOOD_RECORD, recordId="SYN-20260406-s0-00003")
+        fake_s3.get_object.return_value = _s3_body(_ndjson(bad1, bad2, good))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        manifest_call = _get_manifest_put_call(fake_s3)
+        assert manifest_call is not None, (
+            "No .manifest written — implement manifest creation first."
+        )
+        manifest = _parse_manifest(manifest_call)
+
+        assert manifest.get("lineCount") == 2, (
+            f"Expected lineCount=2 (two quarantined lines), "
+            f"got lineCount={manifest.get('lineCount')}\n"
+            "Fix: set lineCount to the number of lines written to the quarantine file."
         )

@@ -31,6 +31,7 @@ import os
 import re
 import urllib.parse
 import uuid
+from datetime import datetime, timezone
 
 import boto3
 
@@ -256,13 +257,43 @@ def process_object(bucket: str, key: str) -> dict:
                       Body=v_body.encode("utf-8"),
                       ContentType="application/x-ndjson")
 
-    # Write quarantine lines
+    # Write quarantine lines and companion manifest
     if quarantine_lines:
         q_key  = _dest_key(QUARANTINE_PREFIX, key)
         q_body = "\n".join(quarantine_lines) + "\n"
         s3.put_object(Bucket=bucket, Key=q_key,
                       Body=q_body.encode("utf-8"),
                       ContentType="application/x-ndjson")
+
+        # Collect deduplicated reasons across all quarantined lines
+        all_reasons = []
+        seen_reasons = set()
+        for line in quarantine_lines:
+            try:
+                rec = json.loads(line)
+                for r in rec.get("_reasons", []):
+                    if r not in seen_reasons:
+                        all_reasons.append(r)
+                        seen_reasons.add(r)
+                single = rec.get("_reason")
+                if single and single not in seen_reasons:
+                    all_reasons.append(single)
+                    seen_reasons.add(single)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        manifest = {
+            "quarantineKey": q_key,
+            "sourceKey":     key,
+            "batchId":       batch_id,
+            "quarantinedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "lineCount":     len(quarantine_lines),
+            "reasons":       all_reasons,
+            "replayStatus":  "pending",
+        }
+        s3.put_object(Bucket=bucket, Key=f"{q_key}.manifest",
+                      Body=json.dumps(manifest, indent=2).encode("utf-8"),
+                      ContentType="application/json")
 
     # Structured log line for CloudWatch metric filters
     logger.info(

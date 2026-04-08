@@ -24,6 +24,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 import boto3
 
@@ -126,6 +127,44 @@ def _send_to_dlq(bucket: str, key: str, line_no: int, record: dict,
         logger.error("  Failed to send to DLQ: %s", e)
 
 
+def _update_quarantine_manifest(bucket: str, key: str, result: dict) -> None:
+    """
+    If key starts with quarantine/, read the companion .manifest file (if present),
+    append a replay entry, update replayStatus, and write it back.
+    replayStatus: "replayed" if failed==0, else "partial".
+    """
+    manifest_key = f"{key}.manifest"
+    try:
+        try:
+            resp = s3.get_object(Bucket=bucket, Key=manifest_key)
+            manifest = json.loads(resp["Body"].read().decode("utf-8"))
+        except s3.exceptions.NoSuchKey:
+            manifest = {"quarantineKey": key, "replayStatus": "pending", "replays": []}
+        except Exception:
+            manifest = {"quarantineKey": key, "replayStatus": "pending", "replays": []}
+
+        replay_entry = {
+            "replayedAt":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "replayBatchId": str(__import__("uuid").uuid4()),
+            "ok":            result["ok"],
+            "failed":        result["failed"],
+            "errors":        result.get("errors", [])[:10],
+        }
+        manifest.setdefault("replays", []).append(replay_entry)
+        manifest["replayStatus"] = "replayed" if result["failed"] == 0 else "partial"
+
+        s3.put_object(
+            Bucket=bucket,
+            Key=manifest_key,
+            Body=json.dumps(manifest, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        logger.info("  manifest updated: %s → replayStatus=%s",
+                    manifest_key, manifest["replayStatus"])
+    except Exception as e:
+        logger.error("  Failed to update manifest %s: %s", manifest_key, e)
+
+
 def process_object(bucket: str, key: str) -> dict:
     """Download an NDJSON object from S3 and ingest each line."""
     logger.info("Processing s3://%s/%s", bucket, key)
@@ -194,6 +233,11 @@ def process_object(bucket: str, key: str) -> dict:
         "errors": errors[:20],  # cap error list in response
     }
     logger.info("  done: total=%d ok=%d skipped=%d failed=%d", total, ok, skipped, failed)
+
+    # Update companion manifest when replaying a quarantine file
+    if key.startswith("quarantine/"):
+        _update_quarantine_manifest(bucket, key, result)
+
     return result
 
 

@@ -153,6 +153,7 @@ This means:
 - Mid-file Lambda crash leaving no audit trail of rejected records
 - Replay of the same S3 event producing undetectable duplicate ingestion
 - **Provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`) injected by the validator cause HTTP 400 when a quarantine file is replayed through the ingest Lambda** — `RecordIngestRequest` is a strict Java record; Spring Boot's Jackson deserialiser rejects unknown properties by default, so every line in a replayed quarantine file fails with 400 and is never inserted
+- Quarantine files accumulating silently with no record of whether they were ever reviewed or replayed (addressed in Sprint 3c)
 
 **Proof of success:**
 - `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (13 tests)
@@ -187,8 +188,9 @@ This means:
 
 *Ingest Lambda (`deploy/lambda/ingest-from-s3.py`):*
 - [x] Strip all underscore-prefixed provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`, `_reason`, `_raw`) from each record before POSTing — keeps the `/v1/records` API strict while making quarantine-file replay safe
+- [x] When source key starts with `quarantine/`, read existing `.manifest` (if present), append a replay entry, write updated manifest back to `<quarantine-key>.manifest`
 
-*Tests (`deploy/lambda/test_validate_and_route.py`) — 13 tests:*
+*Tests (`deploy/lambda/test_validate_and_route.py`) — 16 tests:*
 - [x] `test_non_json_file_quarantined`
 - [x] `test_empty_file_quarantined`
 - [x] `test_valid_file_routed_to_validated`
@@ -202,9 +204,106 @@ This means:
 - [x] `test_validated_line_carries_provenance_fields`
 - [x] `test_quarantine_line_carries_provenance_fields`
 - [x] `test_batch_id_is_consistent_within_invocation`
+- [x] `test_manifest_written_alongside_quarantine_file` — `quarantine/<key>.manifest` created when any lines are quarantined
+- [x] `test_manifest_contains_required_fields` — manifest has `quarantineKey`, `sourceKey`, `batchId`, `quarantinedAt`, `lineCount`, `reasons`, `replayStatus: "pending"`
+- [x] `test_manifest_line_count_matches_quarantine_output` — `lineCount` equals the number of lines written to the quarantine file
 
-*Tests (`deploy/lambda/test_ingest_from_s3.py`) — 6 tests:*
+*Tests (`deploy/lambda/test_ingest_from_s3.py`) — 8 tests:*
 - [x] `test_quarantine_replay_strips_provenance_fields` — POST body must not contain any `_`-prefixed keys when ingesting a quarantine file
+- [x] `test_manifest_updated_after_successful_replay` — after full replay, manifest `replayStatus` is `"replayed"` and `replays[0]` contains `ok`, `failed`, `replayedAt`
+- [x] `test_manifest_status_partial_when_some_lines_fail` — if any lines fail, `replayStatus` is `"partial"`
+
+---
+
+## Sprint 3c — Quarantine Manifest
+
+**Objective:** Give every quarantine file a companion `.manifest` so operators
+can see at a glance what was rejected, why, and whether it has been replayed —
+without cross-referencing any other prefix or system.
+
+**Manifest location:**
+```
+quarantine/batch-20260406.ndjson           ← quarantine data (unchanged)
+quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
+```
+
+**Two-phase lifecycle:**
+
+*Phase 1 — written by `validate-and-route.py` at quarantine time:*
+```json
+{
+  "quarantineKey": "quarantine/batch-20260406.ndjson",
+  "sourceKey":     "landing/batch-20260406.ndjson",
+  "batchId":       "a3f7c2d1-…",
+  "quarantinedAt": "2026-04-06T14:23:00Z",
+  "lineCount":     7,
+  "reasons":       ["eventYear out of range", "missing required field: familyName"],
+  "replayStatus":  "pending"
+}
+```
+
+*Phase 2 — updated by `ingest-from-s3.py` when a `quarantine/` file is replayed:*
+```json
+{
+  "quarantineKey": "quarantine/batch-20260406.ndjson",
+  "sourceKey":     "landing/batch-20260406.ndjson",
+  "batchId":       "a3f7c2d1-…",
+  "quarantinedAt": "2026-04-06T14:23:00Z",
+  "lineCount":     7,
+  "reasons":       ["eventYear out of range", "missing required field: familyName"],
+  "replayStatus":  "replayed",
+  "replays": [
+    {
+      "replayedAt":    "2026-04-07T09:11:00Z",
+      "replayBatchId": "f9e2a1b3-…",
+      "ok":            6,
+      "failed":        1,
+      "errors": [{"line": 3, "recordId": "SYN-…-00003", "status": 400}]
+    }
+  ]
+}
+```
+
+**`replayStatus` values:**
+
+| Value | Meaning |
+|---|---|
+| `"pending"` | Quarantined, never replayed |
+| `"replayed"` | All lines ingested successfully on last replay |
+| `"partial"` | Last replay had at least one failed line — needs attention |
+
+**Threats addressed:**
+- Quarantine files accumulating silently with no record of whether they were ever reviewed or replayed
+- Operator replaying a file but having no way to confirm success without querying the database
+- Multiple replay attempts producing ambiguous state — `replays` array preserves full history
+
+**Proof of success:**
+- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (16 tests)
+- `pytest deploy/lambda/test_ingest_from_s3.py` passes with 0 failures (8 tests)
+- After validation, `quarantine/<key>.manifest` exists with `replayStatus: "pending"`
+- After successful replay, manifest `replayStatus` is `"replayed"` and `replays[0].ok` matches line count
+- After partial replay, manifest `replayStatus` is `"partial"`
+- `aws s3 ls s3://<bucket>/quarantine/ --recursive` shows both `.ndjson` and `.manifest` files side by side
+
+**Tasks:**
+
+*Validation Lambda (`deploy/lambda/validate-and-route.py`):*
+- [x] After writing quarantine lines, write `<quarantine-key>.manifest` with phase-1 fields
+- [x] `reasons` field = deduplicated list of all `_reasons` values seen across quarantined lines
+
+*Ingest Lambda (`deploy/lambda/ingest-from-s3.py`):*
+- [x] Detect when source key starts with `quarantine/`
+- [x] After processing, read existing `.manifest` (if present), append replay entry, write back
+- [x] Set `replayStatus` to `"replayed"` if `failed == 0`, else `"partial"`
+
+*Tests (`deploy/lambda/test_validate_and_route.py`):*
+- [x] `test_manifest_written_alongside_quarantine_file`
+- [x] `test_manifest_contains_required_fields`
+- [x] `test_manifest_line_count_matches_quarantine_output`
+
+*Tests (`deploy/lambda/test_ingest_from_s3.py`):*
+- [x] `test_manifest_updated_after_successful_replay`
+- [x] `test_manifest_status_partial_when_some_lines_fail`
 
 ---
 
