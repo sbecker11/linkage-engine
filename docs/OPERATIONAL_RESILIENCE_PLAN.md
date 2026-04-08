@@ -154,6 +154,7 @@ This means:
 - Replay of the same S3 event producing undetectable duplicate ingestion
 - **Provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`) injected by the validator cause HTTP 400 when a quarantine file is replayed through the ingest Lambda** — `RecordIngestRequest` is a strict Java record; Spring Boot's Jackson deserialiser rejects unknown properties by default, so every line in a replayed quarantine file fails with 400 and is never inserted
 - Quarantine files accumulating silently with no record of whether they were ever reviewed or replayed (addressed in Sprint 3c)
+- `linkage-engine-validate` Lambda timing out on oversized input files (addressed in Sprint 3d — `CHUNK_SIZE=200` enforced at upload time; `linkage-engine-ingestor` Lambda for external parties in Phase 3d-ii)
 
 **Proof of success:**
 - `pytest deploy/lambda/test_linkage_engine_validate.py` passes with 0 failures (13 tests)
