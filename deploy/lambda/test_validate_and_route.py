@@ -11,6 +11,14 @@ Tests that simulate, detect, and verify fixes for every validation rule:
   + PII redaction
   + CloudWatch metric emission
 
+Sprint 3b — Output Provenance
+  Every output line (validated or quarantine) must carry three provenance fields
+  so that any record can be traced back to its exact source line, even after a
+  mid-file Lambda crash and replay:
+    _sourceKey  — original S3 key in landing/  e.g. "landing/batch.ndjson"
+    _sourceLine — 1-based line number in the source file
+    _batchId    — UUID generated once per Lambda invocation (detects replays)
+
 Run:
     pytest deploy/lambda/test_validate_and_route.py -v
 """
@@ -380,4 +388,125 @@ class TestCloudWatchMetrics:
         )
         assert "quarantined=" in log_messages, (
             "Expected 'quarantined=' in log output for CloudWatch metric filter"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 3b — Output Provenance
+# Every output line must carry _sourceKey, _sourceLine, _batchId so that
+# validated and quarantine records can always be paired back to their origin,
+# and replayed invocations can be detected.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestOutputProvenance:
+
+    def test_validated_line_carries_provenance_fields(self):
+        """
+        SIMULATE: a clean record is written to validated/.
+        DETECT:   the written JSON line must contain _sourceKey, _sourceLine,
+                  and _batchId.
+        MITIGATE: inject provenance fields into every output line before writing.
+        """
+        mod, fake_s3 = load_lambda()
+        fake_s3.get_object.return_value = _s3_body(_ndjson(GOOD_RECORD))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        put_calls = fake_s3.put_object.call_args_list
+        assert put_calls, "Expected put_object call for validated line"
+
+        written_body = put_calls[0].kwargs.get("Body", b"")
+        if isinstance(written_body, bytes):
+            written_body = written_body.decode("utf-8")
+        written = json.loads(written_body.strip().splitlines()[0])
+
+        assert "_sourceKey"  in written, (
+            "validated line missing _sourceKey\n"
+            "Fix: add '_sourceKey': key to every output line"
+        )
+        assert "_sourceLine" in written, (
+            "validated line missing _sourceLine\n"
+            "Fix: add '_sourceLine': i (1-based) to every output line"
+        )
+        assert "_batchId"    in written, (
+            "validated line missing _batchId\n"
+            "Fix: generate uuid.uuid4() once per process_object call and embed in every line"
+        )
+        assert written["_sourceKey"]  == LANDING_KEY, \
+            f"_sourceKey mismatch: {written['_sourceKey']}"
+        assert written["_sourceLine"] == 1, \
+            f"_sourceLine should be 1 for first line, got {written['_sourceLine']}"
+
+    def test_quarantine_line_carries_provenance_fields(self):
+        """
+        SIMULATE: a bad record is written to quarantine/.
+        DETECT:   the quarantine JSON line must also contain _sourceKey,
+                  _sourceLine, and _batchId — same fields as validated.
+        MITIGATE: provenance injection is applied to both output streams.
+        """
+        mod, fake_s3 = load_lambda()
+        bad = {k: v for k, v in GOOD_RECORD.items() if k != "familyName"}
+        good = dict(GOOD_RECORD, recordId="SYN-20260406-s0-00002")
+        # line 1 = bad (quarantine), line 2 = good (validated)
+        fake_s3.get_object.return_value = _s3_body(_ndjson(bad, good))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        # quarantine is the second put_object call (validated written first)
+        put_calls = fake_s3.put_object.call_args_list
+        assert len(put_calls) >= 2, (
+            f"Expected 2 put_object calls (validated + quarantine), got {len(put_calls)}"
+        )
+
+        # find the quarantine call
+        q_call = next(
+            (c for c in put_calls if "quarantine/" in str(c.kwargs.get("Key", ""))),
+            None
+        )
+        assert q_call is not None, "No put_object call targeting quarantine/ prefix"
+
+        written_body = q_call.kwargs.get("Body", b"")
+        if isinstance(written_body, bytes):
+            written_body = written_body.decode("utf-8")
+        written = json.loads(written_body.strip().splitlines()[0])
+
+        assert "_sourceKey"  in written, "quarantine line missing _sourceKey"
+        assert "_sourceLine" in written, "quarantine line missing _sourceLine"
+        assert "_batchId"    in written, "quarantine line missing _batchId"
+        assert written["_sourceKey"]  == LANDING_KEY
+        assert written["_sourceLine"] == 1, \
+            f"bad record was line 1, got _sourceLine={written['_sourceLine']}"
+
+    def test_batch_id_is_consistent_within_invocation(self):
+        """
+        SIMULATE: a file with 2 good records and 1 bad record is processed.
+        DETECT:   all three output lines (2 validated + 1 quarantine) share the
+                  same _batchId — it is generated once per invocation, not per line.
+        MITIGATE: generate uuid once at the top of process_object and pass it through.
+        """
+        mod, fake_s3 = load_lambda()
+        bad = {k: v for k, v in GOOD_RECORD.items() if k != "familyName"}
+        good1 = dict(GOOD_RECORD, recordId="SYN-20260406-s0-00001")
+        good2 = dict(GOOD_RECORD, recordId="SYN-20260406-s0-00002")
+        fake_s3.get_object.return_value = _s3_body(_ndjson(good1, bad, good2))
+
+        mod.process_object(BUCKET, LANDING_KEY)
+
+        put_calls = fake_s3.put_object.call_args_list
+        assert len(put_calls) == 2, \
+            f"Expected 2 put_object calls (validated + quarantine), got {len(put_calls)}"
+
+        batch_ids = set()
+        for c in put_calls:
+            body = c.kwargs.get("Body", b"")
+            if isinstance(body, bytes):
+                body = body.decode("utf-8")
+            for line in body.strip().splitlines():
+                rec = json.loads(line)
+                assert "_batchId" in rec, f"Output line missing _batchId: {rec}"
+                batch_ids.add(rec["_batchId"])
+
+        assert len(batch_ids) == 1, (
+            f"Expected all output lines to share one _batchId, got {batch_ids}\n"
+            "Fix: generate uuid.uuid4() once per process_object call, not per line"
         )

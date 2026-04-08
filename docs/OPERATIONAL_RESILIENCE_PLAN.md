@@ -164,6 +164,81 @@ copy costs and simplifies IAM):
 
 ---
 
+## Sprint 3b — Output Provenance
+
+**Objective:** Guarantee that every output line written by `validate-and-route.py`
+— whether to `validated/` or `quarantine/` — carries enough context to be traced
+back to its exact source line in the original `landing/` file, even after a
+mid-file Lambda crash and replay.
+
+**Problem identified:** The original validator accumulated lines in memory and
+wrote two separate `put_object` calls at the end. If the Lambda crashed between
+the two writes, the quarantine file would be missing — no audit trail of what
+was rejected. Additionally, validated records had no back-reference to their
+source line, making it impossible to pair them with their quarantine counterparts
+without relying on `recordId` (which is absent for JSON parse failures).
+
+**Solution — three provenance fields injected into every output line:**
+
+| Field | Type | Value | Purpose |
+|---|---|---|---|
+| `_sourceKey` | string | `"landing/batch-20260406.ndjson"` | Identifies the source file in S3 |
+| `_sourceLine` | int | `12` | 1-based line number in the source file |
+| `_batchId` | UUID string | `"a3f7c2d1-…"` | Generated once per Lambda invocation; shared by all output lines from that run |
+
+**How this solves each gap:**
+
+- **Pairing validated ↔ quarantine:** Given any record in either output file, `_sourceKey` + `_sourceLine` uniquely identifies its origin. No dependency on `recordId`.
+- **Crash between writes:** S3 at-least-once delivery re-triggers the Lambda. The replay gets a new `_batchId`, so downstream systems can detect and deduplicate replayed records.
+- **JSON parse failures:** Even lines that fail to parse get a quarantine entry with `_sourceKey`, `_sourceLine`, `_batchId`, `_reason: "invalid JSON"`, and `_raw` (first 200 chars) — enough to locate and fix the source data.
+
+**Example output line (validated):**
+```json
+{
+  "recordId": "SYN-20260406-s0-00001",
+  "givenName": "William",
+  "familyName": "Harper",
+  "eventYear": 1850,
+  "location": "Boston",
+  "_sourceKey":  "landing/batch-20260406.ndjson",
+  "_sourceLine": 12,
+  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d"
+}
+```
+
+**Example output line (quarantine — validation failure):**
+```json
+{
+  "_reasons":   ["missing required field: familyName"],
+  "_sourceKey":  "landing/batch-20260406.ndjson",
+  "_sourceLine": 7,
+  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d",
+  "recordId":   "SYN-20260406-s0-00007",
+  "givenName":  "James",
+  "eventYear":  1860
+}
+```
+
+**Example output line (quarantine — JSON parse failure):**
+```json
+{
+  "_reason":    "invalid JSON",
+  "_raw":       "William Harper, age 30, farmer, born Massachusetts",
+  "_sourceKey":  "landing/batch-20260406.ndjson",
+  "_sourceLine": 3,
+  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d"
+}
+```
+
+**Tasks:**
+- [x] `test_validated_line_carries_provenance_fields` — assert `_sourceKey`, `_sourceLine`, `_batchId` present in validated output
+- [x] `test_quarantine_line_carries_provenance_fields` — same assertion for quarantine output
+- [x] `test_batch_id_is_consistent_within_invocation` — all output lines from one call share one `_batchId`
+- [x] Add `import uuid` and generate `batch_id = str(uuid.uuid4())` once per `process_object` call
+- [x] Inject `provenance = {"_sourceKey": key, "_sourceLine": i, "_batchId": batch_id}` into every output line
+
+---
+
 ## Sprint 4 — Embedding Gap Detection
 
 **Objective:** Detect records saved to `records` with no row in `record_embeddings`

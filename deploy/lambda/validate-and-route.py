@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import urllib.parse
+import uuid
 
 import boto3
 
@@ -199,14 +200,30 @@ def process_object(bucket: str, key: str) -> dict:
                 "quarantined_file": True, "reason": "no valid JSON lines"}
 
     # Per-line processing
+    # _batchId is generated once per invocation so that:
+    #   - all output lines from this run share the same ID
+    #   - a replay (Lambda re-invoked on the same S3 event) gets a different ID,
+    #     making duplicate processing detectable in downstream systems
+    batch_id = str(uuid.uuid4())
+
     validated_lines  = []
     quarantine_lines = []
 
     for i, line in enumerate(lines, 1):
+        # Provenance fields added to every output line — both validated and quarantine.
+        # This allows any record to be traced back to its exact source line even after
+        # a mid-file Lambda crash and replay, and lets operators pair the two output
+        # files without relying on recordId (which may be absent for parse failures).
+        provenance = {
+            "_sourceKey":  key,   # original landing/ S3 key
+            "_sourceLine": i,     # 1-based line number in the source file
+            "_batchId":    batch_id,
+        }
+
         record = _try_parse_json(line)
         if record is None:
             quarantine_lines.append(
-                json.dumps({"_line": i, "_reason": "invalid JSON", "_raw": line[:200]})
+                json.dumps({"_reason": "invalid JSON", "_raw": line[:200], **provenance})
             )
             continue
 
@@ -217,7 +234,7 @@ def process_object(bucket: str, key: str) -> dict:
         reasons = _validate_record(record)
         if reasons:
             quarantine_lines.append(
-                json.dumps({"_line": i, "_reasons": reasons, **record})
+                json.dumps({"_reasons": reasons, **provenance, **record})
             )
             continue
 
@@ -225,7 +242,7 @@ def process_object(bucket: str, key: str) -> dict:
         if "rawContent" in record and isinstance(record["rawContent"], str):
             record["rawContent"] = _redact_pii(record["rawContent"])
 
-        validated_lines.append(json.dumps(record))
+        validated_lines.append(json.dumps({**record, **provenance}))
 
     ingress    = len(lines)
     validated  = len(validated_lines)
