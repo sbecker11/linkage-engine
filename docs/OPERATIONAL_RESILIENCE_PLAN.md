@@ -130,37 +130,37 @@ copy costs and simplifies IAM):
 **Tasks:**
 
 *Bucket / infrastructure:*
-- [ ] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh` — Validator Lambda needs `s3:PutObject` on both; ingest Lambda needs `s3:GetObject` on `validated/` only
-- [ ] Provision second Lambda `linkage-engine-validate` triggered by `landing/` ObjectCreated events (replaces direct `landing/` → ingest trigger)
-- [ ] Re-point ingest Lambda trigger from `landing/` to `validated/` prefix
+- [x] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh` — Validator Lambda needs `s3:PutObject` on both; ingest Lambda needs `s3:GetObject` on `validated/` only
+- [x] Provision second Lambda `linkage-engine-validate` triggered by `landing/` ObjectCreated events (replaces direct `landing/` → ingest trigger)
+- [x] Re-point ingest Lambda trigger from `landing/` to `validated/` prefix
 
 *CloudWatch:*
-- [ ] CloudWatch metric filter on Validator Lambda logs: `IngressRecords` (total lines seen) and `QuarantinedRecords` (lines failed validation)
-- [ ] CloudWatch alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS topic `linkage-engine-alerts` → admin email
-- [ ] CloudWatch dashboard widget: ingress volume vs quarantine rate (ratio)
+- [x] CloudWatch metric filter on Validator Lambda logs: `IngressRecords` (total lines seen) and `QuarantinedRecords` (lines failed validation)
+- [x] CloudWatch alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS topic `linkage-engine-alerts` → admin email
+- [x] CloudWatch dashboard widget: ingress volume vs quarantine rate (ratio)
 
 *Validation Lambda (`deploy/lambda/validate-and-route.py`):*
-- [ ] Pre-flight: reject zero-byte files immediately → quarantine whole file
-- [ ] Pre-flight: reject files where >50% of lines are invalid JSON → quarantine whole file with reason
-- [ ] Per-line validation: JSON schema check against `RecordIngestRequest` schema
-- [ ] Per-line validation: null disqualification for required fields
-- [ ] Per-line validation: field format conversion (title-case names, strip whitespace, coerce numeric strings)
-- [ ] Per-line validation: out-of-range rules (`eventYear` 1800–1950, `birthYear` coherence, non-empty `location`)
-- [ ] Per-line: PII redaction from `rawContent` (SSN `\d{3}-\d{2}-\d{4}`, email, US phone)
-- [ ] Route valid lines → `validated/<original-key>`, invalid lines → `quarantine/<original-key>`
-- [ ] Emit structured log lines: `ingress=N validated=N quarantined=N` per invocation
+- [x] Pre-flight: reject zero-byte files immediately → quarantine whole file
+- [x] Pre-flight: reject files where 0 lines are valid JSON → quarantine whole file with reason
+- [x] Per-line validation: JSON schema check against `RecordIngestRequest` schema
+- [x] Per-line validation: null disqualification for required fields
+- [x] Per-line validation: field format conversion (title-case names, strip whitespace, coerce numeric strings)
+- [x] Per-line validation: out-of-range rules (`eventYear` 1800–1950, `birthYear` coherence, non-empty `location`)
+- [x] Per-line: PII redaction from `rawContent` (SSN `\d{3}-\d{2}-\d{4}`, email, US phone)
+- [x] Route valid lines → `validated/<original-key>`, invalid lines → `quarantine/<original-key>`
+- [x] Emit structured log lines: `ingress=N validated=N quarantined=N` per invocation
 
 *Tests (`deploy/lambda/test_validate_and_route.py`):*
-- [ ] `test_non_json_file_quarantined` — binary/text file → quarantine, never reaches validated
-- [ ] `test_empty_file_quarantined` — zero-byte file → quarantine with reason logged
-- [ ] `test_valid_file_routed_to_validated` — clean NDJSON → all lines in validated
-- [ ] `test_schema_violation_quarantines_line` — missing `familyName` → that line quarantined, rest validated
-- [ ] `test_null_required_field_quarantines_line` — `recordId: null` → quarantined
-- [ ] `test_field_format_conversion_applied` — `"william"` → `"William"`, `" Boston "` → `"Boston"`
-- [ ] `test_out_of_range_event_year_quarantined` — `eventYear: 2099` → quarantined
-- [ ] `test_birth_year_incoherence_quarantined` — `birthYear >= eventYear` → quarantined
-- [ ] `test_pii_redacted_before_validated` — SSN/email in `rawContent` → redacted in validated copy
-- [ ] `test_cloudwatch_metrics_emitted` — assert log lines contain `ingress=` and `quarantined=`
+- [x] `test_non_json_file_quarantined` — binary/text file → quarantine, never reaches validated
+- [x] `test_empty_file_quarantined` — zero-byte file → quarantine with reason logged
+- [x] `test_valid_file_routed_to_validated` — clean NDJSON → all lines in validated
+- [x] `test_schema_violation_quarantines_line` — missing `familyName` → that line quarantined, rest validated
+- [x] `test_null_required_field_quarantines_line` — `recordId: null` → quarantined
+- [x] `test_field_format_conversion_applied` — `"william"` → `"William"`, `" Boston "` → `"Boston"`
+- [x] `test_out_of_range_event_year_quarantined` — `eventYear: 2099` → quarantined
+- [x] `test_birth_year_incoherence_quarantined` — `birthYear >= eventYear` → quarantined
+- [x] `test_pii_redacted_before_validated` — SSN/email in `rawContent` → redacted in validated copy
+- [x] `test_cloudwatch_metrics_emitted` — assert log lines contain `ingress=` and `quarantined=`
 
 ---
 

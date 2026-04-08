@@ -24,10 +24,16 @@ APP=linkage-engine
 BUCKET="${LINKAGE_S3_BUCKET:-${APP}-landing-${ACCOUNT_ID}}"
 PREFIX="${LINKAGE_S3_PREFIX:-landing}"
 FUNCTION_NAME="${APP}-ingest"
+VALIDATE_FUNCTION_NAME="${APP}-validate"
+VALIDATE_ROLE_NAME="${APP}-validate-role"
 ROLE_NAME="${APP}-ingest-role"
 UPLOADER_ROLE_NAME="${APP}-uploader-role"
 DLQ_NAME="${APP}-ingest-dlq"
 LOG_GROUP="/aws/lambda/${FUNCTION_NAME}"
+VALIDATE_LOG_GROUP="/aws/lambda/${VALIDATE_FUNCTION_NAME}"
+VALIDATED_PREFIX="validated"
+QUARANTINE_PREFIX="quarantine"
+SNS_TOPIC_NAME="${APP}-alerts"
 
 # ALB URL — read from AWS if not set
 ALB_DNS=$(aws elbv2 describe-load-balancers --region "$REGION" \
@@ -207,11 +213,129 @@ aws_q aws logs put-retention-policy --region "$REGION" \
   --log-group-name "$LOG_GROUP" --retention-in-days 30
 detail "logs: ${LOG_GROUP}  (30-day retention)"
 
-# ── 5. S3 event notification ──────────────────────────────────────────────────
+# ── 5. Validate Lambda — IAM role ─────────────────────────────────────────────
 echo ""
-echo "▶ 5/5  S3 event notification  (ObjectCreated → Lambda)"
+echo "▶ 5/10  Validate Lambda IAM role  (${VALIDATE_ROLE_NAME})"
 
-# Grant S3 permission to invoke Lambda
+VALIDATE_ROLE_ARN=$(aws iam get-role --role-name "$VALIDATE_ROLE_NAME" \
+  --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
+
+if [ "$VALIDATE_ROLE_ARN" = "not-found" ]; then
+  VALIDATE_ROLE_ARN=$(aws iam create-role \
+    --role-name "$VALIDATE_ROLE_NAME" \
+    --assume-role-policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[{"Effect":"Allow",
+        "Principal":{"Service":"lambda.amazonaws.com"},
+        "Action":"sts:AssumeRole"}]}' \
+    --query 'Role.Arn' --output text)
+
+  aws_q aws iam attach-role-policy --role-name "$VALIDATE_ROLE_NAME" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # Read from landing/, write to validated/ and quarantine/
+  aws_q aws iam put-role-policy --role-name "$VALIDATE_ROLE_NAME" \
+    --policy-name S3ValidatePipeline \
+    --policy-document "{
+      \"Version\":\"2012-10-17\",
+      \"Statement\":[
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:GetObject\",\"s3:HeadObject\"],
+         \"Resource\":\"arn:aws:s3:::${BUCKET}/${PREFIX}/*\"},
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:PutObject\"],
+         \"Resource\":[
+           \"arn:aws:s3:::${BUCKET}/${VALIDATED_PREFIX}/*\",
+           \"arn:aws:s3:::${BUCKET}/${QUARANTINE_PREFIX}/*\"]},
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:CopyObject\"],
+         \"Resource\":\"arn:aws:s3:::${BUCKET}/*\"}
+      ]}"
+
+  echo "  ✓ role created"
+  detail "${VALIDATE_ROLE_ARN}"
+  echo "  ⏳ waiting 10s for IAM propagation…"
+  sleep 10
+else
+  echo "  ✓ role exists"
+  detail "${VALIDATE_ROLE_ARN}"
+fi
+
+# ── 6. Validate Lambda — function ─────────────────────────────────────────────
+echo ""
+echo "▶ 6/10  Validate Lambda function  (${VALIDATE_FUNCTION_NAME})"
+
+VALIDATE_ZIP="/tmp/${VALIDATE_FUNCTION_NAME}.zip"
+cd "$LAMBDA_DIR"
+zip -q "$VALIDATE_ZIP" validate-and-route.py
+cd - > /dev/null
+detail "package: ${VALIDATE_ZIP}  ($(wc -c < "$VALIDATE_ZIP" | tr -d ' ') bytes)"
+
+VALIDATE_ENV="Variables={VALIDATED_PREFIX=${VALIDATED_PREFIX},QUARANTINE_PREFIX=${QUARANTINE_PREFIX}}"
+
+VALIDATE_EXISTS=$(aws lambda get-function --region "$REGION" \
+  --function-name "$VALIDATE_FUNCTION_NAME" \
+  --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "not-found")
+
+if [ "$VALIDATE_EXISTS" = "not-found" ]; then
+  aws_q aws lambda create-function \
+    --region "$REGION" \
+    --function-name "$VALIDATE_FUNCTION_NAME" \
+    --runtime python3.12 \
+    --role "$VALIDATE_ROLE_ARN" \
+    --handler validate-and-route.handler \
+    --zip-file "fileb://${VALIDATE_ZIP}" \
+    --timeout 300 \
+    --memory-size 256 \
+    --environment "$VALIDATE_ENV"
+  echo "  ✓ function created"
+  echo "  ⏳ waiting for function to become active…"
+  aws lambda wait function-active --region "$REGION" --function-name "$VALIDATE_FUNCTION_NAME"
+else
+  aws_q aws lambda update-function-code \
+    --region "$REGION" \
+    --function-name "$VALIDATE_FUNCTION_NAME" \
+    --zip-file "fileb://${VALIDATE_ZIP}"
+  aws lambda wait function-updated --region "$REGION" --function-name "$VALIDATE_FUNCTION_NAME"
+  aws_q aws lambda update-function-configuration \
+    --region "$REGION" \
+    --function-name "$VALIDATE_FUNCTION_NAME" \
+    --timeout 300 \
+    --memory-size 256 \
+    --environment "$VALIDATE_ENV"
+  echo "  ✓ function updated"
+fi
+
+VALIDATE_FUNC_ARN=$(aws lambda get-function --region "$REGION" \
+  --function-name "$VALIDATE_FUNCTION_NAME" \
+  --query 'Configuration.FunctionArn' --output text)
+detail "${VALIDATE_FUNC_ARN}"
+
+aws logs create-log-group --region "$REGION" \
+  --log-group-name "$VALIDATE_LOG_GROUP" 2>/dev/null || true
+aws_q aws logs put-retention-policy --region "$REGION" \
+  --log-group-name "$VALIDATE_LOG_GROUP" --retention-in-days 30
+detail "logs: ${VALIDATE_LOG_GROUP}  (30-day retention)"
+
+# ── 7. S3 event notifications (three-prefix pipeline) ─────────────────────────
+#
+# landing/   → validate Lambda   (external party drops files here)
+# validated/ → ingest Lambda     (only clean records reach the API)
+echo ""
+echo "▶ 7/10  S3 event notifications  (landing → validate → validated → ingest)"
+
+# Grant S3 permission to invoke validate Lambda
+aws lambda add-permission \
+  --region "$REGION" \
+  --function-name "$VALIDATE_FUNCTION_NAME" \
+  --statement-id "S3InvokeValidate" \
+  --action "lambda:InvokeFunction" \
+  --principal "s3.amazonaws.com" \
+  --source-arn "arn:aws:s3:::${BUCKET}" \
+  --source-account "$ACCOUNT_ID" \
+  2>/dev/null || true
+
+# Grant S3 permission to invoke ingest Lambda
 aws lambda add-permission \
   --region "$REGION" \
   --function-name "$FUNCTION_NAME" \
@@ -220,35 +344,43 @@ aws lambda add-permission \
   --principal "s3.amazonaws.com" \
   --source-arn "arn:aws:s3:::${BUCKET}" \
   --source-account "$ACCOUNT_ID" \
-  2>/dev/null || true  # ignore if permission already exists
+  2>/dev/null || true
 
-# Configure S3 notification
+# Configure both notifications in one call
 NOTIFICATION_CONFIG=$(cat <<EOF
 {
   "LambdaFunctionConfigurations": [
     {
-      "LambdaFunctionArn": "${FUNC_ARN}",
+      "LambdaFunctionArn": "${VALIDATE_FUNC_ARN}",
       "Events": ["s3:ObjectCreated:*"],
-      "Filter": {
-        "Key": {
-          "FilterRules": [
-            {"Name": "prefix", "Value": "${PREFIX}/"},
-            {"Name": "suffix", "Value": ".ndjson"}
-          ]
-        }
-      }
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "prefix", "Value": "${PREFIX}/"},
+        {"Name": "suffix", "Value": ".ndjson"}
+      ]}}
+    },
+    {
+      "LambdaFunctionArn": "${VALIDATE_FUNC_ARN}",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "prefix", "Value": "${PREFIX}/"},
+        {"Name": "suffix", "Value": ".jsonl"}
+      ]}}
     },
     {
       "LambdaFunctionArn": "${FUNC_ARN}",
       "Events": ["s3:ObjectCreated:*"],
-      "Filter": {
-        "Key": {
-          "FilterRules": [
-            {"Name": "prefix", "Value": "${PREFIX}/"},
-            {"Name": "suffix", "Value": ".jsonl"}
-          ]
-        }
-      }
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "prefix", "Value": "${VALIDATED_PREFIX}/"},
+        {"Name": "suffix", "Value": ".ndjson"}
+      ]}}
+    },
+    {
+      "LambdaFunctionArn": "${FUNC_ARN}",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "prefix", "Value": "${VALIDATED_PREFIX}/"},
+        {"Name": "suffix", "Value": ".jsonl"}
+      ]}}
     }
   ]
 }
@@ -260,9 +392,9 @@ aws_q aws s3api put-bucket-notification-configuration \
   --bucket "$BUCKET" \
   --notification-configuration "$NOTIFICATION_CONFIG"
 
-echo "  ✓ notification configured"
-detail "trigger: s3:ObjectCreated on s3://${BUCKET}/${PREFIX}/*.ndjson"
-detail "trigger: s3:ObjectCreated on s3://${BUCKET}/${PREFIX}/*.jsonl"
+echo "  ✓ notifications configured"
+detail "landing/*.ndjson|.jsonl   → ${VALIDATE_FUNCTION_NAME}"
+detail "validated/*.ndjson|.jsonl → ${FUNCTION_NAME}"
 
 # ── 6. External uploader IAM role (PutObject-only on landing prefix) ──────────
 #
@@ -275,7 +407,7 @@ detail "trigger: s3:ObjectCreated on s3://${BUCKET}/${PREFIX}/*.jsonl"
 #   and generates a short-lived presigned PUT URL — no AWS credentials needed
 #   on the external side.
 echo ""
-echo "▶ 6/7  External uploader IAM role  (${UPLOADER_ROLE_NAME})"
+echo "▶ 8/10  External uploader IAM role  (${UPLOADER_ROLE_NAME})"
 
 UPLOADER_ROLE_ARN=$(aws iam get-role --role-name "$UPLOADER_ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
@@ -327,7 +459,7 @@ fi
 # The Lambda ingest role is explicitly exempted from the deny so it can
 # read (GetObject) without being blocked.
 echo ""
-echo "▶ 7/7  Bucket policy  (deny Delete* from non-Lambda principals)"
+echo "▶ 9/10  Bucket policy  (deny Delete* from non-Lambda principals)"
 
 LAMBDA_ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "")
@@ -351,7 +483,23 @@ BUCKET_POLICY=$(cat <<POLICY
       ]
     },
     {
-      "Sid": "AllowLambdaIngestRoleReadOnly",
+      "Sid": "AllowValidateLambdaReadLandingWritePipeline",
+      "Effect": "Allow",
+      "Principal": { "AWS": "${VALIDATE_ROLE_ARN}" },
+      "Action": [
+        "s3:GetObject",
+        "s3:HeadObject",
+        "s3:CopyObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${BUCKET}/${PREFIX}/*",
+        "arn:aws:s3:::${BUCKET}/${VALIDATED_PREFIX}/*",
+        "arn:aws:s3:::${BUCKET}/${QUARANTINE_PREFIX}/*"
+      ]
+    },
+    {
+      "Sid": "AllowLambdaIngestRoleReadValidated",
       "Effect": "Allow",
       "Principal": { "AWS": "${LAMBDA_ROLE_ARN}" },
       "Action": [
@@ -361,7 +509,7 @@ BUCKET_POLICY=$(cat <<POLICY
       ],
       "Resource": [
         "arn:aws:s3:::${BUCKET}",
-        "arn:aws:s3:::${BUCKET}/${PREFIX}/*"
+        "arn:aws:s3:::${BUCKET}/${VALIDATED_PREFIX}/*"
       ]
     },
     {
@@ -385,16 +533,110 @@ detail "deny: s3:DeleteObject / DeleteObjectVersion / DeleteBucket — all princ
 detail "allow: s3:GetObject,HeadObject,ListBucket — Lambda ingest role only"
 detail "allow: s3:PutObject on landing/* — uploader role only"
 
+# ── 10. CloudWatch — metric filters, quarantine alarm, dashboard ──────────────
+echo ""
+echo "▶ 10/10  CloudWatch metrics, alarm, and dashboard"
+
+# SNS topic for admin alerts
+SNS_ARN=$(aws sns list-topics --region "$REGION" \
+  --query "Topics[?ends_with(TopicArn,'${SNS_TOPIC_NAME}')].TopicArn | [0]" \
+  --output text 2>/dev/null || echo "None")
+
+if [ "$SNS_ARN" = "None" ] || [ -z "$SNS_ARN" ]; then
+  SNS_ARN=$(aws sns create-topic --region "$REGION" \
+    --name "$SNS_TOPIC_NAME" \
+    --query 'TopicArn' --output text)
+  echo "  ✓ SNS topic created: ${SNS_ARN}"
+  echo "  ⚠  Subscribe an admin email:"
+  echo "     aws sns subscribe --region ${REGION} --topic-arn ${SNS_ARN} \\"
+  echo "       --protocol email --notification-endpoint admin@example.com"
+else
+  echo "  ✓ SNS topic exists: ${SNS_ARN}"
+fi
+
+# Metric filter — IngressRecords (total lines seen per invocation)
+aws_q aws logs put-metric-filter \
+  --region "$REGION" \
+  --log-group-name "$VALIDATE_LOG_GROUP" \
+  --filter-name "IngressRecords" \
+  --filter-pattern "[level, msg, ..., ingress_label=\"ingress=*\", ingress_val, ...]" \
+  --metric-transformations \
+    metricName=IngressRecords,metricNamespace=LinkageEngine/Ingest,metricValue=1,unit=Count
+detail "metric filter: IngressRecords → LinkageEngine/Ingest"
+
+# Metric filter — QuarantinedRecords (lines that failed validation)
+aws_q aws logs put-metric-filter \
+  --region "$REGION" \
+  --log-group-name "$VALIDATE_LOG_GROUP" \
+  --filter-name "QuarantinedRecords" \
+  --filter-pattern "[level, msg, ..., q_label=\"quarantined=*\", q_val, ...]" \
+  --metric-transformations \
+    metricName=QuarantinedRecords,metricNamespace=LinkageEngine/Ingest,metricValue=1,unit=Count
+detail "metric filter: QuarantinedRecords → LinkageEngine/Ingest"
+
+# CloudWatch alarm — quarantine spike
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "${APP}-quarantine-spike" \
+  --alarm-description "Quarantine rate spike: >50 records quarantined in 5 minutes" \
+  --namespace "LinkageEngine/Ingest" \
+  --metric-name "QuarantinedRecords" \
+  --statistic Sum \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 50 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_ARN"
+detail "alarm: QuarantinedRecords > 50 / 5min → ${SNS_TOPIC_NAME}"
+
+# CloudWatch dashboard — ingress volume vs quarantine rate
+DASHBOARD_BODY=$(cat <<DASH
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "properties": {
+        "title": "Ingest Pipeline — Ingress vs Quarantine",
+        "metrics": [
+          ["LinkageEngine/Ingest", "IngressRecords",   {"label":"Ingress",    "color":"#2ca02c"}],
+          ["LinkageEngine/Ingest", "QuarantinedRecords",{"label":"Quarantined","color":"#d62728"}]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Sum",
+        "region": "${REGION}"
+      }
+    }
+  ]
+}
+DASH
+)
+
+aws_q aws cloudwatch put-dashboard \
+  --region "$REGION" \
+  --dashboard-name "${APP}-ingest" \
+  --dashboard-body "$DASHBOARD_BODY"
+detail "dashboard: ${APP}-ingest (ingress vs quarantine rate)"
+
+echo "  ✓ CloudWatch configured"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ✅  Lambda ingest provisioned"
+echo "  ✅  Lambda pipeline provisioned"
 echo ""
-echo "  Bucket:        s3://${BUCKET}/${PREFIX}/"
-echo "  Lambda:        ${FUNCTION_NAME}"
-echo "  DLQ:           ${DLQ_NAME}"
-echo "  API:           ${LINKAGE_API_URL}"
-echo "  Uploader role: ${UPLOADER_ROLE_ARN}"
+echo "  Bucket:          s3://${BUCKET}/"
+echo "    landing/       ← external party uploads here"
+echo "    validated/     ← clean records (triggers ingest Lambda)"
+echo "    quarantine/    ← failed validation (audit + replay)"
+echo "  Validate Lambda: ${VALIDATE_FUNCTION_NAME}"
+echo "  Ingest Lambda:   ${FUNCTION_NAME}"
+echo "  DLQ:             ${DLQ_NAME}"
+echo "  API:             ${LINKAGE_API_URL}"
+echo "  Uploader role:   ${UPLOADER_ROLE_ARN}"
+echo "  Alerts SNS:      ${SNS_ARN}"
 echo ""
 echo "  ── External upload access ──────────────────────────────────"
 echo ""
