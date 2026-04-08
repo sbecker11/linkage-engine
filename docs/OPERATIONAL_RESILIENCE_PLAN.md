@@ -64,9 +64,11 @@ Aurora cold-start timeouts without data loss or silent corruption.
 
 ## Sprint 3 — Validation Pipeline
 
-**Objective:** Enforce a three-bucket pipeline (raw-intake → validated → quarantine)
-so that only fully-validated JSON records reach the database. Track ingress volume
-and quarantine spikes in CloudWatch with admin alerting.
+**Objective:** Enforce a three-prefix pipeline (raw-intake → validated → quarantine)
+so that only fully-validated JSON records reach the database. Every output line
+carries full provenance so validated and quarantine records can always be paired
+back to their origin. Track ingress volume and quarantine spikes in CloudWatch
+with admin alerting.
 
 **Pipeline architecture:**
 
@@ -75,8 +77,8 @@ External party
       │  s3:PutObject (presigned URL or uploader role)
       ▼
 ┌─────────────────────────────┐
-│  raw-intake/                │  linkage-engine-landing-<account>
-│  (existing landing bucket)  │  unchanged — uploader writes here
+│  landing/                   │  linkage-engine-landing-<account>
+│  (raw intake prefix)        │  unchanged — uploader writes here
 └────────────┬────────────────┘
              │  S3 ObjectCreated → Lambda validate-and-route
              ▼
@@ -109,6 +111,38 @@ copy costs and simplifies IAM):
 4. **Field format conversion** — normalise `givenName`/`familyName` to title-case; strip leading/trailing whitespace from all string fields; coerce numeric strings to integers where schema expects `int`
 5. **Out-of-range rules** — `eventYear` must be 1800–1950; `birthYear` (if present) must satisfy `birthYear < eventYear` and imply age 1–110; `location` must be non-empty after strip
 
+**Output provenance** — every output line (both `validated/` and `quarantine/`) carries
+three fields so any record can be traced back to its exact source line, even after a
+mid-file Lambda crash and S3 at-least-once replay:
+
+| Field | Type | Example | Purpose |
+|---|---|---|---|
+| `_sourceKey` | string | `"landing/batch-20260406.ndjson"` | Original S3 key in `landing/` |
+| `_sourceLine` | int | `12` | 1-based line number in the source file |
+| `_batchId` | UUID | `"a3f7c2d1-…"` | Generated once per invocation; replay gets a new UUID — detects duplicates |
+
+This means:
+- **Pairing validated ↔ quarantine:** `_sourceKey` + `_sourceLine` uniquely identifies origin — no dependency on `recordId`
+- **Crash between writes:** replay gets a new `_batchId`; downstream systems can detect and deduplicate
+- **JSON parse failures:** quarantine entry includes `_reason`, `_raw` (200 chars), and full provenance even when no `recordId` exists
+
+**Example output lines:**
+
+```json
+// validated/
+{"recordId":"SYN-20260406-s0-00001","givenName":"William","familyName":"Harper",
+ "eventYear":1850,"location":"Boston",
+ "_sourceKey":"landing/batch-20260406.ndjson","_sourceLine":12,"_batchId":"a3f7c2d1-…"}
+
+// quarantine/ — validation failure
+{"_reasons":["missing required field: familyName"],"recordId":"SYN-20260406-s0-00007",
+ "_sourceKey":"landing/batch-20260406.ndjson","_sourceLine":7,"_batchId":"a3f7c2d1-…"}
+
+// quarantine/ — JSON parse failure
+{"_reason":"invalid JSON","_raw":"William Harper, age 30, farmer…",
+ "_sourceKey":"landing/batch-20260406.ndjson","_sourceLine":3,"_batchId":"a3f7c2d1-…"}
+```
+
 **Threats:**
 - Partial S3 upload (truncated file) reaching the ingest Lambda
 - Non-JSON or binary files dropped into the landing prefix
@@ -116,126 +150,52 @@ copy costs and simplifies IAM):
 - `eventYear` values in the future or impossibly distant past corrupting linkage scoring
 - PII (`rawContent` containing SSN, email, phone) reaching the database or embeddings
 - Quarantine spike (bulk bad data from external party) going unnoticed
+- Mid-file Lambda crash leaving no audit trail of rejected records
+- Replay of the same S3 event producing undetectable duplicate ingestion
 
 **Proof of success:**
-- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures
+- `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (13 tests)
 - A non-JSON file dropped in `landing/` is copied to `quarantine/` and never reaches `validated/`
 - A valid NDJSON file is copied to `validated/` and triggers the ingest Lambda
-- A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/` (line-level routing)
-- CloudWatch metric `QuarantinedRecords` increments for every quarantined line
+- A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/`
+- Every output line carries `_sourceKey`, `_sourceLine`, and `_batchId`
+- All output lines from one invocation share the same `_batchId`
 - CloudWatch alarm fires when `QuarantinedRecords` > 50 in a 5-minute window → SNS admin notification
-- PII patterns (SSN, email, phone) in `rawContent` are redacted before the record is written to `validated/`
-- `IngressRecords` CloudWatch metric tracks total lines seen per invocation
 
 **Tasks:**
 
 *Bucket / infrastructure:*
-- [x] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh` — Validator Lambda needs `s3:PutObject` on both; ingest Lambda needs `s3:GetObject` on `validated/` only
-- [x] Provision second Lambda `linkage-engine-validate` triggered by `landing/` ObjectCreated events (replaces direct `landing/` → ingest trigger)
+- [x] Add `validated/` and `quarantine/` prefixes to bucket policy in `provision-lambda.sh`
+- [x] Provision `linkage-engine-validate` Lambda triggered by `landing/` ObjectCreated events
 - [x] Re-point ingest Lambda trigger from `landing/` to `validated/` prefix
 
 *CloudWatch:*
-- [x] CloudWatch metric filter on Validator Lambda logs: `IngressRecords` (total lines seen) and `QuarantinedRecords` (lines failed validation)
-- [x] CloudWatch alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS topic `linkage-engine-alerts` → admin email
-- [x] CloudWatch dashboard widget: ingress volume vs quarantine rate (ratio)
+- [x] Metric filters: `IngressRecords` and `QuarantinedRecords` on Validator Lambda logs
+- [x] Alarm: `QuarantinedRecords` sum > 50 in 5 minutes → SNS `linkage-engine-alerts`
+- [x] Dashboard widget: ingress volume vs quarantine rate
 
 *Validation Lambda (`deploy/lambda/validate-and-route.py`):*
-- [x] Pre-flight: reject zero-byte files immediately → quarantine whole file
-- [x] Pre-flight: reject files where 0 lines are valid JSON → quarantine whole file with reason
-- [x] Per-line validation: JSON schema check against `RecordIngestRequest` schema
-- [x] Per-line validation: null disqualification for required fields
-- [x] Per-line validation: field format conversion (title-case names, strip whitespace, coerce numeric strings)
-- [x] Per-line validation: out-of-range rules (`eventYear` 1800–1950, `birthYear` coherence, non-empty `location`)
-- [x] Per-line: PII redaction from `rawContent` (SSN `\d{3}-\d{2}-\d{4}`, email, US phone)
-- [x] Route valid lines → `validated/<original-key>`, invalid lines → `quarantine/<original-key>`
-- [x] Emit structured log lines: `ingress=N validated=N quarantined=N` per invocation
+- [x] Pre-flight: quarantine zero-byte files and files with no valid JSON lines
+- [x] Per-line: JSON schema check, null disqualification, format conversion, out-of-range rules
+- [x] Per-line: PII redaction from `rawContent` (SSN, email, US phone → `[REDACTED]`)
+- [x] Route valid lines → `validated/<key>`, invalid lines → `quarantine/<key>`
+- [x] Inject provenance (`_sourceKey`, `_sourceLine`, `_batchId`) into every output line
+- [x] Emit structured log line: `ingress=N validated=N quarantined=N` per invocation
 
-*Tests (`deploy/lambda/test_validate_and_route.py`):*
-- [x] `test_non_json_file_quarantined` — binary/text file → quarantine, never reaches validated
-- [x] `test_empty_file_quarantined` — zero-byte file → quarantine with reason logged
-- [x] `test_valid_file_routed_to_validated` — clean NDJSON → all lines in validated
-- [x] `test_schema_violation_quarantines_line` — missing `familyName` → that line quarantined, rest validated
-- [x] `test_null_required_field_quarantines_line` — `recordId: null` → quarantined
-- [x] `test_field_format_conversion_applied` — `"william"` → `"William"`, `" Boston "` → `"Boston"`
-- [x] `test_out_of_range_event_year_quarantined` — `eventYear: 2099` → quarantined
-- [x] `test_birth_year_incoherence_quarantined` — `birthYear >= eventYear` → quarantined
-- [x] `test_pii_redacted_before_validated` — SSN/email in `rawContent` → redacted in validated copy
-- [x] `test_cloudwatch_metrics_emitted` — assert log lines contain `ingress=` and `quarantined=`
-
----
-
-## Sprint 3b — Output Provenance
-
-**Objective:** Guarantee that every output line written by `validate-and-route.py`
-— whether to `validated/` or `quarantine/` — carries enough context to be traced
-back to its exact source line in the original `landing/` file, even after a
-mid-file Lambda crash and replay.
-
-**Problem identified:** The original validator accumulated lines in memory and
-wrote two separate `put_object` calls at the end. If the Lambda crashed between
-the two writes, the quarantine file would be missing — no audit trail of what
-was rejected. Additionally, validated records had no back-reference to their
-source line, making it impossible to pair them with their quarantine counterparts
-without relying on `recordId` (which is absent for JSON parse failures).
-
-**Solution — three provenance fields injected into every output line:**
-
-| Field | Type | Value | Purpose |
-|---|---|---|---|
-| `_sourceKey` | string | `"landing/batch-20260406.ndjson"` | Identifies the source file in S3 |
-| `_sourceLine` | int | `12` | 1-based line number in the source file |
-| `_batchId` | UUID string | `"a3f7c2d1-…"` | Generated once per Lambda invocation; shared by all output lines from that run |
-
-**How this solves each gap:**
-
-- **Pairing validated ↔ quarantine:** Given any record in either output file, `_sourceKey` + `_sourceLine` uniquely identifies its origin. No dependency on `recordId`.
-- **Crash between writes:** S3 at-least-once delivery re-triggers the Lambda. The replay gets a new `_batchId`, so downstream systems can detect and deduplicate replayed records.
-- **JSON parse failures:** Even lines that fail to parse get a quarantine entry with `_sourceKey`, `_sourceLine`, `_batchId`, `_reason: "invalid JSON"`, and `_raw` (first 200 chars) — enough to locate and fix the source data.
-
-**Example output line (validated):**
-```json
-{
-  "recordId": "SYN-20260406-s0-00001",
-  "givenName": "William",
-  "familyName": "Harper",
-  "eventYear": 1850,
-  "location": "Boston",
-  "_sourceKey":  "landing/batch-20260406.ndjson",
-  "_sourceLine": 12,
-  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d"
-}
-```
-
-**Example output line (quarantine — validation failure):**
-```json
-{
-  "_reasons":   ["missing required field: familyName"],
-  "_sourceKey":  "landing/batch-20260406.ndjson",
-  "_sourceLine": 7,
-  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d",
-  "recordId":   "SYN-20260406-s0-00007",
-  "givenName":  "James",
-  "eventYear":  1860
-}
-```
-
-**Example output line (quarantine — JSON parse failure):**
-```json
-{
-  "_reason":    "invalid JSON",
-  "_raw":       "William Harper, age 30, farmer, born Massachusetts",
-  "_sourceKey":  "landing/batch-20260406.ndjson",
-  "_sourceLine": 3,
-  "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d"
-}
-```
-
-**Tasks:**
-- [x] `test_validated_line_carries_provenance_fields` — assert `_sourceKey`, `_sourceLine`, `_batchId` present in validated output
-- [x] `test_quarantine_line_carries_provenance_fields` — same assertion for quarantine output
-- [x] `test_batch_id_is_consistent_within_invocation` — all output lines from one call share one `_batchId`
-- [x] Add `import uuid` and generate `batch_id = str(uuid.uuid4())` once per `process_object` call
-- [x] Inject `provenance = {"_sourceKey": key, "_sourceLine": i, "_batchId": batch_id}` into every output line
+*Tests (`deploy/lambda/test_validate_and_route.py`) — 13 tests:*
+- [x] `test_non_json_file_quarantined`
+- [x] `test_empty_file_quarantined`
+- [x] `test_valid_file_routed_to_validated`
+- [x] `test_schema_violation_quarantines_line`
+- [x] `test_null_required_field_quarantines_line`
+- [x] `test_field_format_conversion_applied`
+- [x] `test_out_of_range_event_year_quarantined`
+- [x] `test_birth_year_incoherence_quarantined`
+- [x] `test_pii_redacted_before_validated`
+- [x] `test_cloudwatch_metrics_emitted`
+- [x] `test_validated_line_carries_provenance_fields`
+- [x] `test_quarantine_line_carries_provenance_fields`
+- [x] `test_batch_id_is_consistent_within_invocation`
 
 ---
 
