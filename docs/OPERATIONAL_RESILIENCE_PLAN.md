@@ -177,11 +177,11 @@ and expose a health endpoint for monitoring and reconciliation.
 - `GET /v1/ingest/health` returns `{"embeddingGapCount": 0, "status": "ok"}` after reindex
 
 **Tasks:**
-- [ ] `EmbeddingGapDetectionTest::gapDetectedWhenEmbeddingMissing`
-- [ ] `EmbeddingGapDetectionTest::healthEndpointReportsDegradedWhenGapsExist`
-- [ ] `EmbeddingGapDetectionTest::healthEndpointReportsOkAfterReindex`
-- [ ] `IngestHealthController` — `GET /v1/ingest/health` queries `records LEFT JOIN record_embeddings`
-- [ ] `IngestHealthService` — counts gaps, calls reindex if `?autoRepair=true`
+- [x] `EmbeddingGapDetectionTest::gapDetectedWhenEmbeddingMissing`
+- [x] `EmbeddingGapDetectionTest::healthEndpointReportsDegradedWhenGapsExist`
+- [x] `EmbeddingGapDetectionTest::healthEndpointReportsOkAfterReindex`
+- [x] `IngestHealthController` — `GET /v1/ingest/health` returns `embeddingGapCount` and `status`
+- [x] `IngestHealthService` — counts gaps via `records LEFT JOIN record_embeddings WHERE re.record_id IS NULL`
 
 ---
 
