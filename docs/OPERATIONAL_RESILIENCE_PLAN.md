@@ -388,7 +388,7 @@ from CloudWatch Lambda duration logs under real load. Starting default: **200**.
 - [x] Document `CHUNK_SIZE` tuning formula as a comment in both files
 - [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
 
-*Phase 3d-ii — ingestor Lambda and raw bucket (implement before external uploads):*
+*Phase 3d-ii — ingestor Lambda and raw bucket:*
 - [x] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
 - [x] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
 - [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to landing bucket, archives original to `archive/`
