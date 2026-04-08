@@ -39,7 +39,8 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "50"))
 DRY_RUN    = os.environ.get("DRY_RUN", "false").lower() == "true"
 DLQ_URL    = os.environ.get("DLQ_URL", "")
 
-INGEST_ENDPOINT = f"{API_URL}/v1/records"
+INGEST_ENDPOINT  = f"{API_URL}/v1/records"
+HEALTH_ENDPOINT  = f"{API_URL}/v1/ingest/health"
 
 # Retry config for transient 5xx (Aurora cold-start, ALB hiccup)
 MAX_RETRIES   = 4          # attempts: 1 original + 3 retries
@@ -52,6 +53,17 @@ _PROVENANCE_FIELDS = frozenset({
     "_sourceKey", "_sourceLine", "_batchId",
     "_reasons", "_reason", "_raw",
 })
+
+
+def check_api_health() -> str:
+    """
+    Call GET /v1/ingest/health and return the "status" field ("ok" or "degraded").
+    Raises on network error or non-200 response — caller decides whether to abort.
+    """
+    req = urllib.request.Request(HEALTH_ENDPOINT, method="GET")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+        return body.get("status", "ok")
 
 
 def post_record(record: dict) -> tuple[int, str]:
@@ -245,6 +257,27 @@ def handler(event, context):
     """Lambda entry point. Handles S3 ObjectCreated events."""
     if not API_URL and not DRY_RUN:
         raise RuntimeError("LINKAGE_API_URL environment variable is not set")
+
+    # Pre-flight: abort if the API reports a pending Flyway migration.
+    # A network error is not a schema problem — log and proceed in that case.
+    if not DRY_RUN:
+        try:
+            health_status = check_api_health()
+            if health_status == "degraded":
+                logger.warning(
+                    "Pre-flight health check returned 'degraded' — "
+                    "aborting ingest to avoid writing to a stale schema. "
+                    "Check GET %s for details.", HEALTH_ENDPOINT
+                )
+                return {
+                    "statusCode": 503,
+                    "body": json.dumps({"aborted": True, "reason": "health=degraded"}),
+                }
+        except Exception as e:
+            logger.warning(
+                "Pre-flight health check failed (%s) — proceeding with ingest. "
+                "A network error is not a schema problem.", e
+            )
 
     results = []
 

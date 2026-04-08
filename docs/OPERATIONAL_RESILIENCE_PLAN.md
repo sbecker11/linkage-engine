@@ -437,11 +437,15 @@ surface migration status in the health endpoint.
 - Lambda pre-flight check aborts ingest with admin log when health is degraded
 
 **Tasks:**
-- [ ] `IngestHealthControllerTest::healthIncludesFlywayStatus`
-- [ ] `IngestHealthControllerTest::pendingMigrationCausesDegradedStatus`
-- [ ] `test_aborts_when_health_degraded` — mock health returning degraded, assert Lambda exits early
-- [ ] Add Flyway status to `IngestHealthController`
-- [ ] Add pre-flight health check call to `linkage-engine-store.py`
+- [x] `MigrationSafetyTest::healthIncludesFlywayStatus`
+- [x] `MigrationSafetyTest::pendingMigrationCausesDegradedStatus`
+- [x] `TestPreflightHealthCheck::test_aborts_when_health_degraded`
+- [x] `TestPreflightHealthCheck::test_proceeds_when_health_ok`
+- [x] `TestPreflightHealthCheck::test_proceeds_when_health_check_fails`
+- [x] `IngestHealthService::countPendingMigrations()` — queries Flyway `MigrationInfo` for `PENDING` state
+- [x] `IngestHealthController::health()` — adds `flywayStatus` and `pendingMigrations` to response; `status="degraded"` when either gaps > 0 or pending > 0
+- [x] `linkage-engine-store.py::check_api_health()` — GET /v1/ingest/health, returns status string
+- [x] `linkage-engine-store.py::handler()` — pre-flight call to `check_api_health()`; aborts with HTTP 503 when degraded; proceeds on network error
 
 ---
 

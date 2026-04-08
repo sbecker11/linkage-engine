@@ -1,9 +1,10 @@
 """
 deploy/lambda/test_linkage_engine_store.py
 
-Sprint 2 — Lambda Idempotency and Retry
-Sprint 3 — Provenance field stripping on quarantine replay
+Sprint 2  — Lambda Idempotency and Retry
+Sprint 3  — Provenance field stripping on quarantine replay
 Sprint 3c — Quarantine manifest updated after replay
+Sprint 5  — Pre-flight health check: abort ingest when API health is degraded
 
 Tests that simulate, detect, and verify fixes for:
   - Double S3 invocation producing duplicate DB writes
@@ -13,6 +14,7 @@ Tests that simulate, detect, and verify fixes for:
   - Provenance fields (_sourceKey, _sourceLine, _batchId, _reasons) in a
     quarantine file causing HTTP 400 when replayed through the store Lambda
   - Quarantine .manifest not updated after replay (replayStatus stays "pending")
+  - Lambda processing records when API health is degraded (pending migration)
 
 Run:
     pytest deploy/lambda/test_linkage_engine_store.py -v
@@ -482,4 +484,86 @@ class TestQuarantineManifestReplay:
         replay_entry = updated["replays"][-1]
         assert replay_entry.get("failed") == 1, (
             f"Expected replays[-1].failed=1, got {replay_entry.get('failed')}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sprint 5 — Pre-flight health check
+# Threat: store Lambda processes records while a Flyway migration is pending,
+#         writing to a stale schema and potentially corrupting data.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPreflightHealthCheck:
+
+    def test_aborts_when_health_degraded(self):
+        """
+        SIMULATE: GET /v1/ingest/health returns {"status": "degraded",
+                  "pendingMigrations": 1} — a Flyway migration is pending.
+        DETECT:   Lambda calls process_object anyway, writing records to a
+                  stale schema and potentially corrupting data.
+        MITIGATE: Lambda calls the health endpoint before processing any S3
+                  object; when status="degraded" it logs a warning and returns
+                  without calling process_object.
+        VERIFY:   s3.get_object is never called (no records read from S3).
+        """
+        mod, fake_s3, _ = load_lambda(api_url="http://test-alb")
+
+        fake_s3.get_object.return_value = _ndjson_body(SAMPLE_RECORD)
+
+        degraded_response = json.dumps({
+            "status": "degraded",
+            "pendingMigrations": 1,
+            "flywayStatus": "pending",
+            "embeddingGapCount": 0,
+        }).encode("utf-8")
+
+        with patch.object(mod, "check_api_health", return_value="degraded"):
+            result = mod.handler(_s3_event(key="validated/test.ndjson"), None)
+
+        fake_s3.get_object.assert_not_called(), (
+            "s3.get_object was called even though health check returned 'degraded'.\n"
+            "Fix: call check_api_health() in handler(); if status != 'ok', "
+            "log a warning and return early without calling process_object()."
+        )
+
+    def test_proceeds_when_health_ok(self):
+        """
+        SIMULATE: GET /v1/ingest/health returns {"status": "ok"} — schema is current.
+        DETECT:   Lambda skips processing due to an overly cautious health check.
+        MITIGATE: Lambda proceeds normally when health is "ok".
+        VERIFY:   s3.get_object is called (records are read and processed).
+        """
+        mod, fake_s3, _ = load_lambda(api_url="http://test-alb")
+
+        fake_s3.get_object.return_value = _ndjson_body(SAMPLE_RECORD)
+
+        with patch.object(mod, "check_api_health", return_value="ok"), \
+             patch.object(mod, "post_record_with_retry", return_value=(201, "")):
+            mod.handler(_s3_event(key="validated/test.ndjson"), None)
+
+        fake_s3.get_object.assert_called_once(), (
+            "s3.get_object was NOT called even though health check returned 'ok'.\n"
+            "Fix: only abort when check_api_health() returns 'degraded'."
+        )
+
+    def test_proceeds_when_health_check_fails(self):
+        """
+        SIMULATE: the health endpoint is unreachable (network error, cold start).
+        DETECT:   Lambda aborts ingest because health check threw an exception,
+                  blocking all ingest during an API outage.
+        MITIGATE: if check_api_health() raises, log a warning but proceed —
+                  a network error is not a schema problem.
+        VERIFY:   s3.get_object is still called despite the health check error.
+        """
+        mod, fake_s3, _ = load_lambda(api_url="http://test-alb")
+
+        fake_s3.get_object.return_value = _ndjson_body(SAMPLE_RECORD)
+
+        with patch.object(mod, "check_api_health", side_effect=Exception("connection refused")), \
+             patch.object(mod, "post_record_with_retry", return_value=(201, "")):
+            mod.handler(_s3_event(key="validated/test.ndjson"), None)
+
+        fake_s3.get_object.assert_called_once(), (
+            "s3.get_object was NOT called when health check threw an exception.\n"
+            "Fix: wrap check_api_health() in try/except; on error, log and proceed."
         )
