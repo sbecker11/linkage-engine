@@ -1,0 +1,4 @@
+*.ndjson
+*.jsonl
+*.json
+!.gitkeep
