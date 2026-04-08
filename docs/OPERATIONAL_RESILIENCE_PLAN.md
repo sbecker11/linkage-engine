@@ -715,11 +715,10 @@ commission (ready for live demo) with documented warm-up time.
 
 **Tasks:**
 - [x] `deploy/demo-stop.sh` — scale ECS to 0, pause Aurora, print cost summary
-- [x] `deploy/demo-start.sh` — scale ECS to 1, wait for health, run pre-demo checklist
+- [x] `deploy/demo-start.sh` — scale ECS to 1, wait for health, run pre-demo checklist; honours `DEMO_CHECKLIST` env var for testability
 - [x] `deploy/demo-checklist.sh` — verify ALB health, seed data present, Bedrock reachable
-- [ ] `test_demo_stop_is_idempotent` — run stop twice, assert no errors
-- [ ] `test_demo_start_reaches_healthy` — mock ECS/ALB, assert checklist passes
-- [ ] Add estimated warm-up time to `docs/DEPLOYMENT_ECS_FARGATE.md`
+- [x] `deploy/test_demo_lifecycle.py` — 6 tests: `TestDemoStopIdempotent` (3) + `TestDemoStartReachesHealthy` (3); all green
+- [x] Add estimated warm-up time table to `docs/DEPLOYMENT_ECS_FARGATE.md` (Demo Lifecycle section)
 - [ ] Add `demo-stop` / `demo-start` to `deploy/` README
 
 ---

@@ -129,7 +129,8 @@ spinner_wait \
 # ── 4. Pre-demo checklist ─────────────────────────────────────────────────────
 echo ""
 echo "▶ 4/4  Pre-demo checklist"
-./deploy/demo-checklist.sh --alb-dns "$ALB_DNS" ${SKIP_SEED:+--skip-seed}
+CHECKLIST="${DEMO_CHECKLIST:-$(dirname "$0")/demo-checklist.sh}"
+"$CHECKLIST" --alb-dns "$ALB_DNS" ${SKIP_SEED:+--skip-seed}
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 ELAPSED=$(( $(date +%s) - START_TS ))

@@ -167,6 +167,46 @@ aws secretsmanager delete-secret --region us-west-1 \
 
 ---
 
+## Demo Lifecycle — Start / Stop
+
+Use these scripts to bring cost to near-zero between demos and commission the
+stack quickly before a live session.
+
+```bash
+# Shut down all billable compute (~$0 within 5 minutes)
+./deploy/demo-stop.sh
+
+# Commission for a demo (typically ready in 3–5 minutes)
+./deploy/demo-start.sh
+
+# Verify health before going live (runs automatically inside demo-start.sh)
+./deploy/demo-checklist.sh
+```
+
+### Estimated warm-up time
+
+| Step | Duration | Notes |
+|---|---|---|
+| ECS task scheduled | 0 s | Fargate picks up the desired-count change immediately |
+| Container image pulled | ~10–20 s | Cached in ECR; faster on subsequent starts |
+| Aurora resumes from pause | ~15 s | Only if `MinCapacity=0` and cluster was idle >5 min |
+| Spring Boot starts | ~15 s | Flyway migration check runs here |
+| ALB health check passes | ~30 s | `/actuator/health` polled every 10 s with 2 healthy threshold |
+| **Total (cold start)** | **~3–5 min** | From `demo-start.sh` invocation to first HTTP 200 |
+| **Total (warm — ECS was running)** | **~30 s** | Aurora already active, container already running |
+
+### What stays running (and costs money) while stopped
+
+| Resource | Monthly cost (approx) |
+|---|---|
+| ALB | ~$0.19/day — kept running to avoid DNS TTL wait |
+| ECR image storage | ~$0.10/GB/month |
+| Secrets Manager | $0.40/secret/month |
+| S3, CloudWatch logs | Storage cost only |
+| **Total while stopped** | **< $10/month** |
+
+---
+
 ## Notes
 
 - **Bedrock** is called via the IAM task role (default credential chain) — no API keys needed.
