@@ -30,12 +30,12 @@ is internally coherent and globally unique across runs.
 - No record implies age < 1 or age > 110
 
 **Tasks:**
-- [ ] `test_ids_include_batch_date` — assert IDs embed batch date, not bare `SYN-NNNNN`
-- [ ] `test_ids_unique_across_seeds` — seed=0 and seed=1 produce no ID collision
-- [ ] `test_birth_year_before_event_year` — all records satisfy `birthYear < eventYear`
-- [ ] `test_age_in_plausible_range` — 1 ≤ age ≤ 110 for all records with `birthYear`
-- [ ] Fix generator: embed batch date + seed in `recordId` prefix
-- [ ] Fix generator: add `assert birth_year < event_year` guard in `rand_birth_year`
+- [x] `test_ids_include_batch_date` — assert IDs embed batch date, not bare `SYN-NNNNN`
+- [x] `test_ids_unique_across_seeds` — seed=0 and seed=1 produce no ID collision
+- [x] `test_birth_year_before_event_year` — all records satisfy `birthYear < eventYear`
+- [x] `test_age_in_plausible_range` — 1 ≤ age ≤ 110 for all records with `birthYear`
+- [x] Fix generator: embed batch date + seed in `recordId` prefix (`SYN-YYYYMMDD-sN-NNNNN`)
+- [x] Fix generator: `rand_birth_year` already satisfies coherence; regression tests confirm
 
 ---
 
@@ -53,12 +53,12 @@ Aurora cold-start timeouts without data loss or silent corruption.
 - DLQ message contains bucket, key, line number, and `recordId`
 
 **Tasks:**
-- [ ] `test_409_treated_as_success` — mock API 409, assert `ok` increments
-- [ ] `test_double_invocation_idempotent` — call handler twice, assert same result
-- [ ] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
-- [ ] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
-- [ ] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
-- [ ] Add exponential backoff + DLQ send to `ingest-from-s3.py`
+- [x] `test_409_treated_as_success` — mock API 409, assert `ok` increments
+- [x] `test_double_invocation_idempotent` — call handler twice, assert same result
+- [x] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
+- [x] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
+- [x] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
+- [x] Add exponential backoff + DLQ send to `ingest-from-s3.py` (`post_record_with_retry`, `_send_to_dlq`)
 
 ---
 
@@ -406,9 +406,9 @@ commission (ready for live demo) with documented warm-up time.
 6. Seed data verified via `demo/seed-data.sh` if DB was reset
 
 **Tasks:**
-- [ ] `deploy/demo-stop.sh` — scale ECS to 0, pause Aurora, print cost summary
-- [ ] `deploy/demo-start.sh` — scale ECS to 1, wait for health, run pre-demo checklist
-- [ ] `deploy/demo-checklist.sh` — verify ALB health, seed data present, Bedrock reachable
+- [x] `deploy/demo-stop.sh` — scale ECS to 0, pause Aurora, print cost summary
+- [x] `deploy/demo-start.sh` — scale ECS to 1, wait for health, run pre-demo checklist
+- [x] `deploy/demo-checklist.sh` — verify ALB health, seed data present, Bedrock reachable
 - [ ] `test_demo_stop_is_idempotent` — run stop twice, assert no errors
 - [ ] `test_demo_start_reaches_healthy` — mock ECS/ALB, assert checklist passes
 - [ ] Add estimated warm-up time to `docs/DEPLOYMENT_ECS_FARGATE.md`
