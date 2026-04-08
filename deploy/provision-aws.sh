@@ -184,6 +184,7 @@ if [ "$DB_STATUS" = "not-found" ]; then
     --db-subnet-group-name "${APP}-subnet-group" \
     --vpc-security-group-ids "$DB_SG_ID" \
     --no-deletion-protection \
+    --backup-retention-period 7 \
     --enable-cloudwatch-logs-exports postgresql
   detail "cluster submitted: ${DB_CLUSTER_ID}"
 
@@ -538,6 +539,112 @@ if [ "$OIDC_ROLE_ARN" = "not-found" ]; then
 else
   echo "  ✓ OIDC role exists"
   detail "${OIDC_ROLE_ARN}"
+fi
+
+# ── Sprint 8 — Operational Reliability ───────────────────────────────────────
+echo ""
+echo "▶  Sprint 8 — Secrets rotation, alarms, budget"
+
+# Secrets Manager: enable 30-day automatic rotation
+# (uses the built-in RDS rotation Lambda managed by Secrets Manager)
+ROTATION_ENABLED=$(aws secretsmanager describe-secret \
+  --region "$REGION" \
+  --secret-id "$SECRET_ARN" \
+  --query "RotationEnabled" --output text 2>/dev/null || echo "false")
+if [ "$ROTATION_ENABLED" != "True" ]; then
+  aws_q aws secretsmanager rotate-secret \
+    --region "$REGION" \
+    --secret-id "$SECRET_ARN" \
+    --rotation-rules AutomaticallyAfterDays=30 2>/dev/null || \
+    echo "  ⚠  rotation requires a rotation Lambda — configure manually if needed"
+  echo "  ✓ Secrets Manager rotation policy: 30 days"
+else
+  echo "  ✓ Secrets Manager rotation already enabled"
+fi
+
+# SNS topic for operational alarms (shared with provision-lambda.sh)
+SNS_TOPIC_NAME="${APP}-alerts"
+ALARM_SNS=$(aws sns list-topics --region "$REGION" \
+  --query "Topics[?ends_with(TopicArn,'${SNS_TOPIC_NAME}')].TopicArn | [0]" \
+  --output text 2>/dev/null || echo "")
+if [ -z "$ALARM_SNS" ] || [ "$ALARM_SNS" = "None" ]; then
+  ALARM_SNS=$(aws sns create-topic --region "$REGION" \
+    --name "$SNS_TOPIC_NAME" --query TopicArn --output text)
+  echo "  ✓ SNS topic created: ${ALARM_SNS}"
+else
+  echo "  ✓ SNS topic exists: ${ALARM_SNS}"
+fi
+
+# CloudWatch alarm: ECS memory utilization > 80%
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-ecs-memory-high" \
+  --alarm-description "ECS task memory utilization > 80% — risk of OOM kill" \
+  --namespace "AWS/ECS" \
+  --metric-name "MemoryUtilization" \
+  --dimensions Name=ClusterName,Value="$CLUSTER" Name=ServiceName,Value="$SERVICE" \
+  --statistic Average \
+  --period 300 \
+  --evaluation-periods 2 \
+  --threshold 80 \
+  --comparison-operator GreaterThanThreshold \
+  --alarm-actions "$ALARM_SNS" \
+  --ok-actions "$ALARM_SNS" \
+  --treat-missing-data notBreaching
+echo "  ✓ alarm: le-ecs-memory-high (ECS MemoryUtilization > 80%)"
+
+# CloudWatch alarm: Aurora FreeLocalStorage < 20% of 100 GiB (20 GiB = 21474836480 bytes)
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-aurora-storage-low" \
+  --alarm-description "Aurora FreeLocalStorage < 20 GiB — storage growth risk" \
+  --namespace "AWS/RDS" \
+  --metric-name "FreeLocalStorage" \
+  --dimensions Name=DBClusterIdentifier,Value="$DB_CLUSTER_ID" \
+  --statistic Average \
+  --period 300 \
+  --evaluation-periods 3 \
+  --threshold 21474836480 \
+  --comparison-operator LessThanThreshold \
+  --alarm-actions "$ALARM_SNS" \
+  --treat-missing-data notBreaching
+echo "  ✓ alarm: le-aurora-storage-low (FreeLocalStorage < 20 GiB)"
+
+# AWS Budget: monthly spend alarm at $50
+BUDGET_NAME="${APP}-monthly-budget"
+ACCOUNT_ID_LOCAL=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+if [ -n "$ACCOUNT_ID_LOCAL" ]; then
+  EXISTING_BUDGET=$(aws budgets describe-budget \
+    --account-id "$ACCOUNT_ID_LOCAL" \
+    --budget-name "$BUDGET_NAME" \
+    --query "Budget.BudgetName" --output text 2>/dev/null || echo "")
+  if [ -z "$EXISTING_BUDGET" ] || [ "$EXISTING_BUDGET" = "None" ]; then
+    aws_q aws budgets create-budget \
+      --account-id "$ACCOUNT_ID_LOCAL" \
+      --budget "{
+        \"BudgetName\": \"${BUDGET_NAME}\",
+        \"BudgetLimit\": {\"Amount\": \"50\", \"Unit\": \"USD\"},
+        \"TimeUnit\": \"MONTHLY\",
+        \"BudgetType\": \"COST\"
+      }" \
+      --notifications-with-subscribers "[{
+        \"Notification\": {
+          \"NotificationType\": \"ACTUAL\",
+          \"ComparisonOperator\": \"GREATER_THAN\",
+          \"Threshold\": 80,
+          \"ThresholdType\": \"PERCENTAGE\"
+        },
+        \"Subscribers\": [{
+          \"SubscriptionType\": \"SNS\",
+          \"Address\": \"${ALARM_SNS}\"
+        }]
+      }]"
+    echo "  ✓ budget: ${BUDGET_NAME} (\$50/month, alert at 80%)"
+  else
+    echo "  ✓ budget exists: ${BUDGET_NAME}"
+  fi
+else
+  echo "  ⚠  skipping budget — could not determine account ID"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

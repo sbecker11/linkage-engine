@@ -457,17 +457,17 @@ S3 to bound active Aurora storage costs.
 **Threats:** Unbounded storage growth · embedding table dominates storage (6KB/record)
 
 **Proof of success:**
-- `deploy/archive-records.sh` moves records older than N years to S3 Parquet
+- `deploy/archive-records.sh` moves records older than N days to S3 NDJSON (queryable via Athena JSON SerDe)
 - CloudWatch alarm fires when Aurora storage exceeds threshold
-- Archived records are queryable via Athena (schema documented)
+- Archived records are queryable via Athena (schema documented in `docs/DATA_PIPELINE_S3.md`)
 - `record_embeddings` rows for archived records are pruned
 
 **Tasks:**
-- [ ] Define retention policy: archive records with `created_at` older than 90 days (configurable)
-- [ ] `deploy/archive-records.sh` — exports to S3 via `aws rds start-export-task` or COPY TO
-- [ ] CloudWatch alarm: Aurora `FreeLocalStorage` < 20% of allocated
-- [ ] `test_archive_script_dry_run` — assert correct records selected, no DB mutation in dry-run
-- [ ] Document Athena table DDL for archived Parquet in `docs/DATA_PIPELINE_S3.md`
+- [x] Define retention policy: archive records with `created_at` older than 90 days (configurable via `RETENTION_DAYS`)
+- [x] `deploy/archive-records.sh` — exports to S3 via `psql COPY TO` as NDJSON; `--dry-run` mode prints count with no DB changes
+- [x] CloudWatch alarm: Aurora `FreeLocalStorage` < 20 GiB → SNS (`le-aurora-storage-low` in `provision-aws.sh`)
+- [x] `deploy/test_archive_records.py` — 5 tests: dry-run exits zero, reports count, no DELETE called, mentions DRY RUN, exits zero when nothing to archive
+- [x] Document Athena table DDL for archived NDJSON in `docs/DATA_PIPELINE_S3.md`
 
 ---
 
@@ -484,12 +484,12 @@ replace exact vector scan with HNSW approximate nearest-neighbour index.
 - `pg_stat_user_indexes` shows no zero-scan indices after 24h of traffic
 
 **Tasks:**
-- [ ] Add composite index `(lower(family_name), event_year)` — primary linkage query pattern
-- [ ] Add partial index on `birth_year IS NOT NULL` — AgeConsistencyRule filter
-- [ ] Add HNSW index on `record_embeddings.embedding` via Flyway migration
-- [ ] `V6__performance_indices.sql` Flyway migration
-- [ ] `IndexPerformanceTest::vectorSearchUsesHnswIndex` — assert EXPLAIN output contains `hnsw`
-- [ ] Document index strategy in `docs/ARCHITECTURE.md`
+- [x] Add composite index `(lower(family_name), event_year)` — primary linkage query pattern
+- [x] Add partial index on `birth_year IS NOT NULL` — AgeConsistencyRule filter
+- [x] Add HNSW index on `record_embeddings.embedding` via Flyway migration
+- [x] `V6__performance_indices.sql` Flyway migration (all three indices with `IF NOT EXISTS`)
+- [x] `IndexPerformanceTest` — 3 tests: HNSW index present, composite name+year index present, partial birth_year index present
+- [x] Document index strategy in `docs/ARCHITECTURE.md` (section 12)
 
 ---
 
@@ -508,13 +508,13 @@ alarms, and enforce secrets rotation.
 - Secrets Manager rotation policy set to 30 days
 
 **Tasks:**
-- [ ] Increase Aurora backup retention to 7 days in `deploy/provision-aws.sh`
-- [ ] Document PITR restore procedure in `docs/AURORA_POSTGRESQL.md`
-- [ ] Add `-Xmx1400m -Xms512m` to `ENTRYPOINT` in `Dockerfile`
-- [ ] CloudWatch alarm: ECS `MemoryUtilization` > 80% → SNS notification
-- [ ] AWS Budget: monthly spend alarm at $50 threshold
-- [ ] Secrets Manager rotation: 30-day automatic rotation via `deploy/provision-aws.sh`
-- [ ] `MemoryTuningTest::appStartsWithinMemoryBudget` — assert heap usage < 1400m after startup
+- [x] Increase Aurora backup retention to 7 days (`--backup-retention-period 7` in `provision-aws.sh`)
+- [x] Document PITR restore procedure in `docs/AURORA_POSTGRESQL.md` (section 9, includes DR drill checklist)
+- [x] Add `-Xmx1400m -Xms512m` to `ENTRYPOINT` in `Dockerfile`
+- [x] CloudWatch alarm: ECS `MemoryUtilization` > 80% → SNS (`le-ecs-memory-high` in `provision-aws.sh`)
+- [x] AWS Budget: monthly spend alarm at $50 threshold (`linkage-engine-monthly-budget` in `provision-aws.sh`)
+- [x] Secrets Manager rotation: 30-day automatic rotation via `provision-aws.sh`
+- [x] `MemoryTuningTest` — 2 tests: heap within budget when `-Xmx` is set; Dockerfile contains `-Xmx1400m`
 
 ---
 

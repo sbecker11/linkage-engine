@@ -378,3 +378,71 @@ Full conventions (prefixes, IAM, local vs AWS access, env vars): `docs/DATA_PIPE
 ## 11. Deployment
 
 ECS / Fargate scaffolding and Secrets Manager integration: `docs/DEPLOYMENT_ECS_FARGATE.md`.
+
+
+---
+
+## 12. Database Index Strategy (Sprint 7)
+
+Three indices are applied by the `V6__performance_indices.sql` Flyway migration
+to address the most common query patterns.
+
+### Index 1 — Composite `(lower(family_name), event_year)`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_records_family_name_event_year
+    ON records (lower(family_name), event_year);
+```
+
+**Covers:** Stage 1 SQL search in `LinkageRecordRepository` — the primary
+linkage query filters on partial name match and a ±5-year event window.
+`lower()` enables case-insensitive matching without a separate cleansed column.
+
+**Expected plan:** `Index Scan using idx_records_family_name_event_year`
+instead of `Seq Scan on records`.
+
+### Index 2 — Partial `birth_year IS NOT NULL`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_records_birth_year_not_null
+    ON records (birth_year)
+    WHERE birth_year IS NOT NULL;
+```
+
+**Covers:** `AgeConsistencyRule` and `BiologicalPlausibilityRule` filter on
+`birth_year` presence. Because most records may lack a birth year, a partial
+index avoids indexing NULL rows and stays small.
+
+### Index 3 — HNSW vector index on `record_embeddings.embedding`
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_record_embeddings_hnsw
+    ON record_embeddings
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+```
+
+**Covers:** Stage 2 vector rerank in `VectorRerankService` — cosine similarity
+search over stored 1536-dim embeddings. Replaces the default O(n) exact scan
+with an approximate nearest-neighbour index (HNSW, pgvector ≥ 0.5.0).
+
+**Tuning at query time:**
+```sql
+SET hnsw.ef_search = 100;  -- higher = better recall, slower query
+```
+
+**Expected plan:** `Index Scan using idx_record_embeddings_hnsw` instead of
+`Seq Scan on record_embeddings`.
+
+### Verifying index usage
+
+```sql
+-- After applying V6 migration and running some queries:
+SELECT indexrelname, idx_scan, idx_tup_read
+FROM pg_stat_user_indexes
+WHERE schemaname = 'public'
+ORDER BY idx_scan DESC;
+```
+
+Zero-scan indices after 24h of traffic indicate unused indices that should be
+reviewed for removal to reduce write overhead.

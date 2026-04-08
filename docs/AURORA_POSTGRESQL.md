@@ -201,3 +201,104 @@ aws rds modify-db-cluster \
 | Min 0 ACU (pause) | ~15s | ~$0 idle | Portfolio / demo |
 | Min 0.5 ACU | ~0s | ~$25 | Active development |
 | Min 2 ACU | ~0s | ~$100 | Production |
+
+---
+
+## 9. Point-in-Time Recovery (PITR) — Sprint 8
+
+Aurora retains automated backups for **7 days** (configured via
+`--backup-retention-period 7` in `provision-aws.sh`). PITR lets you restore
+the cluster to any second within that window.
+
+### When to use PITR
+
+| Scenario | Action |
+|---|---|
+| Accidental `DELETE` or `TRUNCATE` | Restore to 1 minute before the statement |
+| Flyway migration applied to wrong cluster | Restore to before migration ran |
+| Data corruption from a bad ingest batch | Restore to before the batch was processed |
+| Disaster recovery drill | Restore to 24h ago, verify data, delete restore |
+
+### Restore procedure
+
+```bash
+REGION=us-west-1
+SOURCE_CLUSTER=linkage-engine-aurora
+RESTORE_CLUSTER=linkage-engine-aurora-restore
+RESTORE_TO="2026-04-08T14:30:00Z"   # ISO-8601 UTC — must be within 7-day window
+
+# 1. Start the restore (creates a new cluster — does not touch the source)
+aws rds restore-db-cluster-to-point-in-time \
+  --region "$REGION" \
+  --source-db-cluster-identifier "$SOURCE_CLUSTER" \
+  --db-cluster-identifier "$RESTORE_CLUSTER" \
+  --restore-to-time "$RESTORE_TO" \
+  --serverless-v2-scaling-configuration MinCapacity=0.5,MaxCapacity=2
+
+# 2. Add a writer instance to the restored cluster
+aws rds create-db-instance \
+  --region "$REGION" \
+  --db-instance-identifier "${RESTORE_CLUSTER}-writer" \
+  --db-cluster-identifier "$RESTORE_CLUSTER" \
+  --db-instance-class db.serverless \
+  --engine aurora-postgresql
+
+# 3. Wait for the restored cluster to become available (~5 min)
+aws rds wait db-cluster-available \
+  --region "$REGION" \
+  --db-cluster-identifier "$RESTORE_CLUSTER"
+
+# 4. Get the restored cluster endpoint
+aws rds describe-db-clusters \
+  --region "$REGION" \
+  --db-cluster-identifier "$RESTORE_CLUSTER" \
+  --query "DBClusters[0].Endpoint" --output text
+
+# 5. Verify data (connect with psql and inspect)
+#    PGPASSWORD=<password> psql -h <endpoint> -U ancestry -d linkage_db \
+#      -c "SELECT count(*) FROM records;"
+
+# 6. If the restore is correct, update the Secrets Manager secret to point
+#    to the restored cluster endpoint, then update ECS to pick up the new secret.
+#    (Or swap DNS if using Route 53 CNAME.)
+
+# 7. Delete the restored cluster when done (to avoid ongoing charges)
+aws rds delete-db-instance \
+  --region "$REGION" \
+  --db-instance-identifier "${RESTORE_CLUSTER}-writer" \
+  --skip-final-snapshot
+
+aws rds delete-db-cluster \
+  --region "$REGION" \
+  --db-cluster-identifier "$RESTORE_CLUSTER" \
+  --skip-final-snapshot
+```
+
+### Important notes
+
+- PITR creates a **new cluster** — the source cluster is untouched.
+- The restored cluster does **not** inherit the original's security groups
+  automatically; add them via `modify-db-cluster` if needed.
+- Flyway migrations are not re-applied — the restored DB already contains the
+  schema at the point-in-time. If you restore to before a migration, the
+  Spring Boot app will re-apply it on next startup.
+- Backup retention is set to 7 days in `provision-aws.sh`. To change it on an
+  existing cluster:
+  ```bash
+  aws rds modify-db-cluster \
+    --region us-west-1 \
+    --db-cluster-identifier linkage-engine-aurora \
+    --backup-retention-period 7 \
+    --apply-immediately
+  ```
+
+### Disaster recovery drill checklist
+
+Run this drill before any production demo to verify PITR is working:
+
+- [ ] Confirm `BackupRetentionPeriod = 7` in AWS Console → RDS → Clusters
+- [ ] Restore to `now() - 1 hour` using the procedure above
+- [ ] Verify `SELECT count(*) FROM records` returns expected row count
+- [ ] Verify Spring Boot connects to restored cluster and `/actuator/health` returns `UP`
+- [ ] Delete the restored cluster
+- [ ] Record the restore time (target: < 15 minutes end-to-end)

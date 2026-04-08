@@ -1,82 +1,199 @@
-# Standard data pipeline: S3 landing zone → PostgreSQL
+# Data Pipeline — S3 Storage and Archival
 
-This document is the **project standard** for where **raw, searchable-ingest source data** lives and how it reaches the linkage engine in **both local development and AWS**.
+This document describes the S3 bucket layout for the linkage-engine ingest
+pipeline, the archival strategy for aged-out records, and how to query
+archived data with Amazon Athena.
 
-## Principles
+---
 
-1. **S3 is the system of record for raw artifacts** (exports, OCR output, JSON/NDJSON lines, CSV dumps, bundles). It is cheap, durable, and shared across environments when you use one bucket (or mirrored buckets) with appropriate IAM.
-2. **S3 is not the query engine.** Full-text and linkage **search** run against **PostgreSQL** (`records`, optional `record_embeddings` / pgvector). Raw files in S3 are **ingested** into those tables (and embeddings generated when Titan is enabled).
-3. **Same mental model everywhere:** *land → validate/transform → upsert DB → optional vectors.* Local and AWS differ only in **credentials, network path, and who runs the ingest job** (laptop script, ECS task, Lambda, etc.).
+## 1. S3 Bucket Layout
 
-## Recommended bucket layout
-
-Use a single bucket (or `dev` / `prod` prefixes) with predictable prefixes:
+### `linkage-engine-raw-<account>` — External upload target
 
 | Prefix | Purpose |
-| :--- | :--- |
-| `landing/` | Immutable drops from upstream (append-only; never overwritten in place) |
-| `staging/` | Parsed/normalized rows ready for DB load (optional) |
-| `archive/` | After successful ingest, optionally move or copy objects here for audit |
-| `errors/` | Quarantine for bad files + sidecar error metadata |
+|---|---|
+| `<filename>.ndjson` | Raw NDJSON uploaded by external parties (PutObject only) |
+| `archive/<filename>.ndjson` | Original file after `linkage-engine-ingestor` has chunked it |
 
-**Object naming:** include a stable id or batch id, e.g. `landing/batch=2025-03-20/source=crm/part-00001.ndjson`.
+- External parties have `s3:PutObject` only (IAM role or presigned URL).
+- `linkage-engine-ingestor` Lambda reads from root, writes chunks to the
+  landing bucket, then moves the original to `archive/`.
 
-## Ingest paths (standard)
+### `linkage-engine-landing-<account>` — Internal pipeline bucket
 
-| Path | When to use |
-| :--- | :--- |
-| **API** | `POST /v1/records` for low-volume or operational upserts (already implemented). |
-| **Batch from S3** | A job (script, ECS scheduled task, or Lambda) lists `landing/` or `staging/`, reads objects, maps rows to `records`, calls the same persistence logic or JDBC bulk load, then writes embeddings if configured. *Implement as a follow-on when batch volume requires it.* |
+| Prefix | Purpose |
+|---|---|
+| `landing/<file>-chunk-NNN.ndjson` | Chunked raw files awaiting validation |
+| `validated/<file>-chunk-NNN.ndjson` | Records that passed all validation rules |
+| `quarantine/<file>-chunk-NNN.ndjson` | Records that failed one or more rules |
+| `quarantine/<file>-chunk-NNN.manifest` | Lifecycle manifest for each quarantined file |
 
-Until a dedicated batch worker ships in-repo, the standard is still: **store raw in S3** + **ingest via your chosen runner** that ends in the same `records` / `record_embeddings` schema Flyway defines.
+### `linkage-engine-archive-<account>` — Long-term cold storage
 
-## Local vs AWS access to the same bucket
+| Prefix | Purpose |
+|---|---|
+| `records/<YYYY-MM-DD>/records.ndjson` | Archived `records` rows (JSON lines) |
+| `records/<YYYY-MM-DD>/embeddings.ndjson` | Archived `record_embeddings` rows (JSON lines) |
+| `records/<YYYY-MM-DD>/manifest.json` | Archive run metadata |
 
-### Option A — Shared AWS S3 (recommended for teams)
+---
 
-- **Local:** AWS CLI or SDK uses `~/.aws/credentials`, SSO, or environment variables (`AWS_ACCESS_KEY_ID`, etc.) with `s3:GetObject` / `s3:ListBucket` on the landing prefix.
-- **AWS (ECS/Fargate):** Task role grants the same S3 permissions; no long-lived keys in the container.
-- **Configuration:** standardize on env vars (see below) so the ingest tooling reads one contract.
+## 2. Archival Policy
 
-### Option B — S3-compatible local store (optional)
+Records are archived when their `created_at` timestamp is older than
+`RETENTION_DAYS` (default: 90 days). Run the archive script manually or
+schedule it via EventBridge:
 
-- Run **MinIO** (or similar) locally; set `AWS_ENDPOINT_URL` (or your tool’s equivalent) to point at MinIO.
-- **Production** keeps real S3; **local** can use a bucket name like `linkage-landing-local` for offline work.
-- Use when you must avoid touching shared S3 from every laptop.
+```bash
+# Dry run — shows count and sample IDs, no DB changes
+./deploy/archive-records.sh --dry-run
 
-### Option C — Sync subset for offline dev
+# Live run — exports to S3, prunes Aurora rows
+./deploy/archive-records.sh
 
-- `aws s3 sync s3://your-bucket/landing/ ./local-landing/` then ingest from disk.
-- Good for demos; risk of **stale** data—document the sync cadence.
+# Custom retention window
+RETENTION_DAYS=30 ./deploy/archive-records.sh --dry-run
+```
 
-## Standard environment variables
+The script:
+1. Counts eligible records (older than `RETENTION_DAYS`)
+2. Exports `records` + `record_embeddings` to S3 as NDJSON
+3. Writes a `manifest.json` with archive metadata
+4. Deletes `record_embeddings` rows (FK constraint first)
+5. Deletes `records` rows
 
-These are the **contract** for tooling and future batch ingest (align with AWS SDK v2 defaults where applicable):
+---
 
-| Variable | Purpose |
-| :--- | :--- |
-| `AWS_REGION` | Region of the bucket (and Bedrock). |
-| `LINKAGE_S3_BUCKET` | Bucket name for raw landing data. |
-| `LINKAGE_S3_PREFIX` | Optional prefix (default `landing/`). |
-| `AWS_ENDPOINT_URL` | Optional; set for MinIO/LocalStack (local only). |
+## 3. Athena DDL — Querying Archived Records
 
-**Secrets:** never commit bucket names that embed credentials; use IAM or scoped keys.
+Create an Athena database and tables to query archived NDJSON with standard SQL.
 
-## IAM (AWS)
+### 3a. Create Athena database
 
-Minimum permissions for **ingest readers**:
+```sql
+CREATE DATABASE IF NOT EXISTS linkage_archive
+  LOCATION 's3://linkage-engine-archive-<account>/';
+```
 
-- `s3:ListBucket` on `arn:aws:s3:::LINKAGE_S3_BUCKET` with prefix condition matching `LINKAGE_S3_PREFIX`
-- `s3:GetObject` on `arn:aws:s3:::LINKAGE_S3_BUCKET/LINKAGE_S3_PREFIX*`
+### 3b. Records table
 
-ECS task role (or Lambda execution role) should include the above **in addition to** Bedrock and Secrets Manager policies already described in `DEPLOYMENT_ECS_FARGATE.md`.
+```sql
+CREATE EXTERNAL TABLE IF NOT EXISTS linkage_archive.records (
+  record_id       STRING,
+  given_name      STRING,
+  family_name     STRING,
+  event_type      STRING,
+  event_year      INT,
+  event_location  STRING,
+  birth_year      INT,
+  gender          STRING,
+  notes           STRING,
+  created_at      STRING,
+  updated_at      STRING
+)
+ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
+WITH SERDEPROPERTIES (
+  'serialization.format' = '1',
+  'ignore.malformed.json' = 'true'
+)
+LOCATION 's3://linkage-engine-archive-<account>/records/'
+TBLPROPERTIES (
+  'has_encrypted_data' = 'false',
+  'projection.enabled' = 'true',
+  'projection.archive_date.type' = 'date',
+  'projection.archive_date.range' = '2024-01-01,NOW',
+  'projection.archive_date.format' = 'yyyy-MM-dd',
+  'projection.archive_date.interval' = '1',
+  'projection.archive_date.interval.unit' = 'DAYS',
+  'storage.location.template' =
+    's3://linkage-engine-archive-<account>/records/${archive_date}/'
+);
+```
 
-## How this relates to Bedrock
+### 3c. Embeddings table
 
-- Bedrock **does not read S3** for your linkage queries in the current design.
-- Flow: **S3 (raw)** → **ingest** → **Postgres** → **resolve** uses SQL + optional vectors + **then** Bedrock for LLM summary/embeddings as configured.
+```sql
+CREATE EXTERNAL TABLE IF NOT EXISTS linkage_archive.embeddings (
+  record_id   STRING,
+  embedding   STRING,
+  model_id    STRING,
+  created_at  STRING
+)
+ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
+WITH SERDEPROPERTIES (
+  'serialization.format' = '1',
+  'ignore.malformed.json' = 'true'
+)
+LOCATION 's3://linkage-engine-archive-<account>/records/'
+TBLPROPERTIES (
+  'has_encrypted_data' = 'false',
+  'projection.enabled' = 'true',
+  'projection.archive_date.type' = 'date',
+  'projection.archive_date.range' = '2024-01-01,NOW',
+  'projection.archive_date.format' = 'yyyy-MM-dd',
+  'projection.archive_date.interval' = '1',
+  'projection.archive_date.interval.unit' = 'DAYS',
+  'storage.location.template' =
+    's3://linkage-engine-archive-<account>/records/${archive_date}/'
+);
+```
 
-## References
+### 3d. Example queries
 
-- Schema and API: `docs/README.md`, `docs/ARCHITECTURE.md`
-- ECS/Fargate: `docs/DEPLOYMENT_ECS_FARGATE.md`
+```sql
+-- Find all archived records for a family name
+SELECT record_id, given_name, family_name, event_year, event_location
+FROM linkage_archive.records
+WHERE lower(family_name) = 'smith'
+  AND archive_date BETWEEN '2026-01-01' AND '2026-12-31'
+ORDER BY event_year;
+
+-- Count archived records by event type
+SELECT event_type, count(*) AS total
+FROM linkage_archive.records
+GROUP BY event_type
+ORDER BY total DESC;
+
+-- Find archived records with embeddings
+SELECT r.record_id, r.given_name, r.family_name
+FROM linkage_archive.records r
+JOIN linkage_archive.embeddings e ON r.record_id = e.record_id
+WHERE r.archive_date = '2026-04-08';
+```
+
+---
+
+## 4. Storage Cost Estimates
+
+| Tier | Approx. size per 1,000 records | Monthly cost (S3 Standard) |
+|---|---|---|
+| `records.ndjson` | ~500 KB | ~$0.01 |
+| `embeddings.ndjson` | ~6 MB (1536-dim float32) | ~$0.14 |
+| Total per 1,000 records/month | ~6.5 MB | ~$0.15 |
+
+At 90-day retention, a dataset of 100,000 records generates ~650 MB of archive
+data per archival run — approximately $0.015/month in S3 Standard storage.
+
+Use S3 Intelligent-Tiering or Glacier Instant Retrieval for older archives to
+reduce storage costs further.
+
+---
+
+## 5. Monitoring
+
+The `le-aurora-storage-low` CloudWatch alarm (provisioned by `provision-aws.sh`)
+fires when Aurora `FreeLocalStorage` drops below 20 GiB, giving advance warning
+before an archival run is needed.
+
+Check current storage:
+```bash
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/RDS \
+  --metric-name FreeLocalStorage \
+  --dimensions Name=DBClusterIdentifier,Value=linkage-engine-aurora \
+  --start-time $(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Average \
+  --region us-west-1
+```
