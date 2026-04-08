@@ -44,6 +44,14 @@ INGEST_ENDPOINT = f"{API_URL}/v1/records"
 MAX_RETRIES   = 4          # attempts: 1 original + 3 retries
 RETRY_BASE_S  = 1.0        # first backoff: 1 s → 2 s → 4 s
 
+# Fields injected by validate-and-route.py for provenance tracking.
+# RecordIngestRequest is a strict Java record — unknown fields cause HTTP 400.
+# Strip these before POSTing so that quarantine files can be safely replayed.
+_PROVENANCE_FIELDS = frozenset({
+    "_sourceKey", "_sourceLine", "_batchId",
+    "_reasons", "_reason", "_raw",
+})
+
 
 def post_record(record: dict) -> tuple[int, str]:
     """POST a single record to /v1/records. Returns (status_code, body)."""
@@ -142,6 +150,10 @@ def process_object(bucket: str, key: str) -> dict:
             failed += 1
             errors.append({"line": i, "error": f"invalid JSON: {e}", "raw": line[:120]})
             continue
+
+        # Strip validator provenance fields so quarantine files can be replayed
+        # without triggering HTTP 400 from the strict RecordIngestRequest DTO.
+        record = {k: v for k, v in record.items() if k not in _PROVENANCE_FIELDS}
 
         if not record.get("recordId") or not record.get("givenName") or not record.get("familyName"):
             logger.warning("  line %d: missing required fields (recordId/givenName/familyName)", i)

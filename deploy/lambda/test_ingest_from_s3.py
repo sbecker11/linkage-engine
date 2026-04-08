@@ -2,11 +2,15 @@
 deploy/lambda/test_ingest_from_s3.py
 
 Sprint 2 — Lambda Idempotency and Retry
+Sprint 3 — Provenance field stripping on quarantine replay
+
 Tests that simulate, detect, and verify fixes for:
   - Double S3 invocation producing duplicate DB writes
   - Aurora cold-start 503 not triggering retry
   - 503 exhaustion not routing failed record to DLQ
   - DLQ message missing context (bucket/key/line/recordId)
+  - Provenance fields (_sourceKey, _sourceLine, _batchId, _reasons) in a
+    quarantine file causing HTTP 400 when replayed through the ingest Lambda
 
 Run:
     pytest deploy/lambda/test_ingest_from_s3.py -v
@@ -267,3 +271,57 @@ class TestDlqMessageContent:
         assert msg_body["key"]    == "landing/test.ndjson", f"key mismatch: {msg_body['key']}"
         assert msg_body["recordId"] == SAMPLE_RECORD["recordId"], \
             f"recordId mismatch: {msg_body['recordId']}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Threat: provenance fields in quarantine files cause HTTP 400 on replay
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestProvenanceFieldStripping:
+
+    def test_quarantine_replay_strips_provenance_fields(self):
+        """
+        SIMULATE: a quarantine file (written by validate-and-route.py) is fed
+                  to the ingest Lambda for replay.  Every line contains the
+                  validator's provenance fields: _sourceKey, _sourceLine,
+                  _batchId, _reasons.
+        DETECT:   if the Lambda POSTs those fields verbatim, the strict Java
+                  RecordIngestRequest DTO rejects them with HTTP 400 and the
+                  record is never inserted.
+        MITIGATE: strip all underscore-prefixed keys from each record dict
+                  before calling post_record().
+        VERIFY:   the body passed to post_record() contains none of the
+                  provenance keys.
+        """
+        quarantine_record = {
+            **SAMPLE_RECORD,
+            "_sourceKey":  "landing/batch-20260406.ndjson",
+            "_sourceLine": 7,
+            "_batchId":    "a3f7c2d1-4b8e-4f2a-9c1d-0e5f6a7b8c9d",
+            "_reasons":    ["eventYear out of range"],
+        }
+
+        mod, fake_s3, _ = load_lambda()
+        fake_s3.get_object.return_value = _ndjson_body(quarantine_record)
+
+        posted_bodies = []
+
+        def capture_post(record):
+            posted_bodies.append(dict(record))
+            return (204, "")
+
+        with patch.object(mod, "post_record", side_effect=capture_post):
+            result = mod.process_object("test-bucket", "quarantine/batch-20260406.ndjson")
+
+        assert result["ok"] == 1, (
+            f"Expected ok=1, got ok={result['ok']} failed={result['failed']}.\n"
+            "Fix: strip provenance fields before calling post_record()."
+        )
+        assert len(posted_bodies) == 1, "Expected exactly one POST"
+
+        provenance_keys = {k for k in posted_bodies[0] if k.startswith("_")}
+        assert not provenance_keys, (
+            f"POST body still contains provenance fields: {provenance_keys}\n"
+            "Fix: filter out all underscore-prefixed keys before POSTing.\n"
+            f"Full body sent: {json.dumps(posted_bodies[0], indent=2)}"
+        )

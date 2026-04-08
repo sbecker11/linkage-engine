@@ -152,15 +152,18 @@ This means:
 - Quarantine spike (bulk bad data from external party) going unnoticed
 - Mid-file Lambda crash leaving no audit trail of rejected records
 - Replay of the same S3 event producing undetectable duplicate ingestion
+- **Provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`) injected by the validator cause HTTP 400 when a quarantine file is replayed through the ingest Lambda** — `RecordIngestRequest` is a strict Java record; Spring Boot's Jackson deserialiser rejects unknown properties by default, so every line in a replayed quarantine file fails with 400 and is never inserted
 
 **Proof of success:**
 - `pytest deploy/lambda/test_validate_and_route.py` passes with 0 failures (13 tests)
+- `pytest deploy/lambda/test_ingest_from_s3.py` passes with 0 failures (6 tests, including quarantine-replay test)
 - A non-JSON file dropped in `landing/` is copied to `quarantine/` and never reaches `validated/`
 - A valid NDJSON file is copied to `validated/` and triggers the ingest Lambda
 - A file with 1 bad record in 100 routes 99 lines to `validated/` and 1 line to `quarantine/`
 - Every output line carries `_sourceKey`, `_sourceLine`, and `_batchId`
 - All output lines from one invocation share the same `_batchId`
 - CloudWatch alarm fires when `QuarantinedRecords` > 50 in a 5-minute window → SNS admin notification
+- A quarantine file replayed through the ingest Lambda succeeds (provenance fields stripped before POST)
 
 **Tasks:**
 
@@ -182,6 +185,9 @@ This means:
 - [x] Inject provenance (`_sourceKey`, `_sourceLine`, `_batchId`) into every output line
 - [x] Emit structured log line: `ingress=N validated=N quarantined=N` per invocation
 
+*Ingest Lambda (`deploy/lambda/ingest-from-s3.py`):*
+- [x] Strip all underscore-prefixed provenance fields (`_sourceKey`, `_sourceLine`, `_batchId`, `_reasons`, `_reason`, `_raw`) from each record before POSTing — keeps the `/v1/records` API strict while making quarantine-file replay safe
+
 *Tests (`deploy/lambda/test_validate_and_route.py`) — 13 tests:*
 - [x] `test_non_json_file_quarantined`
 - [x] `test_empty_file_quarantined`
@@ -196,6 +202,9 @@ This means:
 - [x] `test_validated_line_carries_provenance_fields`
 - [x] `test_quarantine_line_carries_provenance_fields`
 - [x] `test_batch_id_is_consistent_within_invocation`
+
+*Tests (`deploy/lambda/test_ingest_from_s3.py`) — 6 tests:*
+- [x] `test_quarantine_replay_strips_provenance_fields` — POST body must not contain any `_`-prefixed keys when ingesting a quarantine file
 
 ---
 
