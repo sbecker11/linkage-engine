@@ -18,22 +18,22 @@ for arg in "$@"; do
 done
 
 # ── colour helpers ─────────────────────────────────────────────────────────────
-GREEN="\033[0;32m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
-ok()   { echo -e "  ${GREEN}✓${RESET}  $*"; }
-warn() { echo -e "  ${YELLOW}⚠${RESET}  $*"; }
-fail() { echo -e "  ${RED}✗${RESET}  $*"; }
+# Bold white text on green/yellow/red background — visible "button" style
+OK_BADGE="\033[1;37;42m  OK  \033[0m"
+WARN_BADGE="\033[1;37;43m WARN \033[0m"
+FAIL_BADGE="\033[1;37;41m FAIL \033[0m"
+DIM="\033[2m"; RESET="\033[0m"
 
-icon() {
-  local val="$1" want="$2"
-  [[ "$val" == "$want" ]] && echo -e "${GREEN}✓${RESET}" || echo -e "${RED}✗${RESET}"
-}
+ok()   { printf "  ${OK_BADGE}  %s\n" "$*"; }
+warn() { printf "  ${WARN_BADGE}  %s\n" "$*"; }
+fail() { printf "  ${FAIL_BADGE}  %s\n" "$*"; }
 
 # ── single pass ───────────────────────────────────────────────────────────────
 run_check() {
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  linkage-engine status  —  $(date '+%Y-%m-%d %H:%M:%S %Z')"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  printf "\n"
+  printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+  printf "  \033[1mlinkage-engine status\033[0m  —  %s\n" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+  printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
   # ── ECS ──────────────────────────────────────────────────────────────────────
   echo ""
@@ -112,21 +112,21 @@ run_check() {
 
   # ── Lambdas ──────────────────────────────────────────────────────────────────
   echo ""
-  echo "▶  Lambda functions  (invocations / errors — last 24h)"
-  SINCE=$(date -u -v-24H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  echo "▶  Lambda functions  (invocations / errors — last 1h)"
+  SINCE=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   for fn in linkage-engine-ingestor linkage-engine-validate linkage-engine-store; do
     INV=$(aws cloudwatch get-metric-statistics --region "$REGION" \
       --namespace AWS/Lambda --metric-name Invocations \
       --dimensions Name=FunctionName,Value="$fn" \
       --start-time "$SINCE" --end-time "$NOW" \
-      --period 86400 --statistics Sum \
+      --period 3600 --statistics Sum \
       --query 'Datapoints[0].Sum' --output text 2>/dev/null)
     ERR=$(aws cloudwatch get-metric-statistics --region "$REGION" \
       --namespace AWS/Lambda --metric-name Errors \
       --dimensions Name=FunctionName,Value="$fn" \
       --start-time "$SINCE" --end-time "$NOW" \
-      --period 86400 --statistics Sum \
+      --period 3600 --statistics Sum \
       --query 'Datapoints[0].Sum' --output text 2>/dev/null)
     INV="${INV:-0}"; INV="${INV/None/0}"
     ERR="${ERR:-0}"; ERR="${ERR/None/0}"
@@ -160,8 +160,8 @@ import sys, json
 alarms = json.load(sys.stdin)
 for a in alarms:
     state = a['state']
-    icon  = '\033[0;32m✓\033[0m' if state == 'OK' else '\033[0;31m✗\033[0m'
-    print(f'  {icon}  {a[\"name\"]:<40} {state}')
+    badge = '\033[1;37;42m  OK  \033[0m' if state == 'OK' else '\033[1;37;41m ALRM \033[0m'
+    print(f'  {badge}  {a[\"name\"]:<40} {state}')
 " 2>/dev/null || warn "could not fetch alarms"
 
   echo ""
