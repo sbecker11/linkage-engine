@@ -389,12 +389,13 @@ from CloudWatch Lambda duration logs under real load. Starting default: **200**.
 - [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
 
 *Phase 3d-ii — ingestor Lambda and raw bucket (implement before external uploads):*
-- [ ] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
-- [ ] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
-- [ ] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to landing bucket, archives original to `raw/archive/`
-- [ ] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
-- [ ] Update `generate-presigned-url.sh` to target raw bucket
-- [ ] Provision in `provision-lambda.sh`
+- [x] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
+- [x] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
+- [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to landing bucket, archives original to `archive/`
+- [x] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
+- [x] Update `generate-presigned-url.sh` to target raw bucket
+- [x] Provision in `provision-lambda.sh`
+- [x] Tests: `TestChunkSplitting` (4), `TestArchiving` (2), `TestChunkKeyNaming` (2) — all green
 
 *Phase 3d-iii — parent manifest aggregation (implement when needed):*
 - [ ] DynamoDB table `linkage-engine-chunk-counter`: atomic decrement per chunk completion

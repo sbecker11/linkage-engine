@@ -5,12 +5,16 @@
 # Run once after deploy/provision-aws.sh. Safe to re-run (idempotent).
 #
 # What it creates:
-#   1. S3 landing bucket  (linkage-engine-landing-<account>)
-#   2. SQS dead-letter queue  (linkage-engine-store-dlq)
-#   3. IAM role for store Lambda  (linkage-engine-store-role)
-#   4. Lambda function  (linkage-engine-store)   from deploy/lambda/linkage-engine-store.py
-#   5. Lambda function  (linkage-engine-validate) from deploy/lambda/linkage-engine-validate.py
-#   6. S3 event notifications  (landing/ → validate, validated/ → store)
+#   1. S3 raw bucket      (linkage-engine-raw-<account>)       ← external party uploads here
+#   2. IAM role for ingestor Lambda  (linkage-engine-ingestor-role)
+#   3. Lambda function  (linkage-engine-ingestor)  from deploy/lambda/linkage-engine-ingestor.py
+#   4. S3 event notification  (raw bucket → ingestor)
+#   5. S3 landing bucket  (linkage-engine-landing-<account>)
+#   6. SQS dead-letter queue  (linkage-engine-store-dlq)
+#   7. IAM role for store Lambda  (linkage-engine-store-role)
+#   8. Lambda function  (linkage-engine-store)   from deploy/lambda/linkage-engine-store.py
+#   9. Lambda function  (linkage-engine-validate) from deploy/lambda/linkage-engine-validate.py
+#  10. S3 event notifications  (landing/ → validate, validated/ → store)
 #
 # Usage:
 #   ./deploy/provision-lambda.sh
@@ -22,8 +26,12 @@ VERBOSE="${VERBOSE:-0}"
 REGION="${AWS_REGION:-us-west-1}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 APP=linkage-engine
+RAW_BUCKET="${LINKAGE_S3_RAW_BUCKET:-${APP}-raw-${ACCOUNT_ID}}"
 BUCKET="${LINKAGE_S3_BUCKET:-${APP}-landing-${ACCOUNT_ID}}"
 PREFIX="${LINKAGE_S3_PREFIX:-landing}"
+INGESTOR_FUNCTION_NAME="${APP}-ingestor"
+INGESTOR_ROLE_NAME="${APP}-ingestor-role"
+INGESTOR_LOG_GROUP="/aws/lambda/${INGESTOR_FUNCTION_NAME}"
 FUNCTION_NAME="${APP}-store"
 VALIDATE_FUNCTION_NAME="${APP}-validate"
 VALIDATE_ROLE_NAME="${APP}-validate-role"
@@ -46,14 +54,187 @@ aws_q() { [ "$VERBOSE" -ge 1 ] && "$@" || "$@" > /dev/null; }
 detail() { echo "    $*"; }
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Provisioning Lambda ingest  |  region: ${REGION}  |  account: ${ACCOUNT_ID}"
-echo "  Bucket:  ${BUCKET}"
-echo "  API URL: ${LINKAGE_API_URL}"
+echo "  Provisioning Lambda pipeline  |  region: ${REGION}  |  account: ${ACCOUNT_ID}"
+echo "  Raw bucket:     ${RAW_BUCKET}"
+echo "  Landing bucket: ${BUCKET}"
+echo "  API URL:        ${LINKAGE_API_URL}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# ── 1. S3 landing bucket ──────────────────────────────────────────────────────
+# ── 1. S3 raw bucket (external-party upload target) ───────────────────────────
 echo ""
-echo "▶ 1/5  S3 landing bucket  (${BUCKET})"
+echo "▶ 1/12  S3 raw bucket  (${RAW_BUCKET})"
+if aws s3api head-bucket --bucket "$RAW_BUCKET" --region "$REGION" 2>/dev/null; then
+  echo "  ✓ already exists"
+else
+  if [ "$REGION" = "us-east-1" ]; then
+    aws_q aws s3api create-bucket --bucket "$RAW_BUCKET" --region "$REGION"
+  else
+    aws_q aws s3api create-bucket --bucket "$RAW_BUCKET" --region "$REGION" \
+      --create-bucket-configuration LocationConstraint="$REGION"
+  fi
+  aws_q aws s3api put-public-access-block --bucket "$RAW_BUCKET" \
+    --public-access-block-configuration \
+      "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+  echo "  ✓ created"
+fi
+detail "s3://${RAW_BUCKET}/"
+
+# ── 2. IAM role for ingestor Lambda ──────────────────────────────────────────
+echo ""
+echo "▶ 2/12  Ingestor Lambda IAM role  (${INGESTOR_ROLE_NAME})"
+INGESTOR_ROLE_ARN=$(aws iam get-role --role-name "$INGESTOR_ROLE_NAME" \
+  --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
+
+if [ "$INGESTOR_ROLE_ARN" = "not-found" ]; then
+  INGESTOR_ROLE_ARN=$(aws iam create-role \
+    --role-name "$INGESTOR_ROLE_NAME" \
+    --assume-role-policy-document '{
+      "Version":"2012-10-17",
+      "Statement":[{"Effect":"Allow",
+        "Principal":{"Service":"lambda.amazonaws.com"},
+        "Action":"sts:AssumeRole"}]}' \
+    --query 'Role.Arn' --output text)
+
+  aws_q aws iam attach-role-policy --role-name "$INGESTOR_ROLE_NAME" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # Read from raw bucket, write+archive within raw bucket, write to landing bucket
+  aws_q aws iam put-role-policy --role-name "$INGESTOR_ROLE_NAME" \
+    --policy-name S3IngestorPipeline \
+    --policy-document "{
+      \"Version\":\"2012-10-17\",
+      \"Statement\":[
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:GetObject\",\"s3:HeadObject\"],
+         \"Resource\":\"arn:aws:s3:::${RAW_BUCKET}/*\"},
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:PutObject\",\"s3:CopyObject\",\"s3:DeleteObject\"],
+         \"Resource\":\"arn:aws:s3:::${RAW_BUCKET}/*\"},
+        {\"Effect\":\"Allow\",
+         \"Action\":[\"s3:PutObject\"],
+         \"Resource\":\"arn:aws:s3:::${BUCKET}/${PREFIX}/*\"}
+      ]}"
+
+  echo "  ✓ role created"
+  detail "${INGESTOR_ROLE_ARN}"
+  echo "  ⏳ waiting 10s for IAM propagation…"
+  sleep 10
+else
+  echo "  ✓ role exists"
+  detail "${INGESTOR_ROLE_ARN}"
+fi
+
+# ── 3. Ingestor Lambda function ───────────────────────────────────────────────
+echo ""
+echo "▶ 3/12  Ingestor Lambda function  (${INGESTOR_FUNCTION_NAME})"
+
+LAMBDA_DIR="$(dirname "$0")/lambda"
+INGESTOR_ZIP="/tmp/${INGESTOR_FUNCTION_NAME}.zip"
+cd "$LAMBDA_DIR"
+zip -q "$INGESTOR_ZIP" linkage-engine-ingestor.py
+cd - > /dev/null
+detail "package: ${INGESTOR_ZIP}  ($(wc -c < "$INGESTOR_ZIP" | tr -d ' ') bytes)"
+
+INGESTOR_ENV="Variables={LANDING_BUCKET=${BUCKET},CHUNK_SIZE=200}"
+
+INGESTOR_EXISTS=$(aws lambda get-function --region "$REGION" \
+  --function-name "$INGESTOR_FUNCTION_NAME" \
+  --query 'Configuration.FunctionName' --output text 2>/dev/null || echo "not-found")
+
+if [ "$INGESTOR_EXISTS" = "not-found" ]; then
+  aws_q aws lambda create-function \
+    --region "$REGION" \
+    --function-name "$INGESTOR_FUNCTION_NAME" \
+    --runtime python3.12 \
+    --role "$INGESTOR_ROLE_ARN" \
+    --handler linkage-engine-ingestor.handler \
+    --zip-file "fileb://${INGESTOR_ZIP}" \
+    --timeout 300 \
+    --memory-size 256 \
+    --environment "$INGESTOR_ENV"
+  echo "  ✓ function created"
+  echo "  ⏳ waiting for function to become active…"
+  aws lambda wait function-active --region "$REGION" --function-name "$INGESTOR_FUNCTION_NAME"
+else
+  aws_q aws lambda update-function-code \
+    --region "$REGION" \
+    --function-name "$INGESTOR_FUNCTION_NAME" \
+    --zip-file "fileb://${INGESTOR_ZIP}"
+  aws lambda wait function-updated --region "$REGION" --function-name "$INGESTOR_FUNCTION_NAME"
+  aws_q aws lambda update-function-configuration \
+    --region "$REGION" \
+    --function-name "$INGESTOR_FUNCTION_NAME" \
+    --timeout 300 \
+    --memory-size 256 \
+    --environment "$INGESTOR_ENV"
+  echo "  ✓ function updated"
+fi
+
+INGESTOR_FUNC_ARN=$(aws lambda get-function --region "$REGION" \
+  --function-name "$INGESTOR_FUNCTION_NAME" \
+  --query 'Configuration.FunctionArn' --output text)
+detail "${INGESTOR_FUNC_ARN}"
+
+aws logs create-log-group --region "$REGION" \
+  --log-group-name "$INGESTOR_LOG_GROUP" 2>/dev/null || true
+aws_q aws logs put-retention-policy --region "$REGION" \
+  --log-group-name "$INGESTOR_LOG_GROUP" --retention-in-days 30
+detail "logs: ${INGESTOR_LOG_GROUP}  (30-day retention)"
+
+# ── 4. S3 event notification: raw bucket → ingestor Lambda ───────────────────
+echo ""
+echo "▶ 4/12  S3 event notification  (raw bucket → ${INGESTOR_FUNCTION_NAME})"
+
+aws lambda add-permission \
+  --region "$REGION" \
+  --function-name "$INGESTOR_FUNCTION_NAME" \
+  --statement-id "S3InvokeIngestor" \
+  --action "lambda:InvokeFunction" \
+  --principal "s3.amazonaws.com" \
+  --source-arn "arn:aws:s3:::${RAW_BUCKET}" \
+  --source-account "$ACCOUNT_ID" \
+  2>/dev/null || true
+
+RAW_NOTIFICATION_CONFIG=$(cat <<EOF
+{
+  "LambdaFunctionConfigurations": [
+    {
+      "LambdaFunctionArn": "${INGESTOR_FUNC_ARN}",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "suffix", "Value": ".ndjson"}
+      ]}}
+    },
+    {
+      "LambdaFunctionArn": "${INGESTOR_FUNC_ARN}",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "suffix", "Value": ".jsonl"}
+      ]}}
+    },
+    {
+      "LambdaFunctionArn": "${INGESTOR_FUNC_ARN}",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [
+        {"Name": "suffix", "Value": ".json"}
+      ]}}
+    }
+  ]
+}
+EOF
+)
+
+aws_q aws s3api put-bucket-notification-configuration \
+  --region "$REGION" \
+  --bucket "$RAW_BUCKET" \
+  --notification-configuration "$RAW_NOTIFICATION_CONFIG"
+
+echo "  ✓ notification configured"
+detail "raw/*.ndjson|.jsonl|.json → ${INGESTOR_FUNCTION_NAME}"
+
+# ── 5. S3 landing bucket ──────────────────────────────────────────────────────
+echo ""
+echo "▶ 5/12  S3 landing bucket  (${BUCKET})"
 if aws s3api head-bucket --bucket "$BUCKET" --region "$REGION" 2>/dev/null; then
   echo "  ✓ already exists"
 else
@@ -72,7 +253,7 @@ detail "s3://${BUCKET}/${PREFIX}/"
 
 # ── 2. SQS dead-letter queue ──────────────────────────────────────────────────
 echo ""
-echo "▶ 2/5  SQS dead-letter queue  (${DLQ_NAME})"
+echo "▶ 6/12  SQS dead-letter queue  (${DLQ_NAME})"
 DLQ_URL=$(aws sqs get-queue-url --region "$REGION" \
   --queue-name "$DLQ_NAME" \
   --query 'QueueUrl' --output text 2>/dev/null || echo "not-found")
@@ -95,7 +276,7 @@ detail "ARN: ${DLQ_ARN}"
 
 # ── 3. IAM role for Lambda ────────────────────────────────────────────────────
 echo ""
-echo "▶ 3/5  IAM role  (${ROLE_NAME})"
+echo "▶ 7/12  IAM role  (${ROLE_NAME})"
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
 
@@ -148,7 +329,7 @@ fi
 
 # ── 4. Lambda function ────────────────────────────────────────────────────────
 echo ""
-echo "▶ 4/5  Lambda function  (${FUNCTION_NAME})"
+echo "▶ 8/12  Lambda function  (${FUNCTION_NAME})"
 
 # Zip the function
 LAMBDA_DIR="$(dirname "$0")/lambda"
@@ -216,7 +397,7 @@ detail "logs: ${LOG_GROUP}  (30-day retention)"
 
 # ── 5. Validate Lambda — IAM role ─────────────────────────────────────────────
 echo ""
-echo "▶ 5/10  Validate Lambda IAM role  (${VALIDATE_ROLE_NAME})"
+echo "▶ 9/12  Validate Lambda IAM role  (${VALIDATE_ROLE_NAME})"
 
 VALIDATE_ROLE_ARN=$(aws iam get-role --role-name "$VALIDATE_ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
@@ -264,7 +445,7 @@ fi
 
 # ── 6. Validate Lambda — function ─────────────────────────────────────────────
 echo ""
-echo "▶ 6/10  Validate Lambda function  (${VALIDATE_FUNCTION_NAME})"
+echo "▶ 10/12  Validate Lambda function  (${VALIDATE_FUNCTION_NAME})"
 
 VALIDATE_ZIP="/tmp/${VALIDATE_FUNCTION_NAME}.zip"
 cd "$LAMBDA_DIR"
@@ -323,7 +504,7 @@ detail "logs: ${VALIDATE_LOG_GROUP}  (30-day retention)"
 # landing/   → validate Lambda   (external party drops files here)
 # validated/ → ingest Lambda     (only clean records reach the API)
 echo ""
-echo "▶ 7/10  S3 event notifications  (landing → validate → validated → ingest)"
+echo "▶ 11/12  S3 event notifications  (landing → validate → validated → store)"
 
 # Grant S3 permission to invoke validate Lambda
 aws lambda add-permission \
@@ -408,7 +589,7 @@ detail "validated/*.ndjson|.jsonl → ${FUNCTION_NAME}"
 #   and generates a short-lived presigned PUT URL — no AWS credentials needed
 #   on the external side.
 echo ""
-echo "▶ 8/10  External uploader IAM role  (${UPLOADER_ROLE_NAME})"
+echo "▶ 12/12  External uploader IAM role  (${UPLOADER_ROLE_NAME})"
 
 UPLOADER_ROLE_ARN=$(aws iam get-role --role-name "$UPLOADER_ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "not-found")
@@ -460,7 +641,7 @@ fi
 # The Lambda ingest role is explicitly exempted from the deny so it can
 # read (GetObject) without being blocked.
 echo ""
-echo "▶ 9/10  Bucket policy  (deny Delete* from non-Lambda principals)"
+echo "▶  Bucket policy  (deny Delete* from non-Lambda principals)"
 
 LAMBDA_ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
   --query 'Role.Arn' --output text 2>/dev/null || echo "")
@@ -536,7 +717,7 @@ detail "allow: s3:PutObject on landing/* — uploader role only"
 
 # ── 10. CloudWatch — metric filters, quarantine alarm, dashboard ──────────────
 echo ""
-echo "▶ 10/10  CloudWatch metrics, alarm, and dashboard"
+echo "▶  CloudWatch metrics, alarm, and dashboard"
 
 # SNS topic for admin alerts
 SNS_ARN=$(aws sns list-topics --region "$REGION" \
@@ -628,12 +809,19 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  ✅  Lambda pipeline provisioned"
 echo ""
-echo "  Bucket:          s3://${BUCKET}/"
-echo "    landing/       ← external party uploads here"
-echo "    validated/     ← clean records (triggers ingest Lambda)"
-echo "    quarantine/    ← failed validation (audit + replay)"
+echo "  Pipeline:"
+echo "    s3://${RAW_BUCKET}/         ← external party uploads here"
+echo "          ↓  ObjectCreated → ${INGESTOR_FUNCTION_NAME}"
+echo "    s3://${BUCKET}/landing/     ← chunk files written here"
+echo "          ↓  ObjectCreated → ${VALIDATE_FUNCTION_NAME}"
+echo "    s3://${BUCKET}/validated/   ← clean records"
+echo "          ↓  ObjectCreated → ${FUNCTION_NAME}"
+echo "    Spring Boot API             ← records stored in Aurora"
+echo "    s3://${BUCKET}/quarantine/  ← failed validation (audit + replay)"
+echo ""
+echo "  Ingestor Lambda: ${INGESTOR_FUNCTION_NAME}"
 echo "  Validate Lambda: ${VALIDATE_FUNCTION_NAME}"
-echo "  Ingest Lambda:   ${FUNCTION_NAME}"
+echo "  Store Lambda:    ${FUNCTION_NAME}"
 echo "  DLQ:             ${DLQ_NAME}"
 echo "  API:             ${LINKAGE_API_URL}"
 echo "  Uploader role:   ${UPLOADER_ROLE_ARN}"
@@ -644,7 +832,7 @@ echo ""
 echo "  Option A — AWS-native external party (assume role):"
 echo "    aws sts assume-role --role-arn ${UPLOADER_ROLE_ARN} \\"
 echo "      --role-session-name upload-session"
-echo "    # Use returned credentials to s3:PutObject on landing/*"
+echo "    # Use returned credentials to s3:PutObject on ${RAW_BUCKET}/*"
 echo ""
 echo "  Option B — Non-AWS external party (presigned URL, 1-hour TTL):"
 echo "    ./deploy/generate-presigned-url.sh <filename.ndjson>"
@@ -654,10 +842,13 @@ echo ""
 echo "  1. Generate + upload (triggers Lambda automatically):"
 echo "       ./deploy/upload-to-s3.sh --count 500"
 echo ""
-echo "  2. Watch Lambda logs:"
+echo "  2. Watch ingestor Lambda logs:"
+echo "       aws logs tail ${INGESTOR_LOG_GROUP} --region ${REGION} --follow"
+echo ""
+echo "  3. Watch store Lambda logs:"
 echo "       aws logs tail ${LOG_GROUP} --region ${REGION} --follow"
 echo ""
-echo "  3. Check DLQ for failures:"
+echo "  4. Check DLQ for failures:"
 echo "       aws sqs get-queue-attributes --region ${REGION} \\"
 echo "         --queue-url ${DLQ_URL} \\"
 echo "         --attribute-names ApproximateNumberOfMessages"
