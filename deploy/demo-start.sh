@@ -78,6 +78,16 @@ if [ "$DB_STATUS" = "not-found" ]; then
   exit 1
 fi
 
+# Wait for any in-progress modification to complete before touching the cluster
+if [ "$DB_STATUS" = "modifying" ]; then
+  echo "  ⏳ cluster is modifying — waiting for it to settle..."
+  spinner_wait \
+    "aws rds describe-db-clusters --region $REGION --db-cluster-identifier $DB_CLUSTER_ID --query 'DBClusters[0].Status' --output text" \
+    "^available$" \
+    "Aurora available" \
+    120
+fi
+
 # Ensure MinCapacity >= 0.5 so cluster can resume
 aws_q aws rds modify-db-cluster --region "$REGION" \
   --db-cluster-identifier "$DB_CLUSTER_ID" \
