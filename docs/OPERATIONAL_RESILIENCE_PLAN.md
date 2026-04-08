@@ -307,6 +307,68 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 
 ---
 
+## Sprint 3d — File Chunking and Parallel Ingest
+
+**Objective:** Prevent Lambda TTL exhaustion on large files by ensuring no single
+invocation processes more than `CHUNK_SIZE` records. Deliver in three phases so
+the simplest fix ships first and complexity is added only when throughput demands it.
+
+**Why this matters:** Lambda has a hard 15-minute TTL. With Aurora cold-start retries
+(worst case ~7 s/record), a file of just 130 records can exhaust the budget. A file
+of 10,000 records would take ~19 hours sequentially — impossible in a single invocation.
+
+**Phased approach:**
+
+| Phase | What changes | When to do it |
+|---|---|---|
+| **3d-i** (now) | Cap upload file size at `CHUNK_SIZE = 200` lines in `generate-synthetic-data.py` and `upload-to-s3.sh`; document the constant | Immediately — zero infrastructure change |
+| **3d-ii** (later) | Add a splitter Lambda that breaks any oversized `landing/` file into chunks on arrival and re-uploads them; original file moved to `landing/archive/` | When bulk uploads from external parties cannot be pre-chunked |
+| **3d-iii** (future) | Add a parent manifest per original file that aggregates status across all chunk manifests; use DynamoDB atomic counter to detect when all chunks are complete | When per-file (not per-chunk) status tracking is required |
+
+**`CHUNK_SIZE` tuning formula** (for Phase 3d-ii and beyond):
+
+```
+CHUNK_SIZE = floor(safe_budget_seconds / p99_latency_per_record)
+```
+
+Where `safe_budget_seconds = 600` (half the TTL, leaving headroom for manifest
+writes and S3 I/O). Measure `p99_latency_per_record` from CloudWatch Lambda
+duration logs once the system is running under real load. Starting default: **200**.
+
+**Threats addressed:**
+- Single Lambda invocation timing out mid-file on large uploads (TTL = 15 min hard limit)
+- Partial ingest leaving manifest `replayStatus: "pending"` with no indication of how far processing got
+- Retry of a timed-out invocation re-processing already-ingested records (mitigated by 409 idempotency, but wasteful)
+- External party uploading an arbitrarily large file that cannot be controlled at source
+
+**Proof of success (Phase 3d-i):**
+- `generate-synthetic-data.py --count 1000` produces 5 files of 200 lines each, not one file of 1000
+- `upload-to-s3.sh` refuses to upload a file with more than `CHUNK_SIZE` lines and prints a clear error
+- `CHUNK_SIZE` is defined as a single named constant in both scripts — not a magic number
+
+**Proof of success (Phase 3d-ii):**
+- A 1000-line file dropped in `landing/` triggers 5 parallel validator invocations, each processing 200 lines
+- Original file is moved to `landing/archive/` after splitting
+- Each chunk has its own `quarantine/<chunk-key>.manifest`
+
+**Tasks:**
+
+*Phase 3d-i — upload-time chunking (implement now):*
+- [ ] Add `CHUNK_SIZE = 200` constant to `generate-synthetic-data.py`; split output into multiple files when `--count > CHUNK_SIZE`
+- [ ] Add `CHUNK_SIZE` guard to `upload-to-s3.sh`; print error and exit if any file exceeds limit
+- [ ] Document `CHUNK_SIZE` tuning formula as a comment in both files
+
+*Phase 3d-ii — splitter Lambda (implement when needed):*
+- [ ] New Lambda `linkage-engine-split` triggered by `landing/` ObjectCreated on files > `CHUNK_SIZE` lines
+- [ ] Splits file into `landing/<original-stem>-chunk-NNN.ndjson` and archives original to `landing/archive/`
+- [ ] Provision in `provision-lambda.sh`
+
+*Phase 3d-iii — parent manifest aggregation (implement when needed):*
+- [ ] DynamoDB table `linkage-engine-chunk-counter` with item per original file; atomic decrement on each chunk completion
+- [ ] When counter reaches 0, write `landing/<original-key>.manifest` aggregating all chunk manifests
+
+---
+
 ## Sprint 4 — Embedding Gap Detection
 
 **Objective:** Detect records saved to `records` with no row in `record_embeddings`
