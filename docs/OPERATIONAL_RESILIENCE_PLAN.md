@@ -554,24 +554,83 @@ and rate-limit the ingest API.
 
 ---
 
-## Sprint 10 — Observability
+## Sprint 10 — Observability and Disruption Alerting
 
-**Objective:** Add structured metrics for request latency, ingest throughput,
-and resolve pipeline stages; build a CloudWatch dashboard.
+**Objective:** Ensure every identified disruption type (TTL exhaustion, cold start,
+mid-file crash, duplicate invocation, Aurora 5xx, Bedrock throttle) fires a
+CloudWatch alarm before an operator discovers it manually. Add structured metrics
+for request latency and ingest throughput. Build a unified dashboard.
 
-**Threats:** Blind spots in production — no p99 latency, no ingest rate, no per-stage timing
+**Disruption coverage matrix — current state vs. target:**
+
+| Disruption | Detected today? | Alerted today? | Auto-recovered? | Sprint 10 adds |
+|---|---|---|---|---|
+| Lambda TTL exhaustion | Partially (manifest stays pending) | No | No | Alarm on `Duration` > 600s |
+| Lambda cold start | Yes (retry logs) | No | Yes (retry loop) | Alarm on `InitDuration` > 10s |
+| Mid-file crash (OOM / force-kill) | Yes (`_batchId` gap) | No | Partial (S3 re-triggers) | Alarm on `Errors` > 0 |
+| Duplicate S3 invocation | Yes (`_batchId` differs) | No | Yes (409 idempotency) | Dashboard widget (informational) |
+| Aurora 5xx / cold-start | Yes (DLQ, manifest partial) | No | Yes (retry loop) | Alarm on DLQ depth > 0 |
+| Bedrock throttle / gap | Yes (health endpoint) | No | Manual reindex | Alarm on `embeddingGapCount` > 0 |
+| Quarantine spike | Yes (metric filter) | Yes (existing alarm) | No | Already done (Sprint 3) |
+| Resolve p99 latency | No | No | N/A | Alarm on p99 > 5000ms |
+
+---
+
+**CloudWatch alarm definitions:**
+
+| Alarm name | Metric | Threshold | Period | Action |
+|---|---|---|---|---|
+| `le-lambda-validate-ttl-warning` | `linkage-engine-validate` `Duration` | > 600,000 ms | 1 invocation | SNS `linkage-engine-alerts` |
+| `le-lambda-store-ttl-warning` | `linkage-engine-store` `Duration` | > 600,000 ms | 1 invocation | SNS `linkage-engine-alerts` |
+| `le-lambda-validate-errors` | `linkage-engine-validate` `Errors` | > 0 | 5 min | SNS `linkage-engine-alerts` |
+| `le-lambda-store-errors` | `linkage-engine-store` `Errors` | > 0 | 5 min | SNS `linkage-engine-alerts` |
+| `le-store-dlq-depth` | `linkage-engine-store-dlq` `ApproximateNumberOfMessagesVisible` | > 0 | 5 min | SNS `linkage-engine-alerts` |
+| `le-embedding-gaps` | Custom metric `EmbeddingGapCount` (from health endpoint) | > 0 | 15 min | SNS `linkage-engine-alerts` |
+| `le-resolve-p99-latency` | `linkage-engine` `resolve.p99` (Micrometer → CloudWatch) | > 5000 ms | 5 min | SNS `linkage-engine-alerts` |
+| `le-quarantine-spike` | `QuarantinedRecords` (metric filter on validate logs) | > 50 | 5 min | SNS `linkage-engine-alerts` (already exists — Sprint 3) |
+
+---
 
 **Proof of success:**
-- CloudWatch dashboard shows: ingest rate (records/min), resolve p50/p99, ECS CPU/memory
-- `GET /v1/ingest/health` includes `{"lastBatchSize": N, "lastBatchAt": "ISO8601", "ingestRatePerMin": N}`
-- Alarm fires when resolve p99 > 5s
+- All 7 new alarms exist in CloudWatch and are in `OK` state under normal load
+- Each alarm has been manually triggered in a test run and confirmed to fire to SNS
+- CloudWatch dashboard `linkage-engine-ops` shows all alarm states, DLQ depth, Lambda duration p99, ingest throughput, resolve latency, and ECS CPU/memory on one screen
+- `GET /v1/ingest/health` includes `{"lastBatchSize": N, "lastBatchAt": "ISO8601", "ingestRatePerMin": N, "embeddingGapCount": N}`
+- `EmbeddingGapCount` custom metric is published to CloudWatch every 15 minutes by a scheduled Lambda or ECS task
 
 **Tasks:**
+
+*Lambda duration alarms (TTL warning at 2/3 of limit):*
+- [ ] CloudWatch alarm `le-lambda-validate-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-validate`
+- [ ] CloudWatch alarm `le-lambda-store-ttl-warning`: `Duration` > 600,000 ms on `linkage-engine-store`
+
+*Lambda error alarms (mid-file crash, unhandled exception):*
+- [ ] CloudWatch alarm `le-lambda-validate-errors`: `Errors` > 0 on `linkage-engine-validate`
+- [ ] CloudWatch alarm `le-lambda-store-errors`: `Errors` > 0 on `linkage-engine-store`
+
+*DLQ depth alarm (Aurora 5xx exhaustion):*
+- [ ] CloudWatch alarm `le-store-dlq-depth`: SQS `ApproximateNumberOfMessagesVisible` > 0 on `linkage-engine-store-dlq`
+
+*Embedding gap alarm (Bedrock throttle):*
+- [ ] Scheduled publisher: every 15 min, call `GET /v1/ingest/health` and publish `EmbeddingGapCount` as a custom CloudWatch metric
+- [ ] CloudWatch alarm `le-embedding-gaps`: `EmbeddingGapCount` > 0 for two consecutive periods
+
+*Application latency metrics:*
 - [ ] Add `@Timed` (Micrometer) to `RecordIngestService.ingest` and `LinkageService.resolve`
 - [ ] Expose `/actuator/metrics` and `/actuator/prometheus`
-- [ ] CloudWatch metric filter on Lambda logs for `ok=` and `failed=` counts
-- [ ] CloudWatch dashboard: ingest throughput, resolve latency, ECS utilization, DLQ depth
-- [ ] Alarm: resolve p99 > 5000ms → SNS
+- [ ] CloudWatch alarm `le-resolve-p99-latency`: resolve p99 > 5000 ms → SNS
+
+*Dashboard (`linkage-engine-ops`):*
+- [ ] Row 1 — Alarm state panel: all 8 alarms as green/red indicators
+- [ ] Row 2 — Lambda: duration p99, error rate, DLQ depth (validate + store side by side)
+- [ ] Row 3 — Ingest pipeline: ingress rate, validated rate, quarantine rate, embedding gap count
+- [ ] Row 4 — Application: resolve p50/p99, ECS CPU/memory, Aurora ACU utilization
+
+*Health endpoint enhancements:*
+- [ ] Add `lastBatchSize`, `lastBatchAt`, `ingestRatePerMin` to `GET /v1/ingest/health` response
+
+*Provision:*
+- [ ] Add all alarms and dashboard to `provision-lambda.sh` (idempotent)
 
 ---
 
