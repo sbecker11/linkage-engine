@@ -129,6 +129,16 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Pin AWS SDK v2 to the version required by spring-ai-bedrock (2.31.26).
+                 micrometer-registry-cloudwatch2 pulls an older 2.21.x which is missing
+                 ClientEndpointProvider, causing NoClassDefFoundError at startup. -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>2.31.26</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
