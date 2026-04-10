@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Copy File</title>
+</head>
+<body>
+    <h1>File Copy Utility</h1>
+    <button onclick="copyFile()">Copy Screenshot</button>
+    <pre id="output"></pre>
+    <script>
+        async function copyFile() {
+            const output = document.getElementById('output');
+            try {
+                // This won't work in browser due to security restrictions
+                output.textContent = 'Cannot copy files directly from browser due to security restrictions.\n';
+                output.textContent += 'Please run this command in terminal:\n\n';
+                output.textContent += 'cp "/var/folders/2r/knnqkv9d3w3cwcg76htqtcp00000gp/T/cursor/screenshots/Users/sbecker11/workspace-spring/linkage-engine/docs/chord-diagram.png" "/Users/sbecker11/workspace-spring/linkage-engine/docs/chord-diagram.png"';
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

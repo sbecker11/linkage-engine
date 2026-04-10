@@ -740,6 +740,47 @@ aws_q aws cloudwatch put-metric-alarm \
   --treat-missing-data notBreaching
 echo "  ✓ alarm: le-aurora-storage-low (FreeLocalStorage < 20 GiB)"
 
+# CloudWatch alarm: ALB healthy host count < 1 (ECS task not registered)
+# Derive the short suffix that CloudWatch expects: targetgroup/<name>/<id>
+TG_SUFFIX=$(echo "$TG_ARN" | sed 's|.*:targetgroup/|targetgroup/|')
+ALB_SUFFIX=$(echo "$ALB_ARN" | sed 's|.*:loadbalancer/||')
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-alb-healthy-hosts" \
+  --alarm-description "ALB healthy target count < 1 — no ECS task registered" \
+  --namespace "AWS/ApplicationELB" \
+  --metric-name "HealthyHostCount" \
+  --dimensions \
+    "Name=LoadBalancer,Value=${ALB_SUFFIX}" \
+    "Name=TargetGroup,Value=${TG_SUFFIX}" \
+  --statistic Minimum \
+  --period 60 \
+  --evaluation-periods 2 \
+  --threshold 1 \
+  --comparison-operator LessThanThreshold \
+  --alarm-actions "$ALARM_SNS" \
+  --treat-missing-data notBreaching
+echo "  ✓ alarm: le-alb-healthy-hosts (HealthyHostCount < 1)"
+
+# CloudWatch alarm: ECS running task count < 1 (service scaled to zero or crash-looping)
+aws_q aws cloudwatch put-metric-alarm \
+  --region "$REGION" \
+  --alarm-name "le-ecs-tasks-running" \
+  --alarm-description "ECS running task count < 1 — service scaled to zero or crash-looping" \
+  --namespace "AWS/ECS" \
+  --metric-name "RunningTaskCount" \
+  --dimensions \
+    "Name=ClusterName,Value=${CLUSTER}" \
+    "Name=ServiceName,Value=${SERVICE}" \
+  --statistic Average \
+  --period 60 \
+  --evaluation-periods 2 \
+  --threshold 1 \
+  --comparison-operator LessThanThreshold \
+  --alarm-actions "$ALARM_SNS" \
+  --treat-missing-data notBreaching
+echo "  ✓ alarm: le-ecs-tasks-running (RunningTaskCount < 1)"
+
 # AWS Budget: monthly spend alarm at $50
 BUDGET_NAME="${APP}-monthly-budget"
 ACCOUNT_ID_LOCAL=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")

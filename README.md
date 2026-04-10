@@ -1,22 +1,46 @@
 # linkage-engine
 
-This is a genealogical entity resolution engine built in Java 21/Spring AI with a 4-stage hybrid RAG pipeline (SQL narrowing → vector rerank → LLM semantic summary → spatio-temporal plausibility), Matryoshka embeddings via Bedrock Titan, pgvector on Aurora PostgreSQL Serverless v2, Virtual Thread-parallelized reindex, and ECS Fargate deployment.
+**linkage-engine** is a genealogical record linkage service that answers the question: _could these two historical records describe the same person?_
 
-A Java 21 / Spring Boot service for **spatio-temporal genealogical record linkage** and **semantic entity resolution** using Spring AI + PostgreSQL/pgvector.
+It resolves ambiguous names, locations, and dates using a four-stage pipeline — deterministic SQL search, vector similarity reranking, LLM semantic summary, and spatio-temporal plausibility.
+
+It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock Titan embeddings, and deployed on ECS Fargate.
+
+### Genealogical records - similarity graph
 
 <img src="docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
 
-The diagram visualises 12 seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852. Each arc segment represents one record; chords connect pairs that the resolution pipeline considers candidate matches for the same person. **Chord width** reflects the similarity score between the pair. **Chord colour** reflects the historical travel-time margin between their locations and dates:
+This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) visualizes 12 seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852.
 
-| Colour | Meaning |
-| :--- | :--- |
-| Green | Comfortable margin — available time is 10× or more than travel time |
-| Blue | Moderate margin — 4–10× travel time |
-| Purple | Tight margin — 2–4× travel time |
-| Amber | Very tight — less than 2× travel time, but still plausible |
-| Red | Physically impossible — travel time exceeds the available window |
+Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Boston 1850*). A chord between two records represents a possible travel event: could the same person have moved from one location to the other in the time available? **Chord colour** shows how plausible that journey was given 19th-century travel speeds:
 
-Live at [`http://localhost:8080/chord-diagram.html`](http://localhost:8080/chord-diagram.html) when running locally, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) in AWS.
+| Colour | Meaning                                                           |
+| :----- | :---------------------------------------------------------------- |
+| Green  | Very comfortable — available time is 10× or more than travel time |
+| Blue   | Comfortable — 4–10× travel time available                         |
+| Purple | Moderate — 2–4× travel time available                             |
+| Amber  | Tight — less than 2× travel time, but still plausible             |
+| Red    | Physically impossible — travel time exceeds the available window  |
+
+Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS.
+
+---
+
+### Linkage-Engine Dashboard (terminal view)
+
+<img src="docs/linkage-engine-terminal.png" width="600"
+alt="Live terminal status dashboard of all AWS Services running on Gateway/ECS.">
+Snapshot of terminal status dashboard of all AWS Services running on Gateway/ECS.
+
+### Linkage-Engine Dashboard (AWS CloudWatch view)
+
+<img src="docs/linkage-engine-aws-cloudwatch.png" width="600"
+alt="Live cloudwatch status dashboard of all AWS Services running on Gateway/ECS.">
+Snapshot of AWS Cloudwatch dashboard showing live status of all linkage-engine AWS Services running on Gateway/ECS.
+
+---
+
+## What Was Built
 
 **Four-stage hybrid resolution pipeline:**
 
@@ -28,25 +52,21 @@ POST /v1/linkage/resolve
   └─ Stage 4: Spatio-temporal validation  (always on; historical transit plausibility)
 ```
 
-All four stages degrade gracefully — the local profile runs end-to-end with no AWS credentials.
-
----
-
-## What Was Built
-
-| Sprint | Deliverable |
-| :--- | :--- |
-| 1 | Build, boot, pgvector Docker — app starts in ~2.5s from a clean clone |
-| 2 | Ingestion pipeline — `CleansingProvider` chain (`OCRNoiseReducer`, `LocationStandardizer`), chunk, embed |
-| 3 | Hybrid search — SQL narrowing → pgvector cosine rerank → Bedrock Converse summary |
-| 4 | Spatio-temporal validation — historical transit speed table, `ConflictRule` chain, confidence penalty |
-| 5 | Remaining endpoints, 80%+ branch coverage, demo scripts, Aurora Serverless v2 provisioning guide |
+| Sprint | Deliverable                                                                                              |
+| :----- | :------------------------------------------------------------------------------------------------------- |
+| 1      | Build, boot, pgvector Docker — app starts in ~2.5s from a clean clone                                    |
+| 2      | Ingestion pipeline — `CleansingProvider` chain (`OCRNoiseReducer`, `LocationStandardizer`), chunk, embed |
+| 3      | Hybrid search — SQL narrowing → pgvector cosine rerank → Bedrock Converse summary                        |
+| 4      | Spatio-temporal validation — historical transit speed table, `ConflictRule` chain, confidence penalty    |
+| 5      | Remaining endpoints, 80%+ branch coverage, demo scripts, Aurora Serverless v2 provisioning guide         |
 
 **Demo story in two calls:**
+
 - Philadelphia → New York 1850→1851: `plausible=true`, `railroad_eastern`, high confidence
 - Boston → San Francisco same month: `plausible=false`, `ocean_ship`, confidence penalised by 50 pts
 
 **Three design patterns carried through every sprint:**
+
 - `ObjectProvider` over `@ConditionalOnBean` — bean ordering in autoconfiguration is non-deterministic; runtime null-checks are not
 - Chain of Responsibility for both cleansing (`CleansingProvider`) and conflict rules (`ConflictRule`) — adding a new step is a one-file change
 - Profile-gated graceful degradation — each stage has a defined fallback; the pipeline never hard-fails on a missing dependency
@@ -68,6 +88,7 @@ docker run -d \
 ```
 
 Verify:
+
 ```bash
 docker exec pgvector-db psql -U ancestry -d linkage_db \
   -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
@@ -82,6 +103,7 @@ cp .env.example .env
 ```
 
 Minimum required for local dev (already set in `.env.example`):
+
 ```env
 DB_URL=jdbc:postgresql://localhost:5434/linkage_db
 DB_USER=ancestry
@@ -97,6 +119,7 @@ set -a && source .env && set +a
 ```
 
 Expected startup log:
+
 ```
 Started LinkageEngineApplication in ~2.5 seconds
 ```
@@ -262,12 +285,12 @@ See [demo/README.md](demo/README.md) for the full story.
 
 ## Documentation
 
-| Document | Contents |
-| :--- | :--- |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy |
-| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md) | ECS / Fargate task definition, IAM, health checks, demo lifecycle |
-| [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md) | AWS Secrets Manager for runtime DB credentials in ECS |
-| [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md) | S3 bucket layout, ingest pipeline, archival policy, Athena DDL |
-| [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md) | Aurora provisioning, PITR disaster recovery, version notes |
+| Document                                                              | Contents                                                                                                      |
+| :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md)                               | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy                                     |
+| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate task definition, IAM, health checks, demo lifecycle                                             |
+| [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md)                         | AWS Secrets Manager for runtime DB credentials in ECS                                                         |
+| [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md)                       | S3 bucket layout, ingest pipeline, archival policy, Athena DDL                                                |
+| [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md)                     | Aurora provisioning, PITR disaster recovery, version notes                                                    |
 | [OPERATIONAL_RESILIENCE_PLAN.md](docs/OPERATIONAL_RESILIENCE_PLAN.md) | All sprints — generator integrity, Lambda idempotency, validation pipeline, security hardening, observability |
-| [ELEVATOR.md](docs/ELEVATOR.md) | One-page project summary |
+| [ELEVATOR.md](docs/ELEVATOR.md)                                       | One-page project summary                                                                                      |

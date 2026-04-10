@@ -51,6 +51,13 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
 
+        // Only protect write operations — GET/HEAD pass through unauthenticated
+        String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         String provided = request.getHeader(HEADER_NAME);
         if (provided == null || !provided.equals(expectedKey)) {
             log.warn("Rejected request to {} — missing or invalid {}",

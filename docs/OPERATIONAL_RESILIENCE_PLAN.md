@@ -16,7 +16,29 @@ Each sprint follows the same four-step pattern:
 
 ---
 
-## Sprint 1 — Generator Integrity
+## Document organisation
+
+Sections follow the data pipeline from upstream to downstream, then cross-cutting concerns:
+
+| Section | Sprint | Pipeline position |
+|---|---|---|
+| [Data Generation](#data-generation--sprint-1) | Sprint 1 | Pre-pipeline |
+| [Raw Intake — Ingestor Lambda](#raw-intake--ingestor-lambda--sprint-3d) | Sprint 3d | Stage 1 |
+| [Validation Pipeline](#validation-pipeline--sprint-3) | Sprint 3 / 3b / 3c | Stage 2 |
+| [Storage Lambda — Retry & DLQ](#storage-lambda--retry--dlq--sprint-2) | Sprint 2 | Stage 3 |
+| [Embedding Gap Detection](#embedding-gap-detection--sprint-4) | Sprint 4 | Post-pipeline |
+| [Migration Safety](#migration-safety--sprint-5) | Sprint 5 | Post-pipeline |
+| [Database Performance](#database-performance--sprint-7) | Sprint 7 | Post-pipeline |
+| [Storage and Archival](#storage-and-archival--sprint-6) | Sprint 6 | Post-pipeline |
+| [Intake Access Control](#intake-access-control--sprint-9a) | Sprint 9a | Cross-cutting |
+| [Security Hardening](#security-hardening--sprint-9) | Sprint 9 | Cross-cutting |
+| [Operational Reliability](#operational-reliability--sprint-8) | Sprint 8 | Cross-cutting |
+| [Observability and Disruption Alerting](#observability-and-disruption-alerting--sprint-10) | Sprint 10 | Cross-cutting |
+| [Demo Lifecycle](#demo-lifecycle--sprint-11) | Sprint 11 | Operations |
+
+---
+
+## Data Generation — Sprint 1
 
 **Objective:** Guarantee every record produced by `generate-synthetic-data.py`
 is internally coherent and globally unique across runs.
@@ -39,30 +61,102 @@ is internally coherent and globally unique across runs.
 
 ---
 
-## Sprint 2 — Lambda Idempotency and Retry
+## Raw Intake — Ingestor Lambda — Sprint 3d
 
-**Objective:** Lambda handles duplicate S3 events, transient API failures, and
-Aurora cold-start timeouts without data loss or silent corruption.
+**Objective:** Prevent Lambda TTL exhaustion on large files by ensuring no single
+invocation processes more than `CHUNK_SIZE` records. Deliver in three phases so
+the simplest fix ships first and complexity is added only when throughput demands it.
 
-**Threats:** Double S3 invocation · Aurora cold start (503) · DLQ on exhaustion
+**Why this matters:** Lambda has a hard 15-minute TTL. With Aurora cold-start retries
+(worst case ~7 s/record), a file of just 130 records can exhaust the budget. A file
+of 10,000 records would take ~19 hours sequentially — impossible in a single invocation.
 
-**Proof of success:**
-- `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures
-- Invoking Lambda twice with the same event produces identical DB state
-- 503 triggers exponential backoff; after N retries the record goes to DLQ
-- DLQ message contains bucket, key, line number, and `recordId`
+**Full pipeline architecture (all three phases complete):**
+
+```
+linkage-engine-raw-<account>        ← external party writes here (PutObject only)
+      │  S3 ObjectCreated → linkage-engine-ingestor  (splits into CHUNK_SIZE chunks)
+      ▼
+linkage-engine-landing-<account>    ← ingestor writes chunks here
+      │  S3 ObjectCreated → linkage-engine-validate  (validates, routes)
+      ▼
+validated/  +  quarantine/          ← same landing bucket, existing prefixes
+      │  S3 ObjectCreated → linkage-engine-store     (persists to DB)
+      ▼
+Aurora PostgreSQL
+```
+
+**Bucket responsibilities:**
+
+| Bucket | Written by | IAM access |
+|---|---|---|
+| `linkage-engine-raw-<account>` | External party | Uploader role: `s3:PutObject` only — no list, no get, no delete |
+| `linkage-engine-landing-<account>` | `linkage-engine-ingestor` | Ingestor role: `s3:GetObject` on raw bucket, `s3:PutObject` on landing bucket |
+
+**Why a separate raw bucket (not a prefix):**
+- Uploader role scoped to the entire raw bucket — no prefix filter needed, zero risk of touching landing chunks
+- Each bucket has one purpose and one bucket policy — no cross-prefix confusion
+- S3 event triggers are per-bucket — no prefix filter gymnastics, no trigger loops
+- Clean audit trail: raw bucket shows exactly what external parties uploaded, unmodified
+
+**Phased approach:**
+
+| Phase | What changes | Prerequisite |
+|---|---|---|
+| **3d-i** (now) | Cap `generate-synthetic-data.py` and `upload-to-s3.sh` at `CHUNK_SIZE = 200` lines | None — zero infrastructure change |
+| **3d-ii** (before accepting external uploads) | Create `linkage-engine-raw` bucket; build `linkage-engine-ingestor` Lambda; update uploader IAM role | **Must be complete before any external party uploads raw data** |
+| **3d-iii** (when needed) | Parent manifest aggregation via DynamoDB atomic counter | Phase 3d-ii complete |
+
+**`CHUNK_SIZE` tuning formula:**
+
+```
+CHUNK_SIZE = floor(safe_budget_seconds / p99_latency_per_record)
+```
+
+Where `safe_budget_seconds = 600` (half the TTL). Measure `p99_latency_per_record`
+from CloudWatch Lambda duration logs under real load. Starting default: **200**.
+
+**Threats addressed:**
+- Single Lambda invocation timing out mid-file (TTL = 15 min hard limit)
+- Partial ingest leaving manifest `replayStatus: "pending"` with no progress indicator
+- External party uploading an arbitrarily large file that cannot be controlled at source
+- External party accessing or deleting landing chunks (separate bucket prevents this entirely)
+
+**Proof of success (Phase 3d-i):**
+- `generate-synthetic-data.py --count 1000` produces 5 files of 200 lines each, not one file of 1000
+- `upload-to-s3.sh` refuses to upload a file exceeding `CHUNK_SIZE` lines and prints a clear error
+- `CHUNK_SIZE` is a single named constant in both scripts — not a magic number
+
+**Proof of success (Phase 3d-ii):**
+- `linkage-engine-raw-<account>` bucket exists; uploader role has `s3:PutObject` only
+- A 1,000-line file dropped in the raw bucket triggers 5 parallel validate invocations, each ≤ 200 lines
+- Original file archived to `raw/archive/` after splitting; landing bucket contains only chunks
+- Each chunk has its own `quarantine/<chunk-key>.manifest`
 
 **Tasks:**
-- [x] `test_409_treated_as_success` — mock API 409, assert `ok` increments
-- [x] `test_double_invocation_idempotent` — call handler twice, assert same result
-- [x] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
-- [x] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
-- [x] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
-- [x] Add exponential backoff + DLQ send to Storage Lambda `linkage-engine-store.py` (`post_record_with_retry`, `_send_to_dlq`)
+
+*Phase 3d-i — upload-time chunking (implement now):*
+- [x] Add `CHUNK_SIZE = 200` constant to `generate-synthetic-data.py`; split output into multiple files when `--count > CHUNK_SIZE`
+- [x] Add `CHUNK_SIZE` guard to `upload-to-s3.sh`; print error and exit if any single file exceeds limit
+- [x] Document `CHUNK_SIZE` tuning formula as a comment in both files
+- [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
+
+*Phase 3d-ii — Ingestor Lambda and raw bucket (`deploy/lambda/linkage-engine-ingestor.py`) — stage 1:*
+- [x] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
+- [x] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
+- [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to `landing/` in landing bucket, archives original to `archive/`
+- [x] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
+- [x] Update `generate-presigned-url.sh` to target raw bucket
+- [x] Provision in `provision-lambda.sh`
+- [x] Tests: `TestChunkSplitting` (4), `TestArchiving` (2), `TestChunkKeyNaming` (2) — all green
+
+*Phase 3d-iii — parent manifest aggregation (implement when needed):*
+- [ ] DynamoDB table `linkage-engine-chunk-counter`: atomic decrement per chunk completion
+- [ ] When counter reaches 0, write `raw/archive/<original-key>.manifest` aggregating all chunk manifests
 
 ---
 
-## Sprint 3 — Validation Pipeline
+## Validation Pipeline — Sprint 3
 
 **Objective:** Enforce a four-stage pipeline (raw bucket → landing → validated → quarantine)
 so that only fully-validated JSON records reach the database. Every output line
@@ -236,9 +330,7 @@ This means:
 - [x] `test_manifest_updated_after_successful_replay` — after full replay, manifest `replayStatus` is `"replayed"` and `replays[0]` contains `ok`, `failed`, `replayedAt`
 - [x] `test_manifest_status_partial_when_some_lines_fail` — if any lines fail, `replayStatus` is `"partial"`
 
----
-
-## Sprint 3c — Quarantine Manifest
+### Sprint 3c — Quarantine Manifest
 
 **Objective:** Give every quarantine file a companion `.manifest` so operators
 can see at a glance what was rejected, why, and whether it has been replayed —
@@ -330,102 +422,35 @@ quarantine/batch-20260406.ndjson.manifest  ← lifecycle record lives here
 
 ---
 
-## Sprint 3d — File Chunking and Parallel Ingest
+## Storage Lambda — Retry & DLQ — Sprint 2
 
-**Objective:** Prevent Lambda TTL exhaustion on large files by ensuring no single
-invocation processes more than `CHUNK_SIZE` records. Deliver in three phases so
-the simplest fix ships first and complexity is added only when throughput demands it.
+**Objective:** Lambda handles duplicate S3 events, transient API failures, and
+Aurora cold-start timeouts without data loss or silent corruption.
 
-**Why this matters:** Lambda has a hard 15-minute TTL. With Aurora cold-start retries
-(worst case ~7 s/record), a file of just 130 records can exhaust the budget. A file
-of 10,000 records would take ~19 hours sequentially — impossible in a single invocation.
+**Threats:** Double S3 invocation · Aurora cold start (503) · DLQ on exhaustion
 
-**Full pipeline architecture (all three phases complete):**
+**Where this fits:** The storage Lambda (`linkage-engine-store`) is stage 3 — it
+reads from `validated/` and POSTs each record to `/v1/records`. S3 delivers events
+at-least-once, and Aurora Serverless can return 503 on cold start. Without retry
+and idempotency, either condition causes silent data loss.
 
-```
-linkage-engine-raw-<account>        ← external party writes here (PutObject only)
-      │  S3 ObjectCreated → linkage-engine-ingestor  (splits into CHUNK_SIZE chunks)
-      ▼
-linkage-engine-landing-<account>    ← ingestor writes chunks here
-      │  S3 ObjectCreated → linkage-engine-validate  (validates, routes)
-      ▼
-validated/  +  quarantine/          ← same landing bucket, existing prefixes
-      │  S3 ObjectCreated → linkage-engine-store     (persists to DB)
-      ▼
-Aurora PostgreSQL
-```
-
-**Bucket responsibilities:**
-
-| Bucket | Written by | IAM access |
-|---|---|---|
-| `linkage-engine-raw-<account>` | External party | Uploader role: `s3:PutObject` only — no list, no get, no delete |
-| `linkage-engine-landing-<account>` | `linkage-engine-ingestor` | Ingestor role: `s3:GetObject` on raw bucket, `s3:PutObject` on landing bucket |
-
-**Why a separate raw bucket (not a prefix):**
-- Uploader role scoped to the entire raw bucket — no prefix filter needed, zero risk of touching landing chunks
-- Each bucket has one purpose and one bucket policy — no cross-prefix confusion
-- S3 event triggers are per-bucket — no prefix filter gymnastics, no trigger loops
-- Clean audit trail: raw bucket shows exactly what external parties uploaded, unmodified
-
-**Phased approach:**
-
-| Phase | What changes | Prerequisite |
-|---|---|---|
-| **3d-i** (now) | Cap `generate-synthetic-data.py` and `upload-to-s3.sh` at `CHUNK_SIZE = 200` lines | None — zero infrastructure change |
-| **3d-ii** (before accepting external uploads) | Create `linkage-engine-raw` bucket; build `linkage-engine-ingestor` Lambda; update uploader IAM role | **Must be complete before any external party uploads raw data** |
-| **3d-iii** (when needed) | Parent manifest aggregation via DynamoDB atomic counter | Phase 3d-ii complete |
-
-**`CHUNK_SIZE` tuning formula:**
-
-```
-CHUNK_SIZE = floor(safe_budget_seconds / p99_latency_per_record)
-```
-
-Where `safe_budget_seconds = 600` (half the TTL). Measure `p99_latency_per_record`
-from CloudWatch Lambda duration logs under real load. Starting default: **200**.
-
-**Threats addressed:**
-- Single Lambda invocation timing out mid-file (TTL = 15 min hard limit)
-- Partial ingest leaving manifest `replayStatus: "pending"` with no progress indicator
-- External party uploading an arbitrarily large file that cannot be controlled at source
-- External party accessing or deleting landing chunks (separate bucket prevents this entirely)
-
-**Proof of success (Phase 3d-i):**
-- `generate-synthetic-data.py --count 1000` produces 5 files of 200 lines each, not one file of 1000
-- `upload-to-s3.sh` refuses to upload a file exceeding `CHUNK_SIZE` lines and prints a clear error
-- `CHUNK_SIZE` is a single named constant in both scripts — not a magic number
-
-**Proof of success (Phase 3d-ii):**
-- `linkage-engine-raw-<account>` bucket exists; uploader role has `s3:PutObject` only
-- A 1,000-line file dropped in the raw bucket triggers 5 parallel validate invocations, each ≤ 200 lines
-- Original file archived to `raw/archive/` after splitting; landing bucket contains only chunks
-- Each chunk has its own `quarantine/<chunk-key>.manifest`
+**Proof of success:**
+- `pytest deploy/lambda/test_linkage_engine_store.py` passes with 0 failures
+- Invoking Lambda twice with the same event produces identical DB state
+- 503 triggers exponential backoff; after N retries the record goes to DLQ
+- DLQ message contains bucket, key, line number, and `recordId`
 
 **Tasks:**
-
-*Phase 3d-i — upload-time chunking (implement now):*
-- [x] Add `CHUNK_SIZE = 200` constant to `generate-synthetic-data.py`; split output into multiple files when `--count > CHUNK_SIZE`
-- [x] Add `CHUNK_SIZE` guard to `upload-to-s3.sh`; print error and exit if any single file exceeds limit
-- [x] Document `CHUNK_SIZE` tuning formula as a comment in both files
-- [x] Tests: `test_large_count_produces_multiple_files`, `test_each_chunk_within_chunk_size`, `test_chunk_ids_unique_across_chunks`
-
-*Phase 3d-ii — Ingestor Lambda and raw bucket (`deploy/lambda/linkage-engine-ingestor.py`) — stage 1:*
-- [x] Provision `linkage-engine-raw-<account>` bucket: public access blocked, versioning off, uploader role `s3:PutObject` only
-- [x] New Lambda `linkage-engine-ingestor` (`linkage-engine-ingestor.py`) triggered by raw bucket ObjectCreated
-- [x] Ingestor reads file, splits into `CHUNK_SIZE`-line chunks, writes each to `landing/` in landing bucket, archives original to `archive/`
-- [x] Update uploader IAM role from `landing/` prefix on landing bucket → entire raw bucket
-- [x] Update `generate-presigned-url.sh` to target raw bucket
-- [x] Provision in `provision-lambda.sh`
-- [x] Tests: `TestChunkSplitting` (4), `TestArchiving` (2), `TestChunkKeyNaming` (2) — all green
-
-*Phase 3d-iii — parent manifest aggregation (implement when needed):*
-- [ ] DynamoDB table `linkage-engine-chunk-counter`: atomic decrement per chunk completion
-- [ ] When counter reaches 0, write `raw/archive/<original-key>.manifest` aggregating all chunk manifests
+- [x] `test_409_treated_as_success` — mock API 409, assert `ok` increments
+- [x] `test_double_invocation_idempotent` — call handler twice, assert same result
+- [x] `test_503_triggers_retry` — mock 503 then 204, assert retry succeeds
+- [x] `test_503_exhausted_sends_to_dlq` — mock always 503, assert DLQ message sent
+- [x] `test_dlq_message_contains_context` — assert payload has bucket/key/line/recordId
+- [x] Add exponential backoff + DLQ send to Storage Lambda `linkage-engine-store.py` (`post_record_with_retry`, `_send_to_dlq`)
 
 ---
 
-## Sprint 4 — Embedding Gap Detection
+## Embedding Gap Detection — Sprint 4
 
 **Objective:** Detect records saved to `records` with no row in `record_embeddings`
 and expose a health endpoint for monitoring and reconciliation.
@@ -446,7 +471,7 @@ and expose a health endpoint for monitoring and reconciliation.
 
 ---
 
-## Sprint 5 — Migration Safety
+## Migration Safety — Sprint 5
 
 **Objective:** Prevent Flyway migrations from corrupting in-flight ingest batches;
 surface migration status in the health endpoint.
@@ -471,29 +496,7 @@ surface migration status in the health endpoint.
 
 ---
 
-## Sprint 6 — Storage and Archival
-
-**Objective:** Define and enforce data retention policies; archive old records to
-S3 to bound active Aurora storage costs.
-
-**Threats:** Unbounded storage growth · embedding table dominates storage (6KB/record)
-
-**Proof of success:**
-- `deploy/archive-records.sh` moves records older than N days to S3 NDJSON (queryable via Athena JSON SerDe)
-- CloudWatch alarm fires when Aurora storage exceeds threshold
-- Archived records are queryable via Athena (schema documented in `docs/DATA_PIPELINE_S3.md`)
-- `record_embeddings` rows for archived records are pruned
-
-**Tasks:**
-- [x] Define retention policy: archive records with `created_at` older than 90 days (configurable via `RETENTION_DAYS`)
-- [x] `deploy/archive-records.sh` — exports to S3 via `psql COPY TO` as NDJSON; `--dry-run` mode prints count with no DB changes
-- [x] CloudWatch alarm: Aurora `FreeLocalStorage` < 20 GiB → SNS (`le-aurora-storage-low` in `provision-aws.sh`)
-- [x] `deploy/test_archive_records.py` — 5 tests: dry-run exits zero, reports count, no DELETE called, mentions DRY RUN, exits zero when nothing to archive
-- [x] Document Athena table DDL for archived NDJSON in `docs/DATA_PIPELINE_S3.md`
-
----
-
-## Sprint 7 — Database Performance
+## Database Performance — Sprint 7
 
 **Objective:** Optimize query performance for the most common access patterns;
 replace exact vector scan with HNSW approximate nearest-neighbour index.
@@ -515,32 +518,29 @@ replace exact vector scan with HNSW approximate nearest-neighbour index.
 
 ---
 
-## Sprint 8 — Operational Reliability
+## Storage and Archival — Sprint 6
 
-**Objective:** Validate backup/recovery, tune JVM memory, add cost and memory
-alarms, and enforce secrets rotation.
+**Objective:** Define and enforce data retention policies; archive old records to
+S3 to bound active Aurora storage costs.
 
-**Threats:** Untested PITR · JVM heap spike past 1.5GB · unbounded AWS cost · stale DB password
+**Threats:** Unbounded storage growth · embedding table dominates storage (6KB/record)
 
 **Proof of success:**
-- PITR restore test completes successfully to a point-in-time within the last 24h
-- ECS task runs stably under load with `-Xmx1400m` set
-- CloudWatch alarm fires when ECS memory utilization > 80%
-- AWS Budget alarm fires when monthly spend exceeds threshold
-- Secrets Manager rotation policy set to 30 days
+- `deploy/archive-records.sh` moves records older than N days to S3 NDJSON (queryable via Athena JSON SerDe)
+- CloudWatch alarm fires when Aurora storage exceeds threshold
+- Archived records are queryable via Athena (schema documented in `docs/DATA_PIPELINE_S3.md`)
+- `record_embeddings` rows for archived records are pruned
 
 **Tasks:**
-- [x] Increase Aurora backup retention to 7 days (`--backup-retention-period 7` in `provision-aws.sh`)
-- [x] Document PITR restore procedure in `docs/AURORA_POSTGRESQL.md` (section 9, includes DR drill checklist)
-- [x] Add `-Xmx1400m -Xms512m` to `ENTRYPOINT` in `Dockerfile`
-- [x] CloudWatch alarm: ECS `MemoryUtilization` > 80% → SNS (`le-ecs-memory-high` in `provision-aws.sh`)
-- [x] AWS Budget: monthly spend alarm at $50 threshold (`linkage-engine-monthly-budget` in `provision-aws.sh`)
-- [x] Secrets Manager rotation: 30-day automatic rotation via `provision-aws.sh`
-- [x] `MemoryTuningTest` — 2 tests: heap within budget when `-Xmx` is set; Dockerfile contains `-Xmx1400m`
+- [x] Define retention policy: archive records with `created_at` older than 90 days (configurable via `RETENTION_DAYS`)
+- [x] `deploy/archive-records.sh` — exports to S3 via `psql COPY TO` as NDJSON; `--dry-run` mode prints count with no DB changes
+- [x] CloudWatch alarm: Aurora `FreeLocalStorage` < 20 GiB → SNS (`le-aurora-storage-low` in `provision-aws.sh`)
+- [x] `deploy/test_archive_records.py` — 5 tests: dry-run exits zero, reports count, no DELETE called, mentions DRY RUN, exits zero when nothing to archive
+- [x] Document Athena table DDL for archived NDJSON in `docs/DATA_PIPELINE_S3.md`
 
 ---
 
-## Sprint 9a — Intake Access Control
+## Intake Access Control — Sprint 9a
 
 **Objective:** Give the external data-dumping party the minimum AWS permissions
 needed to upload files — and nothing else. Prevent any principal from deleting
@@ -591,7 +591,7 @@ Edit the trust policy of `linkage-engine-uploader-role` to add their account:
 
 ---
 
-## Sprint 9 — Security Hardening
+## Security Hardening — Sprint 9
 
 **Objective:** Add TLS to the ALB, require API authentication for write endpoints,
 and rate-limit the ingest API.
@@ -621,7 +621,32 @@ and rate-limit the ingest API.
 
 ---
 
-## Sprint 10 — Observability and Disruption Alerting
+## Operational Reliability — Sprint 8
+
+**Objective:** Validate backup/recovery, tune JVM memory, add cost and memory
+alarms, and enforce secrets rotation.
+
+**Threats:** Untested PITR · JVM heap spike past 1.5GB · unbounded AWS cost · stale DB password
+
+**Proof of success:**
+- PITR restore test completes successfully to a point-in-time within the last 24h
+- ECS task runs stably under load with `-Xmx1400m` set
+- CloudWatch alarm fires when ECS memory utilization > 80%
+- AWS Budget alarm fires when monthly spend exceeds threshold
+- Secrets Manager rotation policy set to 30 days
+
+**Tasks:**
+- [x] Increase Aurora backup retention to 7 days (`--backup-retention-period 7` in `provision-aws.sh`)
+- [x] Document PITR restore procedure in `docs/AURORA_POSTGRESQL.md` (section 9, includes DR drill checklist)
+- [x] Add `-Xmx1400m -Xms512m` to `ENTRYPOINT` in `Dockerfile`
+- [x] CloudWatch alarm: ECS `MemoryUtilization` > 80% → SNS (`le-ecs-memory-high` in `provision-aws.sh`)
+- [x] AWS Budget: monthly spend alarm at $50 threshold (`linkage-engine-monthly-budget` in `provision-aws.sh`)
+- [x] Secrets Manager rotation: 30-day automatic rotation via `provision-aws.sh`
+- [x] `MemoryTuningTest` — 2 tests: heap within budget when `-Xmx` is set; Dockerfile contains `-Xmx1400m`
+
+---
+
+## Observability and Disruption Alerting — Sprint 10
 
 **Objective:** Ensure every identified disruption type (TTL exhaustion, cold start,
 mid-file crash, duplicate invocation, Aurora 5xx, Bedrock throttle) fires a
@@ -707,7 +732,7 @@ for request latency and ingest throughput. Build a unified dashboard.
 
 ---
 
-## Sprint 11 — Demo Lifecycle
+## Demo Lifecycle — Sprint 11
 
 **Objective:** Provide one-command shutdown (cost → $0) and one-command
 commission (ready for live demo) with documented warm-up time.
@@ -759,17 +784,3 @@ commission (ready for live demo) with documented warm-up time.
 - Each threat has: a test that reproduces it, a test that detects it, and either
   automatic mitigation or a logged admin action with enough context to act on
 - Task checkboxes in this document updated as work completes
-
----
-
-## Sprint order recommendation
-
-For a demo app, prioritize in this order:
-
-1. **Sprint 11** (Demo Lifecycle) — enables safe cost management immediately
-2. **Sprint 1** (Generator Integrity) — needed before any bulk data load
-3. **Sprint 2** (Lambda Resilience) — needed before production ingest
-4. **Sprint 9a** (Intake Access Control) — lock down the bucket before sharing upload access
-5. **Sprint 3** (Validation Pipeline) — three-bucket model, schema/null/range/PII validation, CloudWatch quarantine alarm
-6. **Sprint 8** (Reliability) — backup + memory before showing to anyone
-7. Sprints 4–7, 9–10 in order

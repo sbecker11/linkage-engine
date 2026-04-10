@@ -232,14 +232,6 @@
         background: #fcebeb;
         border-color: #f09595;
       }
-      #detail.age-conflict, #legend.age-conflict {
-        background: #fce4ec;
-        border-color: #c2185b;
-      }
-      #detail.gender-conflict, #legend.gender-conflict {
-        background: #fce4ff;
-        border-color: #e040fb;
-      }
       .det-row {
         display: flex;
         flex-direction: column;
@@ -336,10 +328,8 @@
       <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Comfortable &nbsp;4–10&times;</span>
       <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Moderate &nbsp;2–4&times;</span>
       <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
-      <div class="legend-group-label">Conflict rules — applied in order</div>
-      <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span><span class="legend-step">①</span> PhysicalImpossibility</span>
-      <span data-color="#c2185b"><span class="dot" style="background:#c2185b"></span><span class="legend-step">②</span> AgeConsistency</span>
-      <span data-color="#e040fb"><span class="dot" style="background:#e040fb"></span><span class="legend-step">③</span> GenderPlausibility</span>
+      <div class="legend-group-label">Implausible</div>
+      <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Physically impossible</span>
     </div>
     <div class="tip" id="tip"></div>
 
@@ -593,16 +583,14 @@
         setTimeout(() => setProgress(0), 700);
       }
 
-      // 7-tier color scale:
+      // 5-tier color scale:
       // Plausible pairs — by travel-time margin ratio (available / required):
       //   #1D9E75  teal-green  — ratio >= 10x  (very comfortable — "no rush")
       //   #4A90D9  steel-blue  — ratio 4–10x   (comfortable)
       //   #9B6FD4  purple      — ratio 2–4x    (moderate)
       //   #EF9F27  amber       — ratio 1–2x    (tight — barely plausible)
-      // Implausible pairs — by failure mode:
+      // Implausible pairs:
       //   #E24B4A  red         — physical impossibility (travel time > available)
-      //   #C2185B  cherry      — age inconsistency (age regresses or outside lifespan)
-      //   #E040FB  magenta     — gender conflict (M vs F inferred from names)
       // ── Colour palette (hex) ──────────────────────────────────────────────────
       const COL = {
         green:   "#1D9E75",
@@ -610,8 +598,6 @@
         purple:  "#9B6FD4",
         amber:   "#EF9F27",
         red:     "#E24B4A",
-        cherry:  "#C2185B",
-        magenta: "#E040FB",
         grey:    "#888780",
       };
 
@@ -635,26 +621,13 @@
         return COL.amber;
       }
 
-      // All 7 legend colours treated as equal peers — each chord layer uses 1/7 opacity.
-      const LAYER_ALPHA = (1 / 4).toFixed(3);  // 0.250
-
-      // Returns the ordered list of active colour layers for a chord.
-      // Travel colour always comes first (so it renders beneath conflict colours),
-      // followed by any triggered conflict-rule colours.
-      // Every layer uses LAYER_ALPHA so no signal visually dominates another.
+      // Returns the colour for a chord: red if physically impossible, else travel-margin colour.
       function chordLayers(p) {
         if (!p) return [COL.grey];
         const penalties = p.rulePenalties || {};
-        const layers = [travelHex(p)];   // travel layer always present
-
-        if (penalties["physical_impossibility"] || (!p.plausible && !penalties["AgeConsistencyRule"]))
-          layers.push(COL.red);
-        if (penalties["AgeConsistencyRule"])
-          layers.push(COL.cherry);
-        if (penalties["GenderPlausibilityRule"])
-          layers.push(COL.magenta);
-
-        return layers;
+        if (penalties["physical_impossibility"] || !p.plausible)
+          return [COL.red];
+        return [travelHex(p)];
       }
 
       // plausMap is keyed "min-max". D3 chords can have source.index > target.index,
