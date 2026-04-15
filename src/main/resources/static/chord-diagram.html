@@ -480,23 +480,35 @@
           return;
         }
 
-        // API returns rows ordered by record_id. Synthetic ids (E2E-*, SYN-*) sort
-        // before DEMO-* so slice(0,12) used to omit the chord pack entirely → one
-        // sparse resolve edge and a muddy diagram. Prefer DEMO-* then id order.
-        records = records || [];
+        // Chord needs overlapping names/years. DEMO-* seed rows are designed for that.
+        // If any exist, take them from the *full* /v1/records list (not the first 12 by
+        // record_id — E2E-/SYN- ids often sort before DEMO-* and hid the pack).
+        const all = records || [];
         const isChordDemoId = (id) => /^DEMO-[A-Z]+$/i.test(id);
-        records.sort((a, b) => {
-          const ida = recordIdStr(a),
-            idb = recordIdStr(b);
-          const da = isChordDemoId(ida),
-            db = isChordDemoId(idb);
-          if (da !== db) return da ? -1 : 1;
-          return ida.localeCompare(idb, undefined, {
-            numeric: true,
-            sensitivity: "base",
+        const demos = all
+          .filter((r) => isChordDemoId(recordIdStr(r)))
+          .sort((a, b) =>
+            recordIdStr(a).localeCompare(recordIdStr(b), undefined, {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          );
+        if (demos.length >= 2) {
+          records = demos.slice(0, MAX_RECORDS);
+        } else {
+          all.sort((a, b) => {
+            const ida = recordIdStr(a),
+              idb = recordIdStr(b);
+            const da = isChordDemoId(ida),
+              db = isChordDemoId(idb);
+            if (da !== db) return da ? -1 : 1;
+            return ida.localeCompare(idb, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            });
           });
-        });
-        records = records.slice(0, MAX_RECORDS);
+          records = all.slice(0, MAX_RECORDS);
+        }
         const n = records.length;
 
         if (n < 2) {
@@ -508,7 +520,11 @@
         }
 
         setProgress(10);
-        setStatus(`Resolving ${n} records against the pipeline\u2026`);
+        const demoHint =
+          demos.length < 2 && all.length >= 3
+            ? " No DEMO-* rows in /v1/records — run demo/seed-data.sh (set BASE_URL + INGEST_API_KEY on ECS)."
+            : "";
+        setStatus(`Resolving ${n} records against the pipeline\u2026${demoHint}`);
 
         const resolveResults = await Promise.all(
           records.map(async (rec) => {
