@@ -6,7 +6,7 @@
 #   2. /v1/records returns at least one record
 #   3. /v1/linkage/resolve returns a valid response
 #   4. Bedrock is reachable (semantic summary present in resolve response)
-#   5. Seed data is present (DEMO-A through DEMO-L exist)
+#   5. Chord demo pack ingested (DEMO-A & DEMO-B from demo/seed-data.sh — not Flyway R-* seeds)
 #
 # Usage:
 #   ./deploy/demo-checklist.sh                              # auto-detect ALB
@@ -14,6 +14,9 @@
 #   ./deploy/demo-checklist.sh --skip-seed                 # skip seed data check
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 REGION="${AWS_REGION:-us-west-1}"
 APP=linkage-engine
@@ -85,18 +88,39 @@ HAS_SUMMARY=$(echo "$RESOLVE" | python3 -c "import sys,json; d=json.load(sys.std
 [ "$HAS_SUMMARY" = "yes" ] && check "Bedrock semantic summary" "pass" \
                              || check "Bedrock semantic summary" "fail" "semanticSummary missing — check Bedrock IAM permissions"
 
-# 5. Seed data present (DEMO-A and DEMO-B)
+# 5. Chord diagram demo rows (demo/seed-data.sh). Flyway only seeds R-1001… — many
+#    environments have lots of records but zero DEMO-* until ingest is run.
 if [ "$SKIP_SEED" = "false" ]; then
-  ALL_IDS=$(echo "$RECORDS" | python3 -c "import sys,json; [print(r['recordId']) for r in json.load(sys.stdin)]" 2>/dev/null || echo "")
-  # grep -c prints 0 and exits 1 when there are no matches — do not "|| echo 0"
-  # or the command substitution captures two lines ("0\n0") and breaks -ge tests.
-  HAS_DEMO_A=$(echo "$ALL_IDS" | grep -c "^DEMO-A$" || true)
-  HAS_DEMO_B=$(echo "$ALL_IDS" | grep -c "^DEMO-B$" || true)
-  if [ "$HAS_DEMO_A" -ge 1 ] && [ "$HAS_DEMO_B" -ge 1 ]; then
-    check "Seed data present (DEMO-A/B)" "pass"
+  SEED_OUT=$(echo "$RECORDS" | python3 -c "
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    print('BAD')
+    sys.exit(0)
+def rid(r):
+    if not isinstance(r, dict):
+        return ''
+    return str(r.get('recordId') or r.get('record_id') or '').strip()
+ids = [rid(r) for r in rows if rid(r)]
+if 'DEMO-A' in ids and 'DEMO-B' in ids:
+    print('OK')
+else:
+    demo_n = sum(1 for i in ids if i.startswith('DEMO-'))
+    sample = ', '.join(ids[:14])
+    if len(sample) > 240:
+        sample = sample[:237] + '...'
+    print('NO', demo_n, sample, sep='\t')
+" 2>/dev/null || echo "BAD")
+  if [ "$SEED_OUT" = "OK" ]; then
+    check "Chord demo seed (DEMO-A & DEMO-B)" "pass" "ingest pack present"
+  elif [ "$SEED_OUT" = "BAD" ]; then
+    check "Chord demo seed (DEMO-A & DEMO-B)" "fail" \
+      "Could not parse /v1/records JSON — check API"
   else
-    check "Seed data present (DEMO-A/B)" "fail" \
-      "Run: BASE_URL=${BASE} ./demo/seed-data.sh"
+    IFS=$'\t' read -r _tag demo_n sample <<< "$SEED_OUT"
+    check "Chord demo seed (DEMO-A & DEMO-B)" "fail" \
+      "Found ${COUNT} records but not DEMO-A/B (${demo_n} DEMO-* ids). Sample ids: ${sample:-?}  —  run: cd \"${REPO_ROOT}\" && BASE_URL=${BASE} ./demo/seed-data.sh"
   fi
 else
   echo "  — seed data check skipped"
