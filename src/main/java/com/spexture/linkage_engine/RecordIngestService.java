@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.beans.factory.ObjectProvider;
 
 public class RecordIngestService implements RecordIngestPort {
 
@@ -15,19 +16,22 @@ public class RecordIngestService implements RecordIngestPort {
     private final RecordEmbeddingStore recordEmbeddingStore;
     private final String embeddingModelId;
     private final DataCleansingService cleansingService;
+    private final ObjectProvider<IngestHealthService> ingestHealthService;
 
     public RecordIngestService(
         LinkageRecordMutator recordMutator,
         EmbeddingModel embeddingModel,
         RecordEmbeddingStore recordEmbeddingStore,
         String embeddingModelId,
-        DataCleansingService cleansingService
+        DataCleansingService cleansingService,
+        ObjectProvider<IngestHealthService> ingestHealthService
     ) {
         this.recordMutator = recordMutator;
         this.embeddingModel = embeddingModel;
         this.recordEmbeddingStore = recordEmbeddingStore;
         this.embeddingModelId = embeddingModelId;
         this.cleansingService = cleansingService;
+        this.ingestHealthService = ingestHealthService;
     }
 
     @Override
@@ -37,6 +41,10 @@ public class RecordIngestService implements RecordIngestPort {
             return;
         }
         recordMutator.upsertRecord(request);
+        IngestHealthService health = ingestHealthService.getIfAvailable();
+        if (health != null) {
+            health.recordIngest(1);
+        }
         if (!Boolean.TRUE.equals(request.computeEmbedding())) {
             return;
         }

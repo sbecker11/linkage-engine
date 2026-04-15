@@ -26,6 +26,7 @@ public class RecordIngestConfiguration {
         ObjectProvider<EmbeddingModel> embeddingModel,
         ObjectProvider<RecordEmbeddingStore> recordEmbeddingStore,
         DataCleansingService dataCleansingService,
+        ObjectProvider<IngestHealthService> ingestHealthService,
         @Value("${spring.ai.bedrock.titan.embedding.model:bedrock-titan}") String embeddingModelId
     ) {
         return new RecordIngestService(
@@ -33,7 +34,8 @@ public class RecordIngestConfiguration {
             embeddingModel.getIfAvailable(),
             recordEmbeddingStore.getIfAvailable(),
             embeddingModelId,
-            dataCleansingService
+            dataCleansingService,
+            ingestHealthService
         );
     }
 

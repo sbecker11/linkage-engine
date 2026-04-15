@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationState;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -25,9 +26,10 @@ import org.springframework.stereotype.Service;
  * applied — the store Lambda should abort ingest until the schema is current.
  *
  * Throughput stats (lastBatchSize, lastBatchAt, ingestRatePerMin) are updated
- * by RecordIngestController on each successful POST /v1/records batch.
+ * by {@link RecordIngestService} after each successful record upsert.
  */
 @Service
+@ConditionalOnBean(JdbcTemplate.class)
 public class IngestHealthService {
 
     private static final DateTimeFormatter ISO_UTC =
