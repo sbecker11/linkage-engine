@@ -112,8 +112,9 @@
       #chart-wrap {
         display: flex;
         justify-content: center;
-        min-height: 200px;
         align-items: flex-start;
+        width: 100%;
+        min-height: min(60vh, 900px);
       }
       #empty-msg {
         font-size: 13px;
@@ -788,12 +789,15 @@
           "svg",
         );
         const headerH = document.querySelector("header").getBoundingClientRect().height;
-        const availH  = window.innerHeight - headerH - 40;
+        const mainRect = document.querySelector("main").getBoundingClientRect();
         const narrow = window.innerWidth <= 900;
+        // Use real layout width of <main> (fixed side panels make % of window inaccurate).
         const availW = narrow
-          ? window.innerWidth - 32
-          : window.innerWidth * 0.62 - 48; // centre column (100% - 20% detail - 18% legend - padding)
-        const side = Math.max(280, Math.min(availW, availH, 720));
+          ? Math.max(260, window.innerWidth - 32)
+          : Math.max(260, mainRect.width - 24);
+        const availH = Math.max(260, window.innerHeight - headerH - 52);
+        // Square SVG; allow large monitors to use space (cap avoids absurdly huge SVGs).
+        const side = Math.max(300, Math.min(availW, availH, 1200));
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
         svgEl.setAttribute("width", side);
         svgEl.setAttribute("height", side);
