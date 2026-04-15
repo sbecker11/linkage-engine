@@ -530,7 +530,8 @@
               ? Math.round(cand.vectorSimilarity * 100)
               : Math.max(90 - rank * 7, 50);
             matrix[i][j] = sim;
-            simSource.set(`${i}-${j}`, hasSim ? "real" : "rank");
+            const simKey = `${Math.min(i, j)}-${Math.max(i, j)}`;
+            simSource.set(simKey, hasSim ? "real" : "rank");
             const key = `${i}-${j}`;
             if (!pairSet.has(key))
               pairSet.set(key, {
@@ -599,15 +600,18 @@
         await Promise.all(
           [...pairSet.values()].map(
             async ({ i, j, nameA, locA, yearA, birthYearA, nameB, locB, yearB, birthYearB }) => {
+              const pi = Math.min(i, j),
+                pj = Math.max(i, j);
+              const pkey = `${pi}-${pj}`;
               try {
                 const res = await apiPost("/v1/spatial/temporal-overlap", {
                   from: { recordId: "q-a", givenName: nameA, location: locA, year: yearA, birthYear: birthYearA },
                   to:   { recordId: "q-b", givenName: nameB, location: locB, year: yearB, birthYear: birthYearB },
                 });
-                plausMap.set(`${i}-${j}`, res);
+                plausMap.set(pkey, res);
               } catch (e) {
                 // console.warn("[spatial] failed for pair", i, j, e.message);
-                plausMap.set(`${i}-${j}`, {
+                plausMap.set(pkey, {
                   plausible: true,
                   transitMode: "unknown",
                   travelDays: 0,
