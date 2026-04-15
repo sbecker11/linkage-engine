@@ -88,8 +88,10 @@ HAS_SUMMARY=$(echo "$RESOLVE" | python3 -c "import sys,json; d=json.load(sys.std
 # 5. Seed data present (DEMO-A and DEMO-B)
 if [ "$SKIP_SEED" = "false" ]; then
   ALL_IDS=$(echo "$RECORDS" | python3 -c "import sys,json; [print(r['recordId']) for r in json.load(sys.stdin)]" 2>/dev/null || echo "")
-  HAS_DEMO_A=$(echo "$ALL_IDS" | grep -c "^DEMO-A$" || echo "0")
-  HAS_DEMO_B=$(echo "$ALL_IDS" | grep -c "^DEMO-B$" || echo "0")
+  # grep -c prints 0 and exits 1 when there are no matches — do not "|| echo 0"
+  # or the command substitution captures two lines ("0\n0") and breaks -ge tests.
+  HAS_DEMO_A=$(echo "$ALL_IDS" | grep -c "^DEMO-A$" || true)
+  HAS_DEMO_B=$(echo "$ALL_IDS" | grep -c "^DEMO-B$" || true)
   if [ "$HAS_DEMO_A" -ge 1 ] && [ "$HAS_DEMO_B" -ge 1 ]; then
     check "Seed data present (DEMO-A/B)" "pass"
   else
