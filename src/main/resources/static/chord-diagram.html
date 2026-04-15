@@ -267,6 +267,49 @@
       .c-red {
         color: #a32d2d;
       }
+      /* Narrow viewports: side panels were fixed 20% + 18%, leaving a tiny strip for the chart */
+      @media (max-width: 900px) {
+        body {
+          display: flex;
+          flex-direction: column;
+        }
+        header,
+        main {
+          margin-left: 0;
+          margin-right: 0;
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        #detail,
+        #legend {
+          position: static;
+          width: 100%;
+          height: auto;
+          max-height: none;
+          box-shadow: none;
+        }
+        #detail {
+          direction: ltr;
+          order: 3;
+          border-right: none;
+          border-bottom: 1px solid #d3d1c7;
+        }
+        #legend {
+          order: 4;
+          border-left: none;
+          border-top: 1px solid #d3d1c7;
+        }
+        header {
+          order: 1;
+        }
+        main {
+          order: 2;
+        }
+        .tip {
+          order: 50;
+        }
+      }
+
       .tip {
         position: fixed;
         font-size: 11px;
@@ -692,6 +735,8 @@
           CY = 350;
         const OR = 195,
           IR = 177;
+        /* Ribbon fill opacity (was referenced but never defined → invalid rgba, broken fills) */
+        const LAYER_ALPHA = 0.55;
 
         const wrap = document.getElementById("chart-wrap");
         wrap.innerHTML = "";
@@ -701,11 +746,15 @@
         );
         const headerH = document.querySelector("header").getBoundingClientRect().height;
         const availH  = window.innerHeight - headerH - 40;
-        const availW  = window.innerWidth * 0.62 - 48; // centre column (100% - 20% detail - 18% legend - padding)
-        const side = Math.min(availW, availH);
+        const narrow = window.innerWidth <= 900;
+        const availW = narrow
+          ? window.innerWidth - 32
+          : window.innerWidth * 0.62 - 48; // centre column (100% - 20% detail - 18% legend - padding)
+        const side = Math.max(280, Math.min(availW, availH, 720));
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
         svgEl.setAttribute("width", side);
         svgEl.setAttribute("height", side);
+        svgEl.setAttribute("shape-rendering", "geometricPrecision");
         wrap.appendChild(svgEl);
 
         // Transparent background rect — clicking it clears the selection.
@@ -773,7 +822,8 @@
                 .attr("d", path)
                 .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
                 .attr("stroke", i === 0 ? strokeCol : "none")
-                .attr("stroke-width", i === 0 ? 0.5 : 0)
+                .attr("stroke-width", i === 0 ? 0.75 : 0)
+                .attr("stroke-linejoin", "round")
                 .style("pointer-events", "none");
             });
           }
@@ -807,6 +857,7 @@
               .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
               .attr("stroke", i === 0 ? strokeCol : "none")
               .attr("stroke-width", i === 0 ? 2.5 : 0)
+              .attr("stroke-linejoin", "round")
               .style("pointer-events", "none");
           });
         }
@@ -929,8 +980,12 @@
               `${d.angle > Math.PI ? "rotate(180)" : ""}`,
           )
           .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
-          .attr("font-size", "10.5px")
-          .attr("fill", "#5f5e5a")
+          .attr("font-size", narrow ? "11px" : "10.5px")
+          .attr("fill", "#3d3d38")
+          .attr("font-weight", "500")
+          .attr("stroke", "#fafaf9")
+          .attr("stroke-width", 2.5)
+          .attr("paint-order", "stroke fill")
           .attr("font-family", "system-ui,-apple-system,sans-serif")
           .text((d, i) => recordLabel(records[i]));
 
