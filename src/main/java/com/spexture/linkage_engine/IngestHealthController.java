@@ -3,8 +3,6 @@ package com.spexture.linkage_engine;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,7 +31,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/v1/ingest")
-@ConditionalOnBean(JdbcTemplate.class)
 public class IngestHealthController {
 
     private final IngestHealthService ingestHealthService;
