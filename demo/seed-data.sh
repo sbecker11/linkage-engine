@@ -12,16 +12,22 @@
 #
 # Run with the app already started:
 #   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+#
+# Remote / ALB (either env var works — docs often use BASE_URL):
+#   LINKAGE_BASE_URL=http://<alb-dns> ./demo/seed-data.sh
+#   BASE_URL=http://<alb-dns> ./demo/seed-data.sh
 
 set -euo pipefail
 
-BASE="${LINKAGE_BASE_URL:-http://localhost:8080}"
+BASE="${BASE_URL:-${LINKAGE_BASE_URL:-http://localhost:8080}}"
 POST() {
-  curl -sf -X POST "$BASE/v1/records" \
-    -H "Content-Type: application/json" \
-    -d "$1" \
+  local opts=( -sf -X POST "$BASE/v1/records" -H "Content-Type: application/json" )
+  if [ -n "${INGEST_API_KEY:-}" ]; then
+    opts+=( -H "X-Api-Key: ${INGEST_API_KEY}" )
+  fi
+  curl "${opts[@]}" -d "$1" \
   && echo " ✓ $2" \
-  || echo " ✗ $2 (failed)"
+  || echo " ✗ $2 (failed — need INGEST_API_KEY for ECS if you see 401)"
 }
 
 echo "=== Seeding demo records ==="

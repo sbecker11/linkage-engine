@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-BASE="${LINKAGE_BASE_URL:-http://localhost:8080}"
+BASE="${BASE_URL:-${LINKAGE_BASE_URL:-http://localhost:8080}}"
 PRETTY() {
     if command -v jq &>/dev/null; then jq '.'; else python3 -m json.tool; fi
 }
