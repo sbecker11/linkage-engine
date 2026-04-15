@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # demo/seed-data.sh
-# Ingests 10 records designed to exercise every ConflictRule and chord colour.
+# Ingests 18 DEMO-* records designed to exercise every ConflictRule and chord colour.
 #
 # Colour map:
 #   Green  — plausible, comfortable margin          (DEMO-A ↔ DEMO-B)
