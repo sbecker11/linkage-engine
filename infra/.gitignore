@@ -1,0 +1,27 @@
+# Local Terraform state (bootstrap uses local state intentionally)
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+
+# Terraform working directories (plugin cache — not committed)
+.terraform/
+
+# Lock file is committed to pin provider versions — do NOT ignore it
+# .terraform.lock.hcl
+
+# Variable files that may contain secrets
+*.tfvars
+!*.tfvars.example
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Plan output files
+*.tfplan
