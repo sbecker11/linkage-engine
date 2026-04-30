@@ -1,8 +1,14 @@
 name: deploy-ecr-ecs
 
-# OIDC role: repository secret AWS_DEPLOY_ROLE_ARN only (never a workflow input).
-# Region / ECR / ECS: workflow_dispatch defaults (override per run in Actions UI).
-# See docs/DEPLOYMENT_ECS_FARGATE.md
+# Infrastructure is managed by Terraform (infra/envs/prod/).
+# This workflow:
+#   1. Builds and pushes the Docker image to ECR.
+#   2. Runs "terraform apply" to update the ECS task definition with the new
+#      image tag and trigger a rolling deployment — no separate ECS deploy step.
+#
+# OIDC role:  repository secret AWS_DEPLOY_ROLE_ARN (never a workflow input).
+# AWS region: workflow_dispatch default (us-west-1); override per run in UI.
+# See infra/README.md and docs/DEPLOYMENT_ECS_FARGATE.md
 
 on:
   workflow_dispatch:
@@ -17,16 +23,6 @@ on:
         type: string
         required: true
         default: linkage-engine
-      ecs_cluster:
-        description: ECS cluster name
-        type: string
-        required: true
-        default: linkage-engine-cluster
-      ecs_service:
-        description: ECS service name
-        type: string
-        required: true
-        default: linkage-engine-service
 
 permissions:
   id-token: write
@@ -38,10 +34,7 @@ jobs:
     env:
       AWS_REGION: ${{ github.event.inputs.aws_region }}
       ECR_REPOSITORY: ${{ github.event.inputs.ecr_repository }}
-      ECS_CLUSTER: ${{ github.event.inputs.ecs_cluster }}
-      ECS_SERVICE: ${{ github.event.inputs.ecs_service }}
-      ECS_TASK_DEFINITION: deploy/ecs/task-definition.json
-      CONTAINER_NAME: linkage-engine
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,18 +59,18 @@ jobs:
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Render ECS task definition
-        id: render-task
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+          terraform_version: "~1.9"
 
-      - name: Deploy ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-task.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+      - name: Terraform init
+        working-directory: infra/envs/prod
+        run: terraform init -input=false
+
+      - name: Terraform apply (update ECS image tag)
+        working-directory: infra/envs/prod
+        run: |
+          terraform apply -auto-approve -input=false \
+            -var="ecr_image_uri=${{ steps.build-image.outputs.image }}" \
+            -var="aws_account_id=$(aws sts get-caller-identity --query Account --output text)"
