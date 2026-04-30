@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-# deploy/provision-aws.sh  — ARCHIVED
+# deploy/provision-aws.sh
 #
-# ⚠️  This script has been superseded by Terraform IaC in infra/.
-#     Do NOT run this script for new environments.
-#
-# To provision or update the production environment, use:
-#   cd infra/bootstrap && terraform init && terraform apply   # (once per account)
-#   cd infra/envs/prod && terraform init && terraform apply
-#
-# To import existing resources into Terraform state:
-#   cd infra/envs/prod && bash ../../import.sh
-#
-# This file is kept for historical reference only.
-# A backup is at deploy/archive/provision-aws.sh.bak
-#
-# Original description:
 # Idempotent provisioning script for linkage-engine on ECS Fargate.
 # Run once before the first GitHub Actions deploy; safe to re-run.
 #

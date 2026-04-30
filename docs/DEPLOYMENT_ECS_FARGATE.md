@@ -2,13 +2,20 @@
 
 Linkage Engine runs on AWS ECS Fargate with Aurora PostgreSQL Serverless v2 and Bedrock for embeddings.
 
+> **Infrastructure is now managed by Terraform.** See [`infra/README.md`](../infra/README.md)
+> for the current provisioning workflow. The steps below describe the architecture;
+> the old `deploy/provision-aws.sh` script has been superseded.
+
 ## Architecture
 
 ```
 Internet
   │
   ▼
-Application Load Balancer  (port 80 → HTTP)
+WAF WebACL  (rate-limit: 500 req/5min per IP)
+  │
+  ▼
+Application Load Balancer  (port 80 HTTP / 443 HTTPS when domain configured)
   │
   ▼
 ECS Fargate task  (linkage-engine container, port 8080)
@@ -17,17 +24,51 @@ ECS Fargate task  (linkage-engine container, port 8080)
   ▼
 Aurora PostgreSQL Serverless v2  (linkage_db, pgvector)
   │
-  └─► Secrets Manager  (DB_URL / DB_USER / DB_PASSWORD injected at task start)
+  └─► Secrets Manager  (DB_URL / DB_USER / DB_PASSWORD / INGEST_API_KEY injected at task start)
 ```
 
-## Files
+## Terraform Quick Start (replaces provision-aws.sh)
 
+```bash
+# Step 1 — Bootstrap remote state (once per AWS account)
+cd infra/bootstrap
+terraform init && terraform apply
+
+# Step 2 — Copy backend_config output into infra/envs/prod/versions.tf
+# (already done — bucket linkage-engine-tfstate)
+
+# Step 3 — Configure variables
+cd infra/envs/prod
+cp terraform.tfvars.example terraform.tfvars
+# edit terraform.tfvars — set aws_account_id at minimum
+
+# Step 4 — Import existing resources (first time only)
+terraform init
+bash ../../import.sh
+
+# Step 5 — Apply
+terraform plan    # verify no unintended changes
+terraform apply   # creates/updates all resources
+
+# Step 6 — Set GitHub secret
+# Name:  AWS_DEPLOY_ROLE_ARN
+# Value: (printed as deploy_role_arn output from terraform apply)
+
+# Step 7 — Deploy via GitHub Actions
+# GitHub → Actions → deploy-ecr-ecs → Run workflow
+```
+
+## Key Files
 
 | File                                                   | Purpose                                                         |
 | ------------------------------------------------------ | --------------------------------------------------------------- |
 | `Dockerfile`                                           | Multi-stage build (Maven → JRE 21)                              |
-| `deploy/provision-aws.sh`                              | **One-shot** provisioning script — run once before first deploy |
-| `deploy/ecs/task-definition.json`                      | ECS task definition template (updated by provision script)      |
+| `infra/bootstrap/`                                     | Terraform — S3 state bucket + DynamoDB lock (run once)          |
+| `infra/envs/prod/`                                     | Terraform — production root module (all resources)              |
+| `infra/modules/`                                       | Terraform — reusable resource modules                           |
+| `infra/import.sh`                                      | Import existing AWS resources into Terraform state              |
+| `deploy/provision-aws.sh`                              | **ARCHIVED** — superseded by Terraform; kept for reference      |
+| `deploy/ecs/task-definition.json`                      | **ARCHIVED** — task definition now owned by Terraform           |
 | `deploy/ecs/service-definition.md`                     | ECS service configuration reference                             |
 | `deploy/iam/ecs-execution-role-secrets-statement.json` | IAM policy fragment for execution role                          |
 | `deploy/secrets/runtime-secret.json.example`           | Secrets Manager JSON body template                              |
