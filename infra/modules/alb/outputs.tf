@@ -17,3 +17,13 @@ output "http_listener_arn" {
   description = "ARN of the HTTP :80 listener."
   value       = aws_lb_listener.http.arn
 }
+
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix for CloudWatch alarm dimensions (e.g. 'app/name/id')."
+  value       = aws_lb.main.arn_suffix
+}
+
+output "target_group_arn_suffix" {
+  description = "Target group ARN suffix for CloudWatch alarm dimensions (e.g. 'targetgroup/name/id')."
+  value       = aws_lb_target_group.app.arn_suffix
+}

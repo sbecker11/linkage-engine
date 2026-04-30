@@ -1,0 +1,27 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit it.
+
+aws_region     = "us-west-1"
+aws_account_id = "YOUR_ACCOUNT_ID"     # aws sts get-caller-identity --query Account --output text
+github_repo    = "sbecker11/linkage-engine"
+
+# Optional: set to enable HTTPS with a custom domain (requires DNS CNAME after apply)
+domain_name = ""
+# domain_name = "linkage.example.com"
+
+# Optional: email for SNS alert subscription
+alert_email = ""
+# alert_email = "ops@example.com"
+
+# Budget alert (fires at 80% of this amount each month)
+monthly_budget_usd = 50
+
+# Aurora Serverless v2 scaling
+aurora_min_capacity = 0
+aurora_max_capacity = 2
+
+# ECS task count
+ecs_desired_count = 1
+
+# Set automatically by GitHub Actions at deploy time — do not set manually
+# ecr_image_uri = ""
