@@ -116,10 +116,13 @@ jobs:
           echo "Registered task definition: $NEW_TASK_ARN"
 
           # Update the service to use the new revision (rolling deploy).
+          # --desired-count 1 ensures the service is running even if it was
+          # previously scaled to 0 (e.g. after a manual scale-down).
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
             --task-definition "$NEW_TASK_ARN" \
+            --desired-count 1 \
             --force-new-deployment
 
           echo "Deployment triggered for $ECS_CLUSTER / $ECS_SERVICE"
