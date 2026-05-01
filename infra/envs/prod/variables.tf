@@ -39,6 +39,12 @@ variable "monthly_budget_usd" {
   default     = 50
 }
 
+variable "aurora_engine_version" {
+  description = "Aurora PostgreSQL engine version. Must match the live cluster version to avoid a failed downgrade attempt."
+  type        = string
+  default     = "16.13"
+}
+
 variable "aurora_min_capacity" {
   description = "Minimum Aurora Serverless v2 ACUs (0 = scales to zero when idle)."
   type        = number

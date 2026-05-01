@@ -61,14 +61,15 @@ module "monitoring" {
 }
 
 module "aurora" {
-  source       = "../../modules/aurora"
-  app          = var.app
-  db_sg_id     = module.networking.db_sg_id
-  subnet_ids   = data.aws_subnets.default.ids
-  db_password  = random_password.db.result
-  min_capacity = var.aurora_min_capacity
-  max_capacity = var.aurora_max_capacity
-  tags         = var.tags
+  source         = "../../modules/aurora"
+  app            = var.app
+  db_sg_id       = module.networking.db_sg_id
+  subnet_ids     = data.aws_subnets.default.ids
+  db_password    = random_password.db.result
+  engine_version = var.aurora_engine_version
+  min_capacity   = var.aurora_min_capacity
+  max_capacity   = var.aurora_max_capacity
+  tags           = var.tags
 }
 
 module "secrets" {

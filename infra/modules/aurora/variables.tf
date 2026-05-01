@@ -32,9 +32,9 @@ variable "db_password" {
 }
 
 variable "engine_version" {
-  description = "Aurora PostgreSQL engine version."
+  description = "Aurora PostgreSQL engine version. Pin this to the live cluster version to avoid attempted downgrades."
   type        = string
-  default     = "16.6"
+  default     = "16.13"
 }
 
 variable "min_capacity" {

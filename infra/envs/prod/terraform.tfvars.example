@@ -16,6 +16,10 @@ alert_email = ""
 # Budget alert (fires at 80% of this amount each month)
 monthly_budget_usd = 50
 
+# Aurora PostgreSQL engine version — must match the live cluster version to avoid a downgrade error.
+# Check current version: aws rds describe-db-clusters --db-cluster-identifier linkage-engine-aurora --query 'DBClusters[0].EngineVersion' --output text
+aurora_engine_version = "16.13"
+
 # Aurora Serverless v2 scaling
 aurora_min_capacity = 0
 aurora_max_capacity = 2
