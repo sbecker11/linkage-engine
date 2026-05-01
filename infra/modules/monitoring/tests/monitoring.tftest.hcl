@@ -148,3 +148,39 @@ run "output_sns_topic_name_matches_resource" {
     error_message = "sns_topic_name output must match the SNS topic."
   }
 }
+
+run "aurora_no_connections_alarm_name_preserved" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.aurora_no_connections.alarm_name == "le-aurora-connections"
+    error_message = "Alarm name must stay 'le-aurora-connections' to match the imported resource."
+  }
+}
+
+run "aurora_no_connections_alarm_metric" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.aurora_no_connections.metric_name == "DatabaseConnections"
+    error_message = "Alarm must monitor the DatabaseConnections metric."
+  }
+}
+
+run "aurora_no_connections_alarm_threshold" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.aurora_no_connections.threshold == 0
+    error_message = "Alarm must fire when connections == 0."
+  }
+}
+
+run "aurora_no_connections_alarm_operator" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.aurora_no_connections.comparison_operator == "LessThanOrEqualToThreshold"
+    error_message = "Alarm must use LessThanOrEqualToThreshold."
+  }
+}

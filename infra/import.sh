@@ -151,6 +151,10 @@ for alarm in "${APP}-ecs-memory-high" "${APP}-aurora-storage-low" "${APP}-alb-he
   tf_import "module.monitoring.aws_cloudwatch_metric_alarm.${alarm#${APP}-}" "$alarm" 2>/dev/null || true
 done
 
+# Pre-existing alarm created outside Terraform (short name prefix "le-")
+tf_import "module.monitoring.aws_cloudwatch_metric_alarm.aurora_no_connections" \
+  "le-aurora-connections"
+
 # Budget (uses account-level resource)
 tf_import "module.monitoring.aws_budgets_budget.monthly" \
   "${ACCOUNT_ID}:${APP}-monthly-budget"

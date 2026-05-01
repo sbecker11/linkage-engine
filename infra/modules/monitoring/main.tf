@@ -86,6 +86,26 @@ resource "aws_cloudwatch_metric_alarm" "alb_healthy_hosts" {
   tags          = var.tags
 }
 
+resource "aws_cloudwatch_metric_alarm" "aurora_no_connections" {
+  alarm_name          = "le-aurora-connections"
+  alarm_description   = "Aurora has no active connections (may be paused)"
+  namespace           = "AWS/RDS"
+  metric_name         = "DatabaseConnections"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    DBClusterIdentifier = var.db_cluster_identifier
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  tags          = var.tags
+}
+
 resource "aws_cloudwatch_metric_alarm" "ecs_tasks_running" {
   alarm_name          = "${var.app}-ecs-tasks-running"
   alarm_description   = "ECS running task count < 1 — service scaled to zero or crash-looping"
