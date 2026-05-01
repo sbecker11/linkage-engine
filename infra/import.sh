@@ -4,13 +4,14 @@
 # Imports existing AWS resources into Terraform state so that the first
 # "terraform apply" does not try to recreate them.
 #
-# Run from infra/envs/prod/ AFTER terraform init and BEFORE terraform apply:
+# Run from infra/envs/prod/ BEFORE terraform apply:
 #
 #   cd infra/envs/prod
-#   terraform init
 #   bash ../../import.sh
 #   terraform plan          # should show no changes (or only minor drift)
 #   terraform apply         # safe to run — idempotent
+#
+# terraform init is run automatically by this script.
 #
 # Prerequisites:
 #   - AWS CLI v2 configured with sufficient IAM permissions
@@ -28,13 +29,21 @@ echo "  Importing existing ${APP} resources into Terraform state"
 echo "  Region: ${REGION}   Account: ${ACCOUNT_ID}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+echo ""
+echo "▶ terraform init"
+terraform init -input=false
+echo "  ✓ initialized"
+
 tf_import() {
   local address="$1"
   local id="$2"
   echo ""
   echo "▶ terraform import ${address}"
   echo "  ID: ${id}"
-  terraform import "${address}" "${id}" && echo "  ✓ imported" || echo "  ⚠ skipped (may already be in state)"
+  # -lock=false: this script is a sequential single-user operation;
+  # skipping the DynamoDB lock avoids stale-lock contention between
+  # rapid sequential imports.
+  terraform import -lock=false "${address}" "${id}" && echo "  ✓ imported" || echo "  ⚠ skipped (may already be in state)"
 }
 
 # ── ECR ────────────────────────────────────────────────────────────────────────
