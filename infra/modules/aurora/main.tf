@@ -22,6 +22,7 @@ resource "aws_rds_cluster" "main" {
   deletion_protection       = false
   skip_final_snapshot       = false
   final_snapshot_identifier = "${var.app}-aurora-final"
+  apply_immediately         = true
 
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
