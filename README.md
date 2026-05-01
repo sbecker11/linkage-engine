@@ -283,12 +283,122 @@ See [demo/README.md](demo/README.md) for the full story.
 
 ---
 
+## Infrastructure (Terraform)
+
+All AWS infrastructure is defined as code in `infra/` and managed with Terraform. No manual console changes are needed after the initial bootstrap.
+
+### What Terraform manages
+
+| Module | Resources |
+| :----- | :-------- |
+| `bootstrap` | S3 remote state bucket + DynamoDB lock table |
+| `ecr` | ECR repository with lifecycle policy (keep 10 tagged, expire untagged after 14 days) |
+| `networking` | Security groups for ALB, ECS, and Aurora; ingress/egress rules |
+| `aurora` | Aurora PostgreSQL Serverless v2 cluster + writer instance (scales 0–2 ACUs) |
+| `secrets` | Secrets Manager secret holding `DB_URL`, `DB_USER`, `DB_PASSWORD`, `INGEST_API_KEY` |
+| `iam` | ECS execution role, ECS task role (Bedrock), GitHub OIDC deploy role |
+| `alb` | Application Load Balancer, target group, HTTP/HTTPS listeners |
+| `acm` | ACM certificate (created only when `domain_name` is set) |
+| `waf` | WAFv2 WebACL with 500 req/5 min rate limit, associated to ALB |
+| `ecs` | ECS cluster (Container Insights on), task definition, Fargate service |
+| `monitoring` | CloudWatch log group, SNS alert topic, 5 CloudWatch alarms, AWS Budget |
+
+### Directory layout
+
+```
+infra/
+├── bootstrap/          # One-time setup: S3 state bucket + DynamoDB lock
+│   ├── main.tf
+│   └── tests/
+├── modules/            # Reusable modules (each has main.tf, variables.tf, outputs.tf, tests/)
+│   ├── ecr/
+│   ├── networking/
+│   ├── aurora/
+│   ├── secrets/
+│   ├── iam/
+│   ├── alb/
+│   ├── acm/
+│   ├── waf/
+│   ├── ecs/
+│   └── monitoring/
+├── envs/
+│   └── prod/           # Production root module — wires all modules together
+│       ├── main.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       ├── versions.tf
+│       └── terraform.tfvars.example
+└── import.sh           # Imports pre-existing AWS resources into state
+```
+
+### First-time setup
+
+```bash
+# 1. Bootstrap remote state (one time only)
+cd infra/bootstrap
+terraform init && terraform apply
+
+# 2. Configure prod variables
+cd ../envs/prod
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars — set aws_account_id, github_repo, etc.
+
+# 3. Import any pre-existing AWS resources
+bash ../../import.sh
+
+# 4. Apply
+terraform plan   # review
+terraform apply
+```
+
+See [`infra/README.md`](infra/README.md) for the full guide including HTTPS, DNS, and budget configuration.
+
+### Deploying a new application version
+
+Infrastructure changes are applied manually with `terraform apply`. Application deploys (new Docker image → ECS) go through GitHub Actions and do **not** require Terraform:
+
+```bash
+# From the project root — triggers build → ECR push → ECS rolling deploy
+gh workflow run deploy-ecr-ecs.yml --ref main
+```
+
+The CI workflow registers a new ECS task definition revision with the new image SHA and calls `update-service`, requiring only narrow ECR + ECS permissions. Full Terraform access is never needed in CI.
+
+### Module tests
+
+Every module ships with mock-provider unit tests (`terraform test`) — no AWS credentials required:
+
+```bash
+# Run all module tests from the repo root
+for mod in infra/modules/*/; do
+  echo "=== $mod ===" && (cd "$mod" && terraform init -quiet && terraform test)
+done
+# 88 tests, 0 failures
+```
+
+### Monitoring & alerts
+
+Five CloudWatch alarms send to an SNS topic (`linkage-engine-alerts`). Set `alert_email` in `terraform.tfvars` to receive email notifications:
+
+| Alarm | Fires when |
+| :---- | :--------- |
+| `le-aurora-connections` | Aurora has 0 active connections (paused or app down) |
+| `linkage-engine-ecs-memory-high` | ECS task memory > 80% |
+| `linkage-engine-aurora-storage-low` | Aurora free storage < 20 GiB |
+| `linkage-engine-alb-healthy-hosts` | ALB healthy target count < 1 |
+| `linkage-engine-ecs-tasks-running` | Running ECS task count < 1 |
+
+An AWS Budget fires at 80% of a configurable monthly spend limit (default $50/month).
+
+---
+
 ## Documentation
 
 | Document                                                              | Contents                                                                                                      |
 | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
+| [infra/README.md](infra/README.md)                                    | Terraform quick start, module reference, import guide, CI/CD integration                                      |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                               | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy                                     |
-| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate task definition, IAM, health checks, demo lifecycle                                             |
+| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate deployment, ALB, health checks, demo lifecycle                                                  |
 | [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md)                         | AWS Secrets Manager for runtime DB credentials in ECS                                                         |
 | [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md)                       | S3 bucket layout, ingest pipeline, archival policy, Athena DDL                                                |
 | [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md)                     | Aurora provisioning, PITR disaster recovery, version notes                                                    |
