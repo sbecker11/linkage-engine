@@ -1,13 +1,16 @@
 name: deploy-ecr-ecs
 
-# Infrastructure is managed by Terraform (infra/envs/prod/).
-# This workflow:
-#   1. Builds and pushes the Docker image to ECR.
-#   2. Runs "terraform apply" to update the ECS task definition with the new
-#      image tag and trigger a rolling deployment — no separate ECS deploy step.
+# Deploys a new application image to ECS Fargate.
 #
-# OIDC role:  repository secret AWS_DEPLOY_ROLE_ARN (never a workflow input).
-# AWS region: workflow_dispatch default (us-west-1); override per run in UI.
+# Infrastructure (VPC, ALB, RDS, WAF, IAM, etc.) is managed separately by
+# Terraform — run "terraform apply" locally from infra/envs/prod/ for infra
+# changes. This workflow handles only the application deploy loop:
+#   1. Build + push Docker image to ECR.
+#   2. Register a new ECS task definition revision (same config, new image).
+#   3. Update the ECS service — triggers a rolling replacement of tasks.
+#
+# The deploy role (AWS_DEPLOY_ROLE_ARN) is intentionally narrow and only
+# has ECR push + ECS task/service permissions. No Terraform is run in CI.
 # See infra/README.md and docs/DEPLOYMENT_ECS_FARGATE.md
 
 on:
@@ -23,6 +26,21 @@ on:
         type: string
         required: true
         default: linkage-engine
+      ecs_cluster:
+        description: ECS cluster name
+        type: string
+        required: true
+        default: linkage-engine-cluster
+      ecs_service:
+        description: ECS service name
+        type: string
+        required: true
+        default: linkage-engine-service
+      task_family:
+        description: ECS task definition family
+        type: string
+        required: true
+        default: linkage-engine
 
 permissions:
   id-token: write
@@ -32,8 +50,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: ${{ github.event.inputs.aws_region }}
-      ECR_REPOSITORY: ${{ github.event.inputs.ecr_repository }}
+      AWS_REGION:      ${{ github.event.inputs.aws_region }}
+      ECR_REPOSITORY:  ${{ github.event.inputs.ecr_repository }}
+      ECS_CLUSTER:     ${{ github.event.inputs.ecs_cluster }}
+      ECS_SERVICE:     ${{ github.event.inputs.ecs_service }}
+      TASK_FAMILY:     ${{ github.event.inputs.task_family }}
 
     steps:
       - name: Checkout
@@ -57,20 +78,44 @@ jobs:
         run: |
           docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          # Also tag as :latest for convenience
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+                     "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "~1.9"
-
-      - name: Terraform init
-        working-directory: infra/envs/prod
-        run: terraform init -input=false
-
-      - name: Terraform apply (update ECS image tag)
-        working-directory: infra/envs/prod
+      - name: Register new ECS task definition and deploy
+        env:
+          NEW_IMAGE: ${{ steps.build-image.outputs.image }}
         run: |
-          terraform apply -auto-approve -input=false \
-            -var="ecr_image_uri=${{ steps.build-image.outputs.image }}" \
-            -var="aws_account_id=$(aws sts get-caller-identity --query Account --output text)"
+          # Fetch the current (active) task definition JSON.
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition \
+            --output json)
+
+          # Replace the image in the first container, strip read-only fields
+          # that would be rejected by register-task-definition.
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$NEW_IMAGE" \
+            '.containerDefinitions[0].image = $IMAGE
+             | del(.taskDefinitionArn, .revision, .status,
+                   .requiresAttributes, .compatibilities,
+                   .registeredAt, .registeredBy)')
+
+          # Register the new revision.
+          NEW_TASK_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          echo "Registered task definition: $NEW_TASK_ARN"
+
+          # Update the service to use the new revision (rolling deploy).
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$NEW_TASK_ARN" \
+            --force-new-deployment
+
+          echo "Deployment triggered for $ECS_CLUSTER / $ECS_SERVICE"
