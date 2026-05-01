@@ -64,6 +64,33 @@ DB_SG_ID=$(aws ec2 describe-security-groups --region "$REGION" \
 [ -n "$ECS_SG_ID" ] && [ "$ECS_SG_ID" != "None" ] && tf_import "module.networking.aws_security_group.ecs" "$ECS_SG_ID"
 [ -n "$DB_SG_ID"  ] && [ "$DB_SG_ID"  != "None" ] && tf_import "module.networking.aws_security_group.db"  "$DB_SG_ID"
 
+# ── Security group rules (standalone resources — must import or apply fails with Duplicate) ──
+# Looks up each rule by group-id + direction + port so the script stays idempotent.
+_sgr() {
+  local sg_id="$1" egress="$2" proto="$3" from="$4" to="$5" peer="$6"
+  local filter="Name=group-id,Values=${sg_id} Name=is-egress,Values=${egress}"
+  [ -n "$proto"  ] && filter="${filter} Name=ip-protocol,Values=${proto}"
+  [ -n "$from"   ] && filter="${filter} Name=from-port,Values=${from}"
+  [ -n "$to"     ] && filter="${filter} Name=to-port,Values=${to}"
+  [ -n "$peer"   ] && filter="${filter} Name=cidr-ipv4,Values=${peer}"
+  aws ec2 describe-security-group-rules --region "$REGION" \
+    --filters $filter \
+    --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text 2>/dev/null || echo ""
+}
+
+if [ -n "$ALB_SG_ID" ] && [ "$ALB_SG_ID" != "None" ]; then
+  R=$(  _sgr "$ALB_SG_ID" false tcp 80  80  "0.0.0.0/0") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_ingress_rule.alb_http"  "$R"
+  R=$(  _sgr "$ALB_SG_ID" false tcp 443 443 "0.0.0.0/0") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_ingress_rule.alb_https" "$R"
+  R=$(  _sgr "$ALB_SG_ID" true  -1  ""  ""  "0.0.0.0/0") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_egress_rule.alb_egress"  "$R"
+fi
+if [ -n "$ECS_SG_ID" ] && [ "$ECS_SG_ID" != "None" ]; then
+  R=$(  _sgr "$ECS_SG_ID" false tcp 8080 8080 "") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_ingress_rule.ecs_from_alb" "$R"
+  R=$(  _sgr "$ECS_SG_ID" true  -1  ""   ""   "0.0.0.0/0") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_egress_rule.ecs_egress"  "$R"
+fi
+if [ -n "$DB_SG_ID" ] && [ "$DB_SG_ID" != "None" ]; then
+  R=$(  _sgr "$DB_SG_ID"  false tcp 5432 5432 "") && [ -n "$R" ] && [ "$R" != "None" ] && tf_import "module.networking.aws_vpc_security_group_ingress_rule.db_from_ecs" "$R"
+fi
+
 # ── Aurora ─────────────────────────────────────────────────────────────────────
 tf_import "module.aurora.aws_db_subnet_group.main"         "${APP}-subnet-group"
 tf_import "module.aurora.aws_rds_cluster.main"             "${APP}-aurora"
