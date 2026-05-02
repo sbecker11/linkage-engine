@@ -56,13 +56,15 @@ class CostSummaryControllerTest {
                                 "DISABLED",
                                 "App=linkage-engine",
                                 null,
-                                null,
-                                null,
-                                "Set LINKAGE_COST_ENABLED=true on the task to query Cost Explorer."));
+                                "2026-05-01",
+                                "2026-06-01",
+                                "Set LINKAGE_COST_ENABLED=true on the ECS task to query Cost Explorer."));
 
         mockMvc.perform(get("/v1/cost/month-to-date/page"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-                .andExpect(content().string(containsString("DISABLED")));
+                .andExpect(content().string(containsString("DISABLED")))
+                .andExpect(content().string(containsString("[2026-05-01, 2026-06-01)")))
+                .andExpect(content().string(containsString("LINKAGE_COST_ENABLED")));
     }
 }

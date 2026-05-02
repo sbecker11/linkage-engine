@@ -2,6 +2,7 @@ package com.spexture.linkage_engine;
 
 import java.util.Map;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,7 +31,9 @@ public class CostSummaryController {
     @GetMapping("/month-to-date")
     public ResponseEntity<Map<String, Object>> monthToDate() {
         MonthToDateCostView view = monthlyTaggedCostService.monthToDate();
-        return ResponseEntity.ok(view.toBody());
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(view.toBody());
     }
 
     /**
@@ -40,15 +43,23 @@ public class CostSummaryController {
     public ResponseEntity<String> monthToDatePage() {
         MonthToDateCostView view = monthlyTaggedCostService.monthToDate();
         String html = renderMonthToDateHtml(view);
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(html);
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_HTML)
+                .cacheControl(CacheControl.noStore())
+                .body(html);
     }
 
     private static String renderMonthToDateHtml(MonthToDateCostView v) {
         String status = HtmlUtils.htmlEscape(v.status());
         String tagSummary = HtmlUtils.htmlEscape(nullToEmpty(v.tagFilterSummary()));
         String hint = HtmlUtils.htmlEscape(nullToEmpty(v.hint()));
-        String periodStart = HtmlUtils.htmlEscape(nullToEmpty(v.periodStartUtc()));
-        String periodEnd = HtmlUtils.htmlEscape(nullToEmpty(v.periodEndExclusiveUtc()));
+        String rawStart = nullToEmpty(v.periodStartUtc());
+        String rawEnd = nullToEmpty(v.periodEndExclusiveUtc());
+        String periodRangePlain =
+                rawStart.isEmpty() && rawEnd.isEmpty()
+                        ? "— (not queried)"
+                        : "[" + rawStart + ", " + rawEnd + ")";
+        String periodRangeSafe = HtmlUtils.htmlEscape(periodRangePlain);
         String amountBlock;
         if ("OK".equals(v.status()) && v.amountUsd() != null) {
             String amt = HtmlUtils.htmlEscape(v.amountUsd());
@@ -99,7 +110,7 @@ public class CostSummaryController {
                       <dt>Tag filter</dt>
                       <dd>__TAG_SUMMARY__</dd>
                       <dt>UTC period (Cost Explorer)</dt>
-                      <dd>[__PERIOD_START__, __PERIOD_END__)</dd>
+                      <dd>__PERIOD_RANGE__</dd>
                       <dt>Note</dt>
                       <dd>__HINT__</dd>
                     </dl>
@@ -115,8 +126,7 @@ public class CostSummaryController {
                 .replace("__STATUS__", status)
                 .replace("__AMOUNT_BLOCK__", amountBlock)
                 .replace("__TAG_SUMMARY__", tagSummary)
-                .replace("__PERIOD_START__", periodStart)
-                .replace("__PERIOD_END__", periodEnd)
+                .replace("__PERIOD_RANGE__", periodRangeSafe)
                 .replace("__HINT__", hint);
     }
 

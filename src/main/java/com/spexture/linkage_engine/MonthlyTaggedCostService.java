@@ -52,21 +52,21 @@ public class MonthlyTaggedCostService {
 
     public MonthToDateCostView monthToDate() {
         String summary = tagKey + "=" + tagValue;
-        if (!enabled) {
-            return new MonthToDateCostView(
-                    "DISABLED",
-                    summary,
-                    null,
-                    null,
-                    null,
-                    "Set LINKAGE_COST_ENABLED=true on the task to query Cost Explorer.");
-        }
-
         LocalDate todayUtc = LocalDate.now(ZoneOffset.UTC);
         LocalDate monthStart = todayUtc.withDayOfMonth(1);
         LocalDate monthEndExclusive = monthStart.plusMonths(1);
         String start = monthStart.toString();
         String end = monthEndExclusive.toString();
+
+        if (!enabled) {
+            return new MonthToDateCostView(
+                    "DISABLED",
+                    summary,
+                    null,
+                    start,
+                    end,
+                    "Set LINKAGE_COST_ENABLED=true on the ECS task to query Cost Explorer.");
+        }
 
         Expression tagFilter = Expression.builder()
                 .tags(TagValues.builder().key(tagKey).values(tagValue).build())

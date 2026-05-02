@@ -40,6 +40,21 @@
         color: #6b6b63;
         line-height: 1.5;
       }
+      .header-nav {
+        font-size: 11px;
+        color: #6b6b63;
+        margin-top: 8px;
+        line-height: 1.6;
+      }
+      .header-nav a {
+        color: #2d6a4f;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(45, 106, 79, 0.35);
+      }
+      .header-nav a:hover {
+        color: #1b4332;
+        border-bottom-color: #1b4332;
+      }
       .badge {
         font-size: 11px;
         font-weight: 500;
@@ -343,6 +358,15 @@
         </p>
         <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
         <p class="sub" id="cost-line" style="margin-top: 4px; opacity: 0.72; font-size: 0.72rem"></p>
+        <p class="header-nav">
+          <a href="/chord-diagram.html">Chord diagram</a
+          ><span id="cost-page-nav-wrap" style="display: none" aria-hidden="true">
+            &middot;
+            <a href="/v1/cost/month-to-date/page">Month-to-date cost (HTML)</a></span
+          >
+          &middot;
+          <a href="/actuator/health">Actuator health</a>
+        </p>
       </div>
       <div
         style="
@@ -494,8 +518,25 @@
         }
       }
 
+      async function applyChordNavHints() {
+        const wrap = document.getElementById("cost-page-nav-wrap");
+        if (!wrap) return;
+        try {
+          const r = await fetch(BASE + "/v1/ui/features");
+          if (!r.ok) return;
+          const j = await r.json();
+          if (j.showCostMonthToDatePageLink === true) {
+            wrap.style.display = "inline";
+            wrap.removeAttribute("aria-hidden");
+          }
+        } catch (_) {
+          /* keep cost nav hidden */
+        }
+      }
+
       async function init() {
         loadMonthlyCost();
+        applyChordNavHints();
         const detEl = document.getElementById("detail");
         detEl.className = "";
         detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;

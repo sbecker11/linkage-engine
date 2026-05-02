@@ -56,9 +56,10 @@ Supporting pieces:
 | Piece | Role |
 | :---- | :--- |
 | **`MonthlyTaggedCostService`** | Calls AWS Cost Explorer (`ce:GetCostAndUsage`) in **`us-east-1`**, `MONTHLY` granularity, filter on the configured tag key/value. |
-| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** (JSON) and **`GET /v1/cost/month-to-date/page`** (HTML) for the chord page, browsers, or operators. |
+| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** (JSON) and **`GET /v1/cost/month-to-date/page`** (HTML) for browsers and operators. |
+| **`UiHintsController`** | **`GET /v1/ui/features`** — JSON used by **`chord-diagram.html`**; e.g. **`showCostMonthToDatePageLink`** is **`false`** when profile **`local`** is active so the cost HTML link is omitted locally, and **`true`** in production. |
 | **ECS task IAM** | Inline policy **`CostExplorerRead`** allows `ce:GetCostAndUsage`. |
-| **Environment** | `LINKAGE_COST_ENABLED=true` in prod task def; `LINKAGE_COST_TAG_KEY` / `LINKAGE_COST_TAG_VALUE` override the filter. Local profile sets `linkage.cost.enabled=false` so no AWS call is made. |
+| **Environment** | **`LINKAGE_COST_ENABLED`** is read by Spring as **`linkage.cost.enabled`** (`application.properties`: `linkage.cost.enabled=${LINKAGE_COST_ENABLED:false}`). **Prod / ECS:** set **`LINKAGE_COST_ENABLED=true`** on the task (see **`deploy/ecs/task-definition.json`** / Terraform). **Local:** omit **`LINKAGE_COST_ENABLED`** from **`.env`** entirely; **`application-local.properties`** sets **`linkage.cost.enabled=false`** so Cost Explorer is not called. **`LINKAGE_COST_TAG_KEY`** / **`LINKAGE_COST_TAG_VALUE`** override the tag filter. |
 | **AWS account setup** | Turn on **Cost Explorer** in Billing; activate the tag key (e.g. **`App`**) as a **cost allocation tag** or the filter returns little or no usage. Numbers can **lag ~24 hours**. |
 
 If cost query is disabled or Cost Explorer fails, the endpoint returns **`status: "DISABLED"`** or **`"UNAVAILABLE"`** and the chord line shows a short message instead of a dollar amount.
@@ -150,6 +151,8 @@ DB_PASSWORD=password
 LINKAGE_SEMANTIC_LLM_ENABLED=false
 ```
 
+Do **not** add **`LINKAGE_COST_ENABLED`** here for normal local work; cost queries stay off via **`application-local.properties`**.
+
 ### 3. Run
 
 ```bash
@@ -161,9 +164,11 @@ Or from the repo root:
 
 ```bash
 ./scripts/start.sh
+# Or start PostgreSQL (Docker) first, then the app:
+./scripts/start.sh --with-db
 ```
 
-(`start.sh` loads `.env`, uses the **`local`** profile, and reminds you if the **`pgvector-db`** Docker container is not running.)
+(`start.sh` loads `.env`, uses the **`local`** profile, checks that PostgreSQL is reachable at the host/port from **`DB_URL`**, and exits with a hint if not. **`--with-db`** creates or starts the **`pgvector-db`** container from the README Docker one-liner, then runs the app.)
 
 Expected startup log:
 
@@ -275,9 +280,9 @@ Returns JSON for the **current UTC calendar month** (partial month supported): `
 curl -s "http://localhost:8080/v1/cost/month-to-date" | python3 -m json.tool
 ```
 
-**HTML summary (same data):** open **`GET /v1/cost/month-to-date/page`** in a browser (e.g. `http://localhost:8080/v1/cost/month-to-date/page` locally, or `http://<alb-dns>/v1/cost/month-to-date/page` in prod). The page links to the JSON URL and the chord diagram.
+**HTML summary (same data):** open **`GET /v1/cost/month-to-date/page`** in a browser (e.g. `http://localhost:8080/v1/cost/month-to-date/page` locally, or `http://<alb-dns>/v1/cost/month-to-date/page` in prod). The page links to the JSON URL and the chord diagram. On **`local`**, **`chord-diagram.html`** does not show a nav link to this HTML page (see **`GET /v1/ui/features`** above); you can still open the URL directly.
 
-With **`linkage.cost.enabled=false`** (default outside prod / local profile), `status` is `DISABLED` and `amountUsd` is omitted.
+When **`linkage.cost.enabled`** is **false**, **`status`** is **`DISABLED`** and **`amountUsd`** is omitted. That is always the case for **`spring-boot.run.profiles=local`** (`application-local.properties`). For other profiles, **`linkage.cost.enabled`** follows **`LINKAGE_COST_ENABLED`** (default **`false`** if the variable is unset). **Prod** sets **`LINKAGE_COST_ENABLED=true`** on the ECS task.
 
 **CLI — month-to-date total (same Cost Explorer semantics, no app required):**
 
