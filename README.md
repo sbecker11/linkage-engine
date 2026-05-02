@@ -24,7 +24,7 @@ All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application
 
 ### Genealogical records - similarity graph
 
-<img src="docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
+<img src="./docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
 
 This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) visualizes 12 seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852.
 
@@ -68,13 +68,13 @@ If cost query is disabled or Cost Explorer fails, the endpoint returns **`status
 
 ### Linkage-Engine Dashboard (terminal view)
 
-<img src="docs/linkage-engine-terminal.png" width="600"
+<img src="./docs/linkage-engine-terminal.png" width="600"
 alt="Live terminal status dashboard of all AWS Services running on Gateway/ECS.">
 Snapshot of terminal status dashboard of all AWS Services running on Gateway/ECS.
 
 ### Linkage-Engine Dashboard (AWS CloudWatch view)
 
-<img src="docs/linkage-engine-aws-cloudwatch.png" width="600"
+<img src="./docs/linkage-engine-aws-cloudwatch.png" width="600"
 alt="Live cloudwatch status dashboard of all AWS Services running on Gateway/ECS.">
 Snapshot of AWS Cloudwatch dashboard showing live status of all linkage-engine AWS Services running on Gateway/ECS.
 
