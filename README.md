@@ -22,7 +22,7 @@ Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Bost
 | Amber  | Tight — less than 2× travel time, but still plausible             |
 | Red    | Physically impossible — travel time exceeds the available window  |
 
-Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS.
+Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
 
 **AWS demo lifecycle (same region as your stack; defaults to `us-west-1`):**
 
@@ -398,10 +398,18 @@ See [`infra/README.md`](infra/README.md) for the full guide including HTTPS, DNS
 
 ### Deploying a new application version
 
-Infrastructure changes are applied manually with `terraform apply`. Application deploys (new Docker image → ECS) go through GitHub Actions and do **not** require Terraform:
+Infrastructure changes are applied manually with **`terraform apply`**. Application
+images go through **GitHub Actions** (`deploy-ecr-ecs`); the workflow does not
+run Terraform.
+
+For a **full, low-surprise path** every time (Terraform → push `main` → workflow
+→ optional smoke checks), follow the **[Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist)** in
+[`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md).
+
+Minimal app-only shortcut after infra is stable:
 
 ```bash
-# From the project root — triggers build → ECR push → ECS rolling deploy
+# From the project root — after pushing main: build → ECR push → ECS rolling deploy
 gh workflow run deploy-ecr-ecs.yml --ref main
 ```
 
@@ -441,7 +449,7 @@ An AWS Budget fires at 80% of a configurable monthly spend limit (default $50/mo
 | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
 | [infra/README.md](infra/README.md)                                    | Terraform quick start, module reference, import guide, CI/CD integration                                      |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                               | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy                                     |
-| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate deployment, ALB, health checks, demo lifecycle                                                  |
+| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate deployment, ALB, health checks, **every-change release checklist**, demo lifecycle             |
 | [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md)                         | AWS Secrets Manager for runtime DB credentials in ECS                                                         |
 | [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md)                       | S3 bucket layout, ingest pipeline, archival policy, Athena DDL                                                |
 | [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md)                     | Aurora provisioning, PITR disaster recovery, version notes                                                    |

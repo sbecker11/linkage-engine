@@ -172,9 +172,85 @@ open "$ALB/chord-diagram.html"
 
 ---
 
+## Every-change release checklist
+
+Use this **three-step** path whenever you want production to match your repo with
+minimal guesswork (you accept the extra time for `terraform plan` / `apply` and
+for the GitHub Actions Docker build + ECS rollout).
+
+**Order matters:** the workflow builds from **GitHub `main`**, not your
+uncommitted local tree — **commit and push before** triggering the deploy.
+
+### Step 1 — Terraform (production)
+
+From the repo root:
+
+```bash
+cd infra/envs/prod
+terraform init    # if providers/lockfile changed, or fresh clone
+terraform plan
+terraform apply   # when the plan is acceptable
+```
+
+Run this on **every** release while you prefer the discipline; `plan` on unchanged
+infra is usually fast. Once you are comfortable skipping, you can run Terraform
+only when `infra/` or `terraform.tfvars` actually changed (still run `plan`
+occasionally to catch drift).
+
+### Step 2 — Git (`main` on GitHub)
+
+```bash
+git status
+git add … && git commit -m "…"   # when you have commits to make
+git push origin main
+```
+
+### Step 3 — Deploy workflow and wait
+
+**CLI** (same defaults as the workflow form in the Actions UI):
+
+```bash
+gh workflow run deploy-ecr-ecs.yml --ref main \
+  -f aws_region=us-west-1 \
+  -f ecr_repository=linkage-engine \
+  -f ecs_cluster=linkage-engine-cluster \
+  -f ecs_service=linkage-engine-service \
+  -f task_family=linkage-engine
+
+RUN_ID=$(gh run list --workflow=deploy-ecr-ecs.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch "$RUN_ID" --exit-status
+```
+
+**UI:** GitHub → **Actions** → **deploy-ecr-ecs** → **Run workflow** → keep the
+default inputs (or match the `-f` flags above).
+
+Most wall-clock time is usually **image build + push + ECS service stability**,
+not Terraform.
+
+### Step 4 — Verify (optional, quick)
+
+```bash
+ALB_DNS=$(terraform -chdir=infra/envs/prod output -raw alb_dns_name)
+curl -sf "http://${ALB_DNS}/actuator/health" | head -c 300; echo
+# Optional — month-to-date AWS cost JSON (needs task env + IAM + Billing; see README)
+curl -sf "http://${ALB_DNS}/v1/cost/month-to-date" | head -c 500; echo
+```
+
+### One-time AWS Billing (not part of every deploy)
+
+For **Cost Explorer** and the in-app / API month-to-date cost line: enable Cost
+Explorer in the Billing console and activate your cost allocation tag (e.g.
+**`App`**) once per account. Re-doing this on every deploy does not change
+anything.
+
+---
+
 ## Subsequent deploys
 
-Just push to `main` and re-run the **deploy-ecr-ecs** workflow. No re-provisioning needed.
+After the [Every-change release checklist](#every-change-release-checklist) is
+routine, the **minimum** path for an **app-only** change is: **push `main` → run
+`deploy-ecr-ecs`** (Terraform unchanged). When `infra/` changes, include **Step
+1** again.
 
 To force a re-deploy without a code change (e.g. to pick up a new secret value):
 
