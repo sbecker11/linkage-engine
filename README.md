@@ -157,6 +157,14 @@ set -a && source .env && set +a
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
+Or from the repo root:
+
+```bash
+./scripts/start.sh
+```
+
+(`start.sh` loads `.env`, uses the **`local`** profile, and reminds you if the **`pgvector-db`** Docker container is not running.)
+
 Expected startup log:
 
 ```
