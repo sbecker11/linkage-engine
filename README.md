@@ -4,7 +4,23 @@
 
 It resolves ambiguous names, locations, and dates using a four-stage pipeline — deterministic SQL search, vector similarity reranking, LLM semantic summary, and spatio-temporal plausibility.
 
-It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock Titan embeddings, and deployed on ECS Fargate.
+It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock Titan embeddings, and deployed on ECS Fargate. **Production AWS is Terraform-managed** — see [**Terraform**](#terraform) below.
+
+---
+
+## Terraform
+
+All **production AWS resources** (ECS Fargate, Aurora Serverless v2, ALB, WAF, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
+
+| Path | Purpose |
+| :--- | :------ |
+| **`infra/bootstrap/`** | One-time remote state (S3 bucket + DynamoDB lock table) |
+| **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here |
+| **`infra/modules/`** | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
+
+**Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and longer first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform) later in this file.
+
+---
 
 ### Genealogical records - similarity graph
 
@@ -327,6 +343,8 @@ See [demo/README.md](demo/README.md) for the full story.
 ---
 
 ## Infrastructure (Terraform)
+
+> **Summary:** high-level Terraform on this repo is introduced [above](#terraform). This section is the **detailed** reference (module table, directory layout, first-time commands).
 
 All AWS infrastructure is defined as code in `infra/` and managed with Terraform. No manual console changes are needed after the initial bootstrap.
 
