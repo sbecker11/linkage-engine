@@ -10,7 +10,7 @@ It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock 
 
 ## Terraform
 
-All **production AWS resources** (ECS Fargate, Aurora Serverless v2, ALB, WAF, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
+All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application Load Balancer, Web Application Firewall, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
 
 | Path | Purpose |
 | :--- | :------ |
