@@ -56,7 +56,7 @@ Supporting pieces:
 | Piece | Role |
 | :---- | :--- |
 | **`MonthlyTaggedCostService`** | Calls AWS Cost Explorer (`ce:GetCostAndUsage`) in **`us-east-1`**, `MONTHLY` granularity, filter on the configured tag key/value. |
-| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** as JSON for the static page or operators. |
+| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** (JSON) and **`GET /v1/cost/month-to-date/page`** (HTML) for the chord page, browsers, or operators. |
 | **ECS task IAM** | Inline policy **`CostExplorerRead`** allows `ce:GetCostAndUsage`. |
 | **Environment** | `LINKAGE_COST_ENABLED=true` in prod task def; `LINKAGE_COST_TAG_KEY` / `LINKAGE_COST_TAG_VALUE` override the filter. Local profile sets `linkage.cost.enabled=false` so no AWS call is made. |
 | **AWS account setup** | Turn on **Cost Explorer** in Billing; activate the tag key (e.g. **`App`**) as a **cost allocation tag** or the filter returns little or no usage. Numbers can **lag ~24 hours**. |
@@ -266,6 +266,8 @@ Returns JSON for the **current UTC calendar month** (partial month supported): `
 ```bash
 curl -s "http://localhost:8080/v1/cost/month-to-date" | python3 -m json.tool
 ```
+
+**HTML summary (same data):** open **`GET /v1/cost/month-to-date/page`** in a browser (e.g. `http://localhost:8080/v1/cost/month-to-date/page` locally, or `http://<alb-dns>/v1/cost/month-to-date/page` in prod). The page links to the JSON URL and the chord diagram.
 
 With **`linkage.cost.enabled=false`** (default outside prod / local profile), `status` is `DISABLED` and `amountUsd` is omitted.
 

@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * JSON-friendly view for {@code GET /v1/cost/month-to-date}.
+ * View for {@code GET /v1/cost/month-to-date} (JSON) and {@code GET /v1/cost/month-to-date/page} (HTML).
  *
  * @param status {@code OK}, {@code DISABLED}, or {@code UNAVAILABLE}
  * @param tagFilterSummary human-readable filter, e.g. {@code App=linkage-engine}
