@@ -32,6 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### macOS ###
+.DS_Store
+
 # API Keys / local env (do not commit)
 .env
 .env.*
