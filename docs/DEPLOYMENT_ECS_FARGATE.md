@@ -237,6 +237,14 @@ curl -sf "http://${ALB_DNS}/v1/cost/month-to-date" | head -c 500; echo
 curl -sf "http://${ALB_DNS}/v1/cost/month-to-date/page" | head -c 200; echo
 ```
 
+**ALB DNS via AWS CLI** (when you have credentials but are not using Terraform
+outputs — same load balancer as `terraform output -raw alb_dns_name`):
+
+```bash
+aws elbv2 describe-load-balancers --region us-west-1 --names linkage-engine-alb \
+  --query 'LoadBalancers[0].DNSName' --output text
+```
+
 ### One-time AWS Billing (not part of every deploy)
 
 For **Cost Explorer** and the in-app / API month-to-date cost line: enable Cost
