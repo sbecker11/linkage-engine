@@ -93,6 +93,18 @@ run "task_bedrock_policy_allows_invoke_model" {
   }
 }
 
+run "task_cost_explorer_policy_allows_get_cost_and_usage" {
+  command = plan
+
+  assert {
+    condition = contains(
+      jsondecode(aws_iam_role_policy.task_cost_explorer_read.policy).Statement[0].Action,
+      "ce:GetCostAndUsage"
+    )
+    error_message = "Task role must allow ce:GetCostAndUsage for month-to-date cost in the app."
+  }
+}
+
 run "deploy_role_trusts_github_oidc" {
   command = plan
 

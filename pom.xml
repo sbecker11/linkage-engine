@@ -101,6 +101,12 @@
             <artifactId>micrometer-registry-cloudwatch2</artifactId>
         </dependency>
 
+        <!-- Month-to-date AWS cost (Cost Explorer) for chord diagram + /v1/cost/month-to-date -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>costexplorer</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

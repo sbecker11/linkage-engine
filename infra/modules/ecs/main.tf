@@ -44,7 +44,10 @@ resource "aws_ecs_task_definition" "main" {
         { name = "BEDROCK_MODEL_ID",             value = var.bedrock_model_id },
         { name = "SPRING_AI_MODEL_EMBEDDING",    value = "bedrock-titan" },
         { name = "BEDROCK_EMBEDDING_MODEL_ID",   value = var.bedrock_embedding_model_id },
-        { name = "LINKAGE_SEMANTIC_LLM_ENABLED", value = tostring(var.semantic_llm_enabled) }
+        { name = "LINKAGE_SEMANTIC_LLM_ENABLED", value = tostring(var.semantic_llm_enabled) },
+        { name = "LINKAGE_COST_ENABLED",       value = "true" },
+        { name = "LINKAGE_COST_TAG_KEY",       value = "App" },
+        { name = "LINKAGE_COST_TAG_VALUE",     value = var.app }
       ]
 
       secrets = [

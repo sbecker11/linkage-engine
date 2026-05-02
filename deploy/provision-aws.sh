@@ -341,6 +341,14 @@ else
   detail "${TASK_ROLE_ARN}"
 fi
 
+# Cost Explorer read for in-app MTD cost (same role; idempotent).
+aws_q aws iam put-role-policy --role-name "$TASK_ROLE_NAME" \
+  --policy-name CostExplorerRead \
+  --policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{"Effect":"Allow","Action":["ce:GetCostAndUsage"],"Resource":"*"}]
+  }'
+
 # ── 7. ECS cluster ────────────────────────────────────────────────────────────
 echo ""
 echo "▶ 7/10  ECS cluster  (${CLUSTER})"
@@ -559,7 +567,10 @@ cat > /tmp/task-def-rendered.json <<EOF
         { "name": "BEDROCK_MODEL_ID",              "value": "us.amazon.nova-lite-v1:0" },
         { "name": "SPRING_AI_MODEL_EMBEDDING",     "value": "bedrock-titan" },
         { "name": "BEDROCK_EMBEDDING_MODEL_ID",    "value": "amazon.titan-embed-text-v2:0" },
-        { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" }
+        { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" },
+        { "name": "LINKAGE_COST_ENABLED",         "value": "true" },
+        { "name": "LINKAGE_COST_TAG_KEY",           "value": "App" },
+        { "name": "LINKAGE_COST_TAG_VALUE",         "value": "${APP}" }
       ],
       "secrets": [
         { "name": "DB_URL",          "valueFrom": "${SECRET_ARN}:DB_URL::" },

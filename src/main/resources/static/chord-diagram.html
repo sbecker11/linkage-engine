@@ -342,6 +342,7 @@
           details &middot; click a chord to pin
         </p>
         <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
+        <p class="sub" id="cost-line" style="margin-top: 4px; opacity: 0.72; font-size: 0.72rem"></p>
       </div>
       <div
         style="
@@ -461,7 +462,40 @@
         return String(r?.recordId ?? r?.record_id ?? "").trim();
       }
 
+      /** AWS month-to-date cost (tag-filtered); non-fatal if absent or errors. */
+      async function loadMonthlyCost() {
+        const el = document.getElementById("cost-line");
+        if (!el) return;
+        try {
+          const r = await fetch((BASE || "") + "/v1/cost/month-to-date");
+          if (!r.ok) {
+            el.textContent = "";
+            return;
+          }
+          const j = await r.json();
+          if (j.status === "OK" && j.amountUsd != null) {
+            const amt = Number(j.amountUsd);
+            const formatted = Number.isFinite(amt)
+              ? amt.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              : j.amountUsd;
+            el.textContent = `AWS month-to-date (${j.tagFilterSummary}): $${formatted} USD — ${j.hint || ""}`;
+          } else if (j.status === "DISABLED") {
+            el.textContent =
+              "AWS month-to-date cost: not enabled on this server.";
+          } else {
+            const hint = j.hint || j.status || "error";
+            el.textContent = `AWS month-to-date cost: unavailable — ${hint}`;
+          }
+        } catch (_) {
+          el.textContent = "";
+        }
+      }
+
       async function init() {
+        loadMonthlyCost();
         const detEl = document.getElementById("detail");
         detEl.className = "";
         detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;

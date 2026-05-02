@@ -20,7 +20,10 @@
         { "name": "BEDROCK_MODEL_ID",              "value": "us.amazon.nova-lite-v1:0" },
         { "name": "SPRING_AI_MODEL_EMBEDDING",     "value": "bedrock-titan" },
         { "name": "BEDROCK_EMBEDDING_MODEL_ID",    "value": "amazon.titan-embed-text-v2:0" },
-        { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" }
+        { "name": "LINKAGE_SEMANTIC_LLM_ENABLED",  "value": "true" },
+        { "name": "LINKAGE_COST_ENABLED",         "value": "true" },
+        { "name": "LINKAGE_COST_TAG_KEY",           "value": "App" },
+        { "name": "LINKAGE_COST_TAG_VALUE",         "value": "linkage-engine" }
       ],
       "secrets": [
         { "name": "DB_URL",         "valueFrom": "arn:aws:secretsmanager:us-west-1:286103606369:secret:linkage-engine/runtime-qUeNUn:DB_URL::" },

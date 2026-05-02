@@ -75,6 +75,21 @@ resource "aws_iam_role_policy" "task_bedrock" {
   })
 }
 
+# Month-to-date cost for in-app display (Cost Explorer; endpoint is always us-east-1).
+resource "aws_iam_role_policy" "task_cost_explorer_read" {
+  name = "CostExplorerRead"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ce:GetCostAndUsage"]
+      Resource = "*"
+    }]
+  })
+}
+
 # ── GitHub Actions OIDC deploy role ───────────────────────────────────────────
 # Federated identity for CI: push images to ECR and trigger ECS/Terraform updates.
 

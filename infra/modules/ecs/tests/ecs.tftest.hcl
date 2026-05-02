@@ -117,6 +117,26 @@ run "task_definition_sets_spring_profile_to_bedrock" {
   }
 }
 
+run "task_definition_enables_cost_explorer_for_chord_page" {
+  command = plan
+
+  assert {
+    condition = contains([
+      for env in jsondecode(aws_ecs_task_definition.main.container_definitions)[0].environment :
+      env.value if env.name == "LINKAGE_COST_ENABLED"
+    ], "true")
+    error_message = "LINKAGE_COST_ENABLED must be true for production MTD cost display."
+  }
+
+  assert {
+    condition = contains([
+      for env in jsondecode(aws_ecs_task_definition.main.container_definitions)[0].environment :
+      env.value if env.name == "LINKAGE_COST_TAG_VALUE"
+    ], "linkage-engine")
+    error_message = "LINKAGE_COST_TAG_VALUE must match var.app for App-tag cost filtering."
+  }
+}
+
 run "service_uses_fargate_launch_type" {
   command = plan
 

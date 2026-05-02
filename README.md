@@ -24,6 +24,29 @@ Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Bost
 
 Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS.
 
+**AWS demo lifecycle (same region as your stack; defaults to `us-west-1`):**
+
+- **`./deploy/demo-stop.sh`** — Idempotent scale-down: sets ECS `desiredCount` to **0** (stops Fargate billing for the app task), sets Aurora Serverless v2 **MinCapacity** to **0** so the cluster can **auto-pause** after a few minutes idle. ALB, WAF, Secrets Manager, and other always-on resources still incur cost. Use `VERBOSE=1 ./deploy/demo-stop.sh` for AWS CLI output.
+- **`./deploy/demo-start.sh`** — Brings the stack back for demos: raises Aurora **MinCapacity** to **0.5**, scales ECS to **1**, waits for a healthy task, prints the ALB URL (including `/chord-diagram.html`). Optional: `./deploy/demo-start.sh --skip-seed`. Typical warm-up **~3–5 minutes** (cold Aurora + health checks).
+
+The ECS task definition’s `lifecycle.ignore_changes` includes `desired_count`, so Terraform does not fight manual or script-driven scaling between applies. A GitHub Actions deploy still runs `update-service` with **`--desired-count 1`**, which turns the service back on after a stop.
+
+**Total month-to-date AWS cost on the chord page (“totalMonthlyCost”):**
+
+The diagram loads **`GET /v1/cost/month-to-date`**, which returns the **calendar month-to-date (UTC) sum of `UnblendedCost` in USD** for resources matching a **Cost Explorer tag filter** (Terraform sets **`App=<app name>`**, e.g. `App=linkage-engine`). That figure is the running **total for the current month so far** for that tagged footprint — what operators often call **total monthly cost to date**; in JSON it appears as **`amountUsd`** when **`status`** is `OK`. The page renders it under the diagram header (and refreshes it whenever you click **Refresh**).
+
+Supporting pieces:
+
+| Piece | Role |
+| :---- | :--- |
+| **`MonthlyTaggedCostService`** | Calls AWS Cost Explorer (`ce:GetCostAndUsage`) in **`us-east-1`**, `MONTHLY` granularity, filter on the configured tag key/value. |
+| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** as JSON for the static page or operators. |
+| **ECS task IAM** | Inline policy **`CostExplorerRead`** allows `ce:GetCostAndUsage`. |
+| **Environment** | `LINKAGE_COST_ENABLED=true` in prod task def; `LINKAGE_COST_TAG_KEY` / `LINKAGE_COST_TAG_VALUE` override the filter. Local profile sets `linkage.cost.enabled=false` so no AWS call is made. |
+| **AWS account setup** | Turn on **Cost Explorer** in Billing; activate the tag key (e.g. **`App`**) as a **cost allocation tag** or the filter returns little or no usage. Numbers can **lag ~24 hours**. |
+
+If cost query is disabled or Cost Explorer fails, the endpoint returns **`status: "DISABLED"`** or **`"UNAVAILABLE"`** and the chord line shows a short message instead of a dollar amount.
+
 ---
 
 ### Linkage-Engine Dashboard (terminal view)
@@ -220,6 +243,18 @@ Returns `recordCount`, `commonNames`, `yearRangeMin/Max`, `contextSummary`.
 
 ---
 
+### `GET /v1/cost/month-to-date` — Tag-filtered AWS spend (month to date)
+
+Returns JSON for the **current UTC calendar month** (partial month supported): `status` (`OK` \| `DISABLED` \| `UNAVAILABLE`), `tagFilterSummary`, `amountUsd` (the month-to-date **total** in USD when `OK`), `periodStartUtc`, `periodEndExclusiveUtc`, and `hint` (lags, cost allocation tags).
+
+```bash
+curl -s "http://localhost:8080/v1/cost/month-to-date" | python3 -m json.tool
+```
+
+With **`linkage.cost.enabled=false`** (default outside prod / local profile), `status` is `DISABLED` and `amountUsd` is omitted.
+
+---
+
 ### `PUT /v1/vectors/reindex` — Delta reindex
 
 ```bash
@@ -296,7 +331,7 @@ All AWS infrastructure is defined as code in `infra/` and managed with Terraform
 | `networking` | Security groups for ALB, ECS, and Aurora; ingress/egress rules |
 | `aurora` | Aurora PostgreSQL Serverless v2 cluster + writer instance (scales 0–2 ACUs) |
 | `secrets` | Secrets Manager secret holding `DB_URL`, `DB_USER`, `DB_PASSWORD`, `INGEST_API_KEY` |
-| `iam` | ECS execution role, ECS task role (Bedrock), GitHub OIDC deploy role |
+| `iam` | ECS execution role, ECS task role (Bedrock + Cost Explorer read for MTD cost), GitHub OIDC deploy role |
 | `alb` | Application Load Balancer, target group, HTTP/HTTPS listeners |
 | `acm` | ACM certificate (created only when `domain_name` is set) |
 | `waf` | WAFv2 WebACL with 500 req/5 min rate limit, associated to ALB |
