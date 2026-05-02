@@ -13,13 +13,15 @@
 #   APP=my-app ./deploy/show-month-to-date-cost.sh
 #   LINKAGE_COST_TAG_KEY=App LINKAGE_COST_TAG_VALUE=linkage-engine ./deploy/show-month-to-date-cost.sh
 #
-# API region for Cost Explorer is always us-east-1 (override with COST_EXPLORER_REGION if needed).
+# AWS CLI --region for ce get-cost-and-usage:
+#   COST_EXPLORER_REGION if set, else AWS_REGION if set, else `aws configure get region`
+#   (reads `region` from the active profile in ~/.aws/config — usually [default]),
+#   else us-west-1.
 
 set -euo pipefail
 
 TAG_KEY="${LINKAGE_COST_TAG_KEY:-App}"
 TAG_VALUE="${LINKAGE_COST_TAG_VALUE:-${APP:-linkage-engine}}"
-CE_REGION="${COST_EXPLORER_REGION:-us-east-1}"
 
 if ! command -v aws >/dev/null 2>&1; then
   echo "error: aws CLI not found" >&2
@@ -29,6 +31,22 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "error: jq not found" >&2
   exit 1
 fi
+
+resolve_aws_cli_region() {
+  if [[ -n "${AWS_REGION:-}" ]]; then
+    printf '%s' "$AWS_REGION"
+    return
+  fi
+  local cfg
+  cfg="$(aws configure get region 2>/dev/null || true)"
+  if [[ -n "$cfg" ]]; then
+    printf '%s' "$cfg"
+    return
+  fi
+  printf '%s' "us-west-1"
+}
+
+CE_REGION="${COST_EXPLORER_REGION:-$(resolve_aws_cli_region)}"
 
 read -r START END <<<"$(python3 -c "
 from datetime import datetime, timezone

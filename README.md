@@ -259,7 +259,7 @@ With **`linkage.cost.enabled=false`** (default outside prod / local profile), `s
 ./deploy/show-month-to-date-cost.sh
 ```
 
-Requires **AWS CLI v2**, **jq**, credentials with **`ce:GetCostAndUsage`**, Cost Explorer enabled, and the tag as a **cost allocation tag**. Defaults: tag **`App=linkage-engine`** (override with `APP`, `LINKAGE_COST_TAG_KEY`, or `LINKAGE_COST_TAG_VALUE`). Calls the Cost Explorer API in **`us-east-1`** (`COST_EXPLORER_REGION` overrides the CLI `--region`).
+Requires **AWS CLI v2**, **jq**, credentials with **`ce:GetCostAndUsage`**, Cost Explorer enabled, and the tag as a **cost allocation tag**. Defaults: tag **`App=linkage-engine`** (override with `APP`, `LINKAGE_COST_TAG_KEY`, or `LINKAGE_COST_TAG_VALUE`). The script passes **`--region`** to Cost Explorer as: **`COST_EXPLORER_REGION`** if set, else **`AWS_REGION`** if set, else **`aws configure get region`** (the **`region`** value for your active **`~/.aws/config`** profile, usually **`[default]`**), else **`us-west-1`**.
 
 ---
 
