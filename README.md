@@ -253,6 +253,14 @@ curl -s "http://localhost:8080/v1/cost/month-to-date" | python3 -m json.tool
 
 With **`linkage.cost.enabled=false`** (default outside prod / local profile), `status` is `DISABLED` and `amountUsd` is omitted.
 
+**CLI — month-to-date total (same Cost Explorer semantics, no app required):**
+
+```bash
+./deploy/show-month-to-date-cost.sh
+```
+
+Requires **AWS CLI v2**, **jq**, credentials with **`ce:GetCostAndUsage`**, Cost Explorer enabled, and the tag as a **cost allocation tag**. Defaults: tag **`App=linkage-engine`** (override with `APP`, `LINKAGE_COST_TAG_KEY`, or `LINKAGE_COST_TAG_VALUE`). Calls the Cost Explorer API in **`us-east-1`** (`COST_EXPLORER_REGION` overrides the CLI `--region`).
+
 ---
 
 ### `PUT /v1/vectors/reindex` — Delta reindex
