@@ -13,6 +13,47 @@ resource "aws_sns_topic" "alerts" {
   tags = var.tags
 }
 
+# Budgets and CloudWatch alarms publish to this topic; both require an explicit topic policy.
+# Without budgets.amazonaws.com, AWS Budgets cannot notify (see AWS email re: SNS publish failures).
+data "aws_iam_policy_document" "alerts_sns" {
+  statement {
+    sid    = "AllowBudgetsPublish"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["budgets.amazonaws.com"]
+    }
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+  }
+
+  statement {
+    sid    = "AllowCloudWatchAlarmsPublish"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alerts" {
+  arn    = aws_sns_topic.alerts.arn
+  policy = data.aws_iam_policy_document.alerts_sns.json
+}
+
 resource "aws_sns_topic_subscription" "email" {
   count = var.alert_email != "" ? 1 : 0
 

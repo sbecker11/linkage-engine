@@ -28,6 +28,8 @@ infra/
     └── prod/         # Production environment root (added in Phase 2)
 ```
 
+The **monitoring** module creates **`${app}-alerts`** SNS, CloudWatch alarms, and a monthly **AWS Budget**. An **`aws_sns_topic_policy`** on that topic allows **`budgets.amazonaws.com`** and **`cloudwatch.amazonaws.com`** to `sns:Publish` (required so budget notifications are not dropped).
+
 ## Quick Start
 
 ### Step 1 — Bootstrap (run once per AWS account)
