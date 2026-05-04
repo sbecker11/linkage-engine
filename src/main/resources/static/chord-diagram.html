@@ -29,6 +29,7 @@
         align-items: flex-start;
         gap: 12px;
         flex-wrap: wrap;
+        flex-shrink: 0;
       }
       h1 {
         font-size: 15px;
@@ -95,7 +96,7 @@
       main {
         margin-left: 20%;
         margin-right: 18%;
-        padding: 0 24px 32px;
+        padding: 0 6px 12px;
       }
       #status-line {
         font-size: 12px;
@@ -127,9 +128,10 @@
       #chart-wrap {
         display: flex;
         justify-content: center;
-        align-items: flex-start;
+        align-items: center;
         width: 100%;
-        min-height: min(60vh, 900px);
+        min-height: 260px;
+        overflow: visible;
       }
       #empty-msg {
         font-size: 13px;
@@ -283,6 +285,29 @@
       .c-red {
         color: #a32d2d;
       }
+      /* Wide: fill viewport between header and bottom so the chord can use max height */
+      @media (min-width: 901px) {
+        html {
+          height: 100%;
+        }
+        body {
+          height: 100%;
+          min-height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        main {
+          flex: 1 1 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        #chart-wrap {
+          flex: 1 1 0;
+          min-height: 0;
+        }
+      }
+
       /* Narrow viewports: side panels were fixed 20% + 18%, leaving a tiny strip for the chart */
       @media (max-width: 900px) {
         body {
@@ -320,6 +345,14 @@
         }
         main {
           order: 2;
+          flex: 1 1 auto;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        #chart-wrap {
+          flex: 1 1 auto;
+          min-height: 280px;
         }
         .tip {
           order: 50;
@@ -406,6 +439,10 @@
     <script>
       const BASE = "";
       const MAX_RECORDS = 12;
+
+      /** Reflow chord on window resize after a successful render. */
+      let lastChordRender = null;
+      let chordResizeTimer = null;
 
       const GCOLS = [
         "#185FA5",
@@ -535,6 +572,7 @@
       }
 
       async function init() {
+        lastChordRender = null;
         loadMonthlyCost();
         applyChordNavHints();
         const detEl = document.getElementById("detail");
@@ -863,17 +901,27 @@
           "http://www.w3.org/2000/svg",
           "svg",
         );
-        const headerH = document.querySelector("header").getBoundingClientRect().height;
-        const mainRect = document.querySelector("main").getBoundingClientRect();
         const narrow = window.innerWidth <= 900;
-        // Use real layout width of <main> (fixed side panels make % of window inaccurate).
-        const availW = narrow
-          ? Math.max(260, window.innerWidth - 32)
-          : Math.max(260, mainRect.width - 24);
-        const availH = Math.max(260, window.innerHeight - headerH - 52);
-        // Square SVG; allow large monitors to use space (cap avoids absurdly huge SVGs).
-        const side = Math.max(300, Math.min(availW, availH, 1200));
+        const progressBottom = document
+          .querySelector(".progress")
+          .getBoundingClientRect().bottom;
+        let availW;
+        let availH;
+        if (narrow) {
+          availW = Math.max(260, window.innerWidth - 32);
+          availH = Math.max(260, window.innerHeight - progressBottom - 24);
+        } else {
+          const det = document.getElementById("detail").getBoundingClientRect();
+          const leg = document.getElementById("legend").getBoundingClientRect();
+          // Horizontal gap between fixed #detail (right edge) and #legend (left edge)
+          availW = Math.max(200, leg.left - det.right - 12);
+          // All vertical space below the progress bar (chart sits directly under it in <main>)
+          availH = Math.max(200, window.innerHeight - progressBottom - 16);
+        }
+        // Square SVG scaled uniformly — no cropping (viewBox preserves aspect)
+        const side = Math.floor(Math.max(200, Math.min(availW, availH)));
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
         svgEl.setAttribute("width", side);
         svgEl.setAttribute("height", side);
         svgEl.setAttribute("shape-rendering", "geometricPrecision");
@@ -1133,10 +1181,21 @@
         // Wire legend ↔ chord cross-highlighting now that ribs is in scope
         bindLegendHover(plausMap, dimAllExceptColor, restoreAll);
 
+        lastChordRender = { records, matrix, plausMap, simSource };
+
         // Stamp the render time in the header
         const ts = new Date().toUTCString();
         document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
       }
+
+      window.addEventListener("resize", () => {
+        if (!lastChordRender) return;
+        clearTimeout(chordResizeTimer);
+        chordResizeTimer = setTimeout(() => {
+          const x = lastChordRender;
+          render(x.records, x.matrix, x.plausMap, x.simSource);
+        }, 200);
+      });
 
       // ── Chord story builder ───────────────────────────────────────────────────
       // Builds a structured narrative for a chord. Both showTip and pinDetail

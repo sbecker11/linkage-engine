@@ -44,7 +44,10 @@ class CostSummaryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(content().string(containsString("12.34")))
-                .andExpect(content().string(containsString("Month-to-date AWS cost")))
+                .andExpect(
+                        content()
+                                .string(
+                                        containsString("Month-to-date (all account regions) AWS cost")))
                 .andExpect(content().string(containsString("App=linkage-engine")));
     }
 

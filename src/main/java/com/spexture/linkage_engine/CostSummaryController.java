@@ -80,7 +80,7 @@ public class CostSummaryController {
                 <head>
                   <meta charset="UTF-8" />
                   <meta name="viewport" content="width=device-width, initial-scale=1" />
-                  <title>Month-to-date AWS cost — linkage-engine</title>
+                  <title>Month-to-date (all account regions) AWS cost — linkage-engine</title>
                   <style>
                     body { font-family: system-ui, sans-serif; background: #fafaf9; color: #1a1a18;
                            margin: 0; padding: 2rem 1.5rem; line-height: 1.5; }
@@ -103,7 +103,7 @@ public class CostSummaryController {
                 </head>
                 <body>
                   <main>
-                    <h1>Month-to-date AWS cost</h1>
+                    <h1>Month-to-date (all account regions) AWS cost</h1>
                     <p class="status __STATUS_CLASS__">__STATUS__</p>
                     __AMOUNT_BLOCK__
                     <dl>
