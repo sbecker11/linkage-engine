@@ -88,3 +88,21 @@ run with:
 ```
 
 See the project root `README.md` for local dev setup instructions.
+
+## Tear down
+
+To remove **all** linkage-engine AWS resources in `us-west-1` (ECS, Aurora, ALB, WAF,
+Lambda pipeline, data buckets, etc.) while **keeping** the remote state bucket and lock
+table for a future `terraform apply`:
+
+```bash
+# Dry-run — inventory + terraform plan -destroy
+./deploy/teardown-linkage-engine.sh
+
+# Destroy (after reviewing dry-run output)
+./deploy/teardown-linkage-engine.sh --execute
+```
+
+The script enforces account **286103606369**, does **not** touch
+`ecommerce-embedding-service` resources, and lists Elastic IPs before any optional
+release (`--release-eips`). Full details: [`docs/DEPLOYMENT_ECS_FARGATE.md`](../docs/DEPLOYMENT_ECS_FARGATE.md#tear-down).

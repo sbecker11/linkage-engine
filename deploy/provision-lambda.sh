@@ -4,6 +4,10 @@
 # Provisions the S3-triggered Lambda functions for linkage-engine.
 # Run once after deploy/provision-aws.sh. Safe to re-run (idempotent).
 #
+# Tear down everything this script created (plus Terraform prod stack):
+#   ./deploy/teardown-linkage-engine.sh          # dry-run
+#   ./deploy/teardown-linkage-engine.sh --execute
+#
 # What it creates:
 #   1. S3 raw bucket      (linkage-engine-raw-<account>)       ← external party uploads here
 #   2. IAM role for ingestor Lambda  (linkage-engine-ingestor-role)

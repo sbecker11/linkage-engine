@@ -275,26 +275,29 @@ aws ecs update-service \
 
 ## Tear down
 
-```bash
-# Stop the service
-aws ecs update-service --region us-west-1 \
-  --cluster linkage-engine-cluster --service linkage-engine-service --desired-count 0
+Full teardown is scripted in [`deploy/teardown-linkage-engine.sh`](../deploy/teardown-linkage-engine.sh).
+It destroys Terraform-managed prod resources (`infra/envs/prod`), then sweeps
+Lambda/S3/SQS/IAM orphans from `provision-lambda.sh`. It does **not** touch
+`ecommerce-embedding-service` resources and keeps `linkage-engine-tfstate` /
+`linkage-engine-tflock` for a future `terraform apply`.
 
-# Delete in reverse order of creation
-aws ecs delete-service --region us-west-1 \
-  --cluster linkage-engine-cluster --service linkage-engine-service --force
-aws ecs delete-cluster --region us-west-1 --cluster linkage-engine-cluster
-aws elbv2 delete-load-balancer --region us-west-1 \
-  --load-balancer-arn $(aws elbv2 describe-load-balancers \
-    --region us-west-1 --names linkage-engine-alb \
-    --query 'LoadBalancers[0].LoadBalancerArn' --output text)
-aws rds delete-db-instance --region us-west-1 \
-  --db-instance-identifier linkage-engine-aurora-writer --skip-final-snapshot
-aws rds delete-db-cluster --region us-west-1 \
-  --db-cluster-identifier linkage-engine-aurora --skip-final-snapshot
-aws secretsmanager delete-secret --region us-west-1 \
-  --secret-id linkage-engine/runtime --force-delete-without-recovery
+**Region:** `us-west-1` · **Account:** `286103606369` (script aborts if caller differs).
+
+```bash
+# 1. Dry-run — inventory + terraform plan -destroy (no changes)
+./deploy/teardown-linkage-engine.sh
+
+# 2. After reviewing output, destroy everything except unattached EIPs
+./deploy/teardown-linkage-engine.sh --execute
+
+# 3. Optional — release unattached EIPs (us-west-1 is shared with ecommerce)
+./deploy/teardown-linkage-engine.sh --execute --release-eips
+
+# Resume orphan sweep only (e.g. after Terraform stopped on a non-empty ECR repo)
+./deploy/teardown-linkage-engine.sh --execute --skip-terraform
 ```
+
+IPv4, log retention, and snapshot-related charges can lag 24–48h in Cost Explorer.
 
 ---
 

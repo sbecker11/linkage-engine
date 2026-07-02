@@ -44,6 +44,7 @@ Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/
 
 - **`./deploy/demo-stop.sh`** — Idempotent scale-down: sets ECS `desiredCount` to **0** (stops Fargate billing for the app task), sets Aurora Serverless v2 **MinCapacity** to **0** so the cluster can **auto-pause** after a few minutes idle. ALB, WAF, Secrets Manager, and other always-on resources still incur cost. Use `VERBOSE=1 ./deploy/demo-stop.sh` for AWS CLI output.
 - **`./deploy/demo-start.sh`** — Brings the stack back for demos: raises Aurora **MinCapacity** to **0.5**, scales ECS to **1**, waits for a healthy task, prints the ALB URL (including `/chord-diagram.html`). Optional: `./deploy/demo-start.sh --skip-seed`. Typical warm-up **~3–5 minutes** (cold Aurora + health checks).
+- **`./deploy/teardown-linkage-engine.sh`** — **Full teardown** of prod AWS resources (Terraform stack + Lambda/S3 pipeline). Dry-run by default; pass **`--execute`** to destroy. Keeps **`linkage-engine-tfstate`** / **`linkage-engine-tflock`** for re-apply. Does not touch **ecommerce-embedding-service**. See [Tear down](docs/DEPLOYMENT_ECS_FARGATE.md#tear-down).
 
 The ECS task definition’s `lifecycle.ignore_changes` includes `desired_count`, so Terraform does not fight manual or script-driven scaling between applies. A GitHub Actions deploy still runs `update-service` with **`--desired-count 1`**, which turns the service back on after a stop.
 
