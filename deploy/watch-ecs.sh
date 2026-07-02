@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+# deploy/watch-ecs.sh — poll ECS service status every 5s
+
+set -euo pipefail
+
 while true; do
   clear
   echo "=== $(date) ==="

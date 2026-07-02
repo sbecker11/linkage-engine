@@ -22,7 +22,6 @@ done
 OK_BADGE="\033[1;37;42m  OK  \033[0m"
 WARN_BADGE="\033[1;37;43m WARN \033[0m"
 FAIL_BADGE="\033[1;37;41m FAIL \033[0m"
-DIM="\033[2m"; RESET="\033[0m"
 
 ok()   { printf "  ${OK_BADGE}  %s\n" "$*"; }
 warn() { printf "  ${WARN_BADGE}  %s\n" "$*"; }
@@ -93,7 +92,8 @@ run_check() {
       ok "/actuator/health → ${APP_STATUS}  (db=${DB_COMP})"
     else
       fail "/actuator/health → ${APP_STATUS}"
-      printf "         \033[2m↳ https://${REGION}.console.aws.amazon.com/cloudwatch/home?region=${REGION}#logsV2:log-groups/log-group/\$252Fecs\$252Flinkage-engine/log-events\$3FfilterPattern\$3DERROR\033[0m\n"
+      CW_URL="https://${REGION}.console.aws.amazon.com/cloudwatch/home?region=${REGION}#logsV2:log-groups/log-group/\$252Fecs\$252Flinkage-engine/log-events\$3FfilterPattern\$3DERROR"
+      printf '         \033[2m↳ %s\033[0m\n' "$CW_URL"
     fi
 
     INGEST_JSON=$(curl -s --max-time 6 "http://${ALB_DNS}/v1/ingest/health" 2>/dev/null || echo "{}")
@@ -134,7 +134,6 @@ run_check() {
     ERR_INT=$(python3 -c "print(int(float('${ERR}')))" 2>/dev/null || echo 0)
     LABEL=$(printf '%-35s' "$fn")
     # Clickable Logs Insights URL — pre-loads an ERROR filter for the last 1h
-    LOG_GROUP_ENC="${fn}"   # log group is /aws/lambda/<fn>; encode / as $252F for console URL
     LOGS_URL="https://${REGION}.console.aws.amazon.com/cloudwatch/home?region=${REGION}#logsV2:log-groups/log-group/\$252Faws\$252Flambda\$252F${fn}/log-events\$3FfilterPattern\$3DERROR"
     if [[ "$ERR_INT" -gt 0 ]]; then
       fail "${LABEL}  invocations=${INV}  errors=${ERR}"

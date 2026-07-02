@@ -56,12 +56,13 @@ MODE="DRY-RUN"
 
 log()  { echo "▶ $*"; }
 dry()  { echo "  [dry-run] $*"; }
-run()  {
+run() {
+  local cmd=$1
   if [ "$EXECUTE" -eq 1 ]; then
-    echo "  → $*"
-    eval "$@"
+    echo "  → $cmd"
+    bash -c "$cmd"
   else
-    dry "$*"
+    dry "$cmd"
   fi
 }
 
@@ -354,7 +355,7 @@ list_and_maybe_release_eips() {
   echo "  Unattached EIPs:"
   echo "$unattached" | sed 's/^/    /'
   if [ "$RELEASE_EIPS" -eq 1 ]; then
-    echo "$unattached" | while read -r alloc ip; do
+    echo "$unattached" | while read -r alloc _; do
       run "aws ec2 release-address --region ${REGION} --allocation-id ${alloc}"
     done
   else

@@ -65,14 +65,20 @@ echo ""
 
 # 1. chord-diagram.html
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE}/chord-diagram.html" 2>/dev/null || echo "000")
-[ "$STATUS" = "200" ] && check "chord-diagram.html" "pass" "HTTP ${STATUS}" \
-                       || check "chord-diagram.html" "fail" "HTTP ${STATUS} (expected 200)"
+if [ "$STATUS" = "200" ]; then
+  check "chord-diagram.html" "pass" "HTTP ${STATUS}"
+else
+  check "chord-diagram.html" "fail" "HTTP ${STATUS} (expected 200)"
+fi
 
 # 2. /v1/records returns records
 RECORDS=$(curl -s "${BASE}/v1/records" 2>/dev/null || echo "[]")
 COUNT=$(echo "$RECORDS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-[ "$COUNT" -gt 0 ] && check "/v1/records has data" "pass" "${COUNT} records" \
-                    || check "/v1/records has data" "fail" "0 records — run demo/seed-data.sh"
+if [ "$COUNT" -gt 0 ]; then
+  check "/v1/records has data" "pass" "${COUNT} records"
+else
+  check "/v1/records has data" "fail" "0 records — run demo/seed-data.sh"
+fi
 
 # 3. /v1/linkage/resolve returns a response
 RESOLVE=$(curl -s -X POST "${BASE}/v1/linkage/resolve" \
@@ -80,13 +86,19 @@ RESOLVE=$(curl -s -X POST "${BASE}/v1/linkage/resolve" \
   -d '{"givenName":"John","familyName":"Smith","approxYear":1850,"location":"Boston"}' \
   2>/dev/null || echo "{}")
 HAS_STRATEGY=$(echo "$RESOLVE" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('strategy') else 'no')" 2>/dev/null || echo "no")
-[ "$HAS_STRATEGY" = "yes" ] && check "/v1/linkage/resolve responds" "pass" \
-                              || check "/v1/linkage/resolve responds" "fail" "no 'strategy' field in response"
+if [ "$HAS_STRATEGY" = "yes" ]; then
+  check "/v1/linkage/resolve responds" "pass"
+else
+  check "/v1/linkage/resolve responds" "fail" "no 'strategy' field in response"
+fi
 
 # 4. Bedrock semantic summary present
 HAS_SUMMARY=$(echo "$RESOLVE" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('semanticSummary') else 'no')" 2>/dev/null || echo "no")
-[ "$HAS_SUMMARY" = "yes" ] && check "Bedrock semantic summary" "pass" \
-                             || check "Bedrock semantic summary" "fail" "semanticSummary missing — check Bedrock IAM permissions"
+if [ "$HAS_SUMMARY" = "yes" ]; then
+  check "Bedrock semantic summary" "pass"
+else
+  check "Bedrock semantic summary" "fail" "semanticSummary missing — check Bedrock IAM permissions"
+fi
 
 # 5. Chord diagram demo rows (demo/seed-data.sh). Flyway only seeds R-1001… — many
 #    environments have lots of records but zero DEMO-* until ingest is run.

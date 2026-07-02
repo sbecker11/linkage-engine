@@ -123,7 +123,7 @@ run "deploy_role_scoped_to_correct_github_repo" {
   assert {
     condition = (
       jsondecode(aws_iam_role.deploy.assume_role_policy)
-        .Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"]
+      .Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"]
       == "repo:sbecker11/linkage-engine:*"
     )
     error_message = "Deploy role condition must be scoped to the correct GitHub repo."

@@ -74,7 +74,7 @@ _sgr() {
   [ -n "$to"     ] && filter="${filter} Name=to-port,Values=${to}"
   [ -n "$peer"   ] && filter="${filter} Name=cidr-ipv4,Values=${peer}"
   aws ec2 describe-security-group-rules --region "$REGION" \
-    --filters $filter \
+    --filters "$filter" \
     --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text 2>/dev/null || echo ""
 }
 
@@ -124,7 +124,7 @@ TG_ARN=$(aws elbv2 describe-target-groups --region "$REGION" \
 if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
   HTTP_LISTENER=$(aws elbv2 describe-listeners --region "$REGION" \
     --load-balancer-arn "$ALB_ARN" \
-    --query 'Listeners[?Port==`80`].ListenerArn | [0]' --output text 2>/dev/null || echo "")
+    --query "Listeners[?Port==\`80\`].ListenerArn | [0]" --output text 2>/dev/null || echo "")
   [ -n "$HTTP_LISTENER" ] && [ "$HTTP_LISTENER" != "None" ] && \
     tf_import "module.alb.aws_lb_listener.http" "$HTTP_LISTENER"
 fi
@@ -148,7 +148,7 @@ SNS_ARN=$(aws sns list-topics --region "$REGION" \
   tf_import "module.monitoring.aws_sns_topic.alerts" "$SNS_ARN"
 
 for alarm in "${APP}-ecs-memory-high" "${APP}-aurora-storage-low" "${APP}-alb-healthy-hosts" "${APP}-ecs-tasks-running"; do
-  tf_import "module.monitoring.aws_cloudwatch_metric_alarm.${alarm#${APP}-}" "$alarm" 2>/dev/null || true
+  tf_import "module.monitoring.aws_cloudwatch_metric_alarm.${alarm#"${APP}"-}" "$alarm" 2>/dev/null || true
 done
 
 # Pre-existing alarm created outside Terraform (short name prefix "le-")

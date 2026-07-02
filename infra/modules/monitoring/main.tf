@@ -178,10 +178,10 @@ resource "aws_budgets_budget" "monthly" {
   time_unit    = "MONTHLY"
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    notification_type          = "ACTUAL"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
+    comparison_operator       = "GREATER_THAN"
+    notification_type         = "ACTUAL"
+    threshold                 = 80
+    threshold_type            = "PERCENTAGE"
+    subscriber_sns_topic_arns = [aws_sns_topic.alerts.arn]
   }
 }

@@ -64,7 +64,7 @@ tcp_open() {
   if command -v nc >/dev/null 2>&1; then
     nc -z -w 2 "$host" "$port"
   else
-    (echo >/dev/tcp/${host}/${port}) >/dev/null 2>&1
+    (echo >/dev/tcp/"${host}"/"${port}") >/dev/null 2>&1
   fi
 }
 
@@ -87,8 +87,8 @@ start_pgvector_container() {
       ankane/pgvector
   fi
   echo "Waiting for TCP ${DB_HOST}:${DB_PORT} …"
-  local i
-  for i in $(seq 1 45); do
+  local _
+  for _ in $(seq 1 45); do
     if tcp_open "$DB_HOST" "$DB_PORT"; then
       echo "PostgreSQL is accepting connections."
       return 0
@@ -139,7 +139,7 @@ open_http_url() {
 
 # After Tomcat binds, open the chord UI (non-blocking for the main process).
 (
-  for i in $(seq 1 120); do
+  for _ in $(seq 1 120); do
     if tcp_open 127.0.0.1 "$APP_PORT"; then
       open_http_url "http://127.0.0.1:${APP_PORT}${START_OPEN_PATH}"
       exit 0

@@ -7,9 +7,9 @@
 mock_provider "aws" {}
 
 variables {
-  app        = "linkage-engine"
-  db_sg_id   = "sg-00000000000000001"
-  subnet_ids = ["subnet-00000000000000001", "subnet-00000000000000002"]
+  app         = "linkage-engine"
+  db_sg_id    = "sg-00000000000000001"
+  subnet_ids  = ["subnet-00000000000000001", "subnet-00000000000000002"]
   db_password = "test-password-not-real"
   tags = {
     App = "linkage-engine"
