@@ -1,5 +1,7 @@
 # linkage-engine
 
+<a href="https://raw.githubusercontent.com/sbecker11/linkage-engine/main/docs/chord-diagram.png" target="_blank" rel="noopener noreferrer"><img src="docs/chord-diagram-single.png" width="304" height="295" alt="linkage-engine record-similarity chord diagram (click for the full diagram)"></a>
+
 **linkage-engine** is a genealogical record linkage service that answers the question: _could these two historical records describe the same person?_
 
 It resolves ambiguous names, locations, and dates using a four-stage pipeline — deterministic SQL search, vector similarity reranking, LLM semantic summary, and spatio-temporal plausibility.
