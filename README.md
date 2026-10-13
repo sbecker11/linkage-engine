@@ -1,6 +1,6 @@
 # linkage-engine
 
-<a href="https://raw.githubusercontent.com/sbecker11/linkage-engine/main/docs/chord-diagram.png" target="_blank" rel="noopener noreferrer"><img src="docs/chord-diagram-single.png" width="304" height="295" alt="linkage-engine record-similarity chord diagram (click for the full diagram)"></a>
+<a href="https://raw.githubusercontent.com/sbecker11/linkage-engine/main/docs/chord-diagram-dark.png" target="_blank" rel="noopener noreferrer"><img src="docs/chord-diagram-dark.png" width="720" alt="Linkage Engine local front end in dark mode"></a>
 
 <!-- SUMMARY:START generated from workspace-linkedin-profile/Projects.json by scripts/build_readme_header.py; edit there -->
 Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage resolve pipeline (SQL search, vector rerank, semantic, spatio-temporal), pgvector on Aurora PostgreSQL, and Bedrock; 149 tests, 94.5% coverage.
@@ -32,7 +32,7 @@ All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application
 
 ### Genealogical records - similarity graph
 
-<img src="./docs/chord-diagram.png" width="600" alt="Chord diagram showing record similarity and spatio-temporal plausibility" />
+<img src="./docs/chord-diagram-dark.png" width="720" alt="Linkage Engine local front end in dark mode" />
 
 This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) visualizes 12 seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852.
 

@@ -37,9 +37,6 @@
         --tip-bg: #ffffff;
         --tip-border: #b4b2a9;
         --progress-track: #d3d1c7;
-        --toggle-off: #cccccc;
-        --toggle-on: #1d9e75;
-        --toggle-knob: #ffffff;
       }
       .dark-theme {
         color-scheme: dark;
@@ -62,9 +59,6 @@
         --tip-bg: #2d333b;
         --tip-border: #586069;
         --progress-track: #444c56;
-        --toggle-off: #586069;
-        --toggle-on: #1d9e75;
-        --toggle-knob: #cdd9e5;
       }
       /* Selected chords paint these panels a light tint, so ink stays dark. */
       #detail.plausible,
@@ -140,47 +134,34 @@
       .theme-control {
         display: flex;
         align-items: center;
-        gap: 8px;
       }
-      .theme-control-label {
+      .theme-choice {
+        padding: 4px 10px;
+        border: 1px solid var(--btn-border);
+        background: var(--btn-bg);
+        color: var(--text);
+        cursor: pointer;
         font-size: 11px;
         font-weight: 600;
-        color: var(--muted);
       }
-      #themeToggle {
+      .theme-choice + .theme-choice {
+        margin-left: -1px;
+      }
+      #themeLight {
+        border-radius: 6px 0 0 6px;
+      }
+      #themeDark {
+        border-radius: 0 6px 6px 0;
+      }
+      .theme-choice[aria-pressed="true"] {
+        background: #1d9e75;
+        border-color: #1d9e75;
+        color: #ffffff;
         position: relative;
-        width: 44px;
-        height: 22px;
-        border-radius: 11px;
-        border: 1px solid var(--btn-border);
-        background: var(--toggle-off);
-        cursor: pointer;
-        padding: 0;
-        appearance: none;
-        color: transparent;
-        font-size: 0;
-        line-height: 0;
+        z-index: 1;
       }
-      #themeToggle::before {
-        content: "";
-        position: absolute;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: var(--toggle-knob);
-        top: 2px;
-        left: 2px;
-        transition: transform 0.2s ease;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-      }
-      .dark-theme #themeToggle {
-        background: var(--toggle-on);
-      }
-      .dark-theme #themeToggle::before {
-        transform: translateX(22px);
-      }
-      #themeToggle:focus-visible {
-        outline: 2px solid var(--toggle-on);
+      .theme-choice:focus-visible {
+        outline: 2px solid #1d9e75;
         outline-offset: 2px;
       }
       .badge {
@@ -556,9 +537,9 @@
       </div>
       <div class="header-actions">
         <span id="profile-badge" class="badge" style="display: none"></span>
-        <div class="theme-control">
-          <span id="themeToggleLabel" class="theme-control-label">Dark mode</span>
-          <button id="themeToggle" type="button" title="Switch to dark mode" aria-label="Dark mode" aria-pressed="false"></button>
+        <div class="theme-control" role="group" aria-label="Color theme">
+          <button id="themeLight" type="button" class="theme-choice" aria-pressed="true">Light</button>
+          <button id="themeDark" type="button" class="theme-choice" aria-pressed="false">Dark</button>
         </div>
         <button class="btn" onclick="init()">&#8635; Refresh</button>
       </div>
@@ -1613,10 +1594,13 @@
         const isDark = theme === "dark";
         document.documentElement.classList.toggle("dark-theme", isDark);
         persistTheme(isDark ? "dark" : "light");
-        const button = document.getElementById("themeToggle");
-        if (button) {
-          button.setAttribute("aria-pressed", isDark ? "true" : "false");
-          button.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+        const lightButton = document.getElementById("themeLight");
+        const darkButton = document.getElementById("themeDark");
+        if (lightButton) {
+          lightButton.setAttribute("aria-pressed", isDark ? "false" : "true");
+        }
+        if (darkButton) {
+          darkButton.setAttribute("aria-pressed", isDark ? "true" : "false");
         }
         if (lastChordRender) {
           const x = lastChordRender;
@@ -1625,9 +1609,10 @@
       }
 
       function initThemeToggle() {
-        const button = document.getElementById("themeToggle");
-        if (!button) {
-          throw new Error("[theme] Theme toggle button #themeToggle is missing");
+        const lightButton = document.getElementById("themeLight");
+        const darkButton = document.getElementById("themeDark");
+        if (!lightButton || !darkButton) {
+          throw new Error("[theme] Theme choice buttons #themeLight and #themeDark are missing");
         }
         let savedTheme = null;
         try {
@@ -1637,9 +1622,11 @@
           console.log("Remedy: Starting in light mode");
         }
         applyTheme(savedTheme === "dark" ? "dark" : "light");
-        button.addEventListener("click", function () {
-          const next = document.documentElement.classList.contains("dark-theme") ? "light" : "dark";
-          applyTheme(next);
+        lightButton.addEventListener("click", function () {
+          applyTheme("light");
+        });
+        darkButton.addEventListener("click", function () {
+          applyTheme("dark");
         });
       }
 
