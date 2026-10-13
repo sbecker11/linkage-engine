@@ -32,6 +32,7 @@
         --link-hover: #1b4332;
         --chart-label: #3d3d38;
         --chart-halo: #fafaf9;
+        --chart-bg: transparent;
         --legend-active-bg: #1a1a18;
         --legend-active-fg: #fafaf9;
         --tip-bg: #ffffff;
@@ -54,6 +55,7 @@
         --link-hover: #9ee6c8;
         --chart-label: #cdd9e5;
         --chart-halo: #1c2128;
+        --chart-bg: #f4f3ee;
         --legend-active-bg: #cdd9e5;
         --legend-active-fg: #1c2128;
         --tip-bg: #2d333b;
@@ -319,20 +321,24 @@
         border-bottom: 1px solid var(--hairline);
       }
       #detail {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
         position: fixed;
         top: 0;
         left: 0;
         width: 20%;
         height: 100%;
-        overflow-y: auto;
-        direction: rtl;
-        padding: 20px 16px 20px 16px;
+        max-height: 100%;
+        /* The column itself does not scroll. The three rows share this
+           height so Conflicts and the verdict stay on screen. */
+        overflow: hidden;
+        direction: ltr;
+        padding: 12px 14px 10px;
         background: var(--panel);
         border-color: var(--panel-border);
         border-right: 1px solid var(--panel-border);
         color: var(--text);
-        overflow-y: auto;
         z-index: 100;
         transition:
           background 0.3s,
@@ -358,6 +364,80 @@
       #detail.impossible, #legend.impossible {
         background: #fcebeb;
         border-color: #f09595;
+      }
+      /* Dark mode keeps both columns dark grey with white text, including a pinned chord. */
+      .dark-theme #detail,
+      .dark-theme #legend,
+      .dark-theme #detail.plausible,
+      .dark-theme #detail.lowconf,
+      .dark-theme #detail.moderate,
+      .dark-theme #detail.verylow,
+      .dark-theme #detail.impossible,
+      .dark-theme #detail.age-conflict,
+      .dark-theme #detail.gender-conflict,
+      .dark-theme #legend.plausible,
+      .dark-theme #legend.lowconf,
+      .dark-theme #legend.moderate,
+      .dark-theme #legend.verylow,
+      .dark-theme #legend.impossible,
+      .dark-theme #legend.age-conflict,
+      .dark-theme #legend.gender-conflict {
+        background: #2d333b;
+        border-color: #444c56;
+        color: #ffffff;
+        --text: #ffffff;
+        --muted: #ffffff;
+      }
+      .detail-row {
+        direction: ltr;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      /* Journey takes the leftover height and scrolls its own text.
+         Conflicts and the verdict keep a slice of the column so their
+         boxes stay inside the viewport. */
+      .detail-journey {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      #detail .detail-conflicts:empty,
+      #detail .detail-verdict:empty {
+        display: none;
+      }
+      .dark-theme #detail .detail-journey,
+      .dark-theme #detail .detail-journey * {
+        color: #ffffff !important;
+      }
+      #detail .detail-conflicts,
+      #detail .detail-verdict {
+        /* Stay at content height so the note is on screen. A cap remains
+           so an unusually long note scrolls inside its own row. */
+        flex: 0 0 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        background: rgb(233, 233, 234);
+        color: #1a1a18;
+        --text: #1a1a18;
+        --muted: #3d3d38;
+        border-radius: 6px;
+        padding: 8px 10px;
+      }
+      #detail .detail-conflicts {
+        max-height: 46%;
+      }
+      #detail .detail-verdict {
+        max-height: 40%;
+      }
+      .dark-theme #legend,
+      .dark-theme #legend * {
+        color: #ffffff !important;
+      }
+      .dark-theme #legend span[data-color].legend-active {
+        background: #444c56;
+        color: #ffffff !important;
       }
       .det-row {
         display: flex;
@@ -417,8 +497,9 @@
         }
       }
 
-      /* Narrow viewports: side panels were fixed 20% + 18%, leaving a tiny strip for the chart */
-      @media (max-width: 900px) {
+      /* Very narrow viewports stack the columns under the chart. Keep the chart short
+         so Chord Details stays on screen instead of below the fold. */
+      @media (max-width: 640px) {
         body {
           display: flex;
           flex-direction: column;
@@ -441,8 +522,18 @@
         #detail {
           direction: ltr;
           order: 3;
+          overflow: visible;
+          height: auto;
+          max-height: none;
           border-right: none;
           border-bottom: 1px solid var(--panel-border);
+        }
+        .detail-journey,
+        #detail .detail-conflicts,
+        #detail .detail-verdict {
+          max-height: none;
+          overflow: visible;
+          flex: 0 0 auto;
         }
         #legend {
           order: 4;
@@ -454,14 +545,15 @@
         }
         main {
           order: 2;
-          flex: 1 1 auto;
+          flex: 0 1 auto;
           min-height: 0;
           display: flex;
           flex-direction: column;
         }
         #chart-wrap {
-          flex: 1 1 auto;
-          min-height: 280px;
+          flex: 0 1 auto;
+          min-height: 240px;
+          max-height: 48vh;
         }
         .tip {
           order: 50;
@@ -532,7 +624,7 @@
             <a href="/v1/cost/month-to-date/page">Month-to-date cost (HTML)</a></span
           >
           &middot;
-          <a href="/actuator/health">Actuator health</a>
+          <a href="/v1/health/page">Actuator health</a>
         </p>
       </div>
       <div class="header-actions">
@@ -708,7 +800,7 @@
         applyChordNavHints();
         const detEl = document.getElementById("detail");
         detEl.className = "";
-        detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;
+        detEl.innerHTML = `<section class="detail-row detail-journey"><p class="panel-title" style="direction:ltr">Chord Details</p></section><section class="detail-row detail-conflicts"></section><section class="detail-row detail-verdict"></section>`;
         document.getElementById("chart-wrap").innerHTML =
           '<div id="empty-msg"></div>';
         document.getElementById("empty-msg").style.display = "none";
@@ -1032,7 +1124,7 @@
           "http://www.w3.org/2000/svg",
           "svg",
         );
-        const narrow = window.innerWidth <= 900;
+        const narrow = window.innerWidth <= 640;
         const progressBottom = document
           .querySelector(".progress")
           .getBoundingClientRect().bottom;
@@ -1072,6 +1164,13 @@
           .append("g")
           .attr("transform", `translate(${CX},${CY})`);
 
+        // Ribbon fills are translucent. In dark mode they disappear on the page
+        // background, so the chord interior uses a light disk.
+        svg.append("circle")
+          .attr("r", IR)
+          .attr("fill", chartThemeColors().chartBg)
+          .style("pointer-events", "none");
+
         const chordLayout = d3
           .chordDirected()
           .padAngle(14 / OR)
@@ -1108,10 +1207,12 @@
 
           if (dimmed) {
             const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
+            // 0.05 disappears on the dark-mode disk; keep unselected chords readable there.
+            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.05;
             gEl.append("path")
               .attr("class", "vis")
               .attr("d", path)
-              .attr("fill", `rgba(${r},${g},${b},0.05)`)
+              .attr("fill", `rgba(${r},${g},${b},${dimAlpha})`)
               .attr("stroke", "none")
               .style("pointer-events", "none");
           } else {
@@ -1138,14 +1239,23 @@
             a.target.index === b.target.index;
         }
 
-        // Helper: (re)paint a chord as "selected" — full opacity + thick bright border.
+        // Active chord: opaque fill and a thick rim so it separates from the
+        // translucent unselected ribbons on the dark-mode disk.
+        function activeRibbonStyle() {
+          const dark = document.documentElement.classList.contains("dark-theme");
+          return dark
+            ? { alpha: 1, strokeWidth: 6 }
+            : { alpha: LAYER_ALPHA, strokeWidth: 2.5 };
+        }
+
         function paintRibSelected(gEl, d) {
           const p = plausGet(plausMap, d.source.index, d.target.index);
           const path = ribGen(d);
           const baseHex = chordColor(d.source.index, d.target.index, plausMap);
+          const { alpha, strokeWidth } = activeRibbonStyle();
           const strokeCol = (() => {
             const c = d3.color(baseHex);
-            return c ? c.brighter(0.3).formatHex() : "#fff";
+            return c ? c.brighter(0.8).formatHex() : "#fff";
           })();
 
           gEl.selectAll("path.vis").remove();
@@ -1155,9 +1265,9 @@
             gEl.append("path")
               .attr("class", "vis")
               .attr("d", path)
-              .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
+              .attr("fill", `rgba(${r},${g},${b},${alpha})`)
               .attr("stroke", i === 0 ? strokeCol : "none")
-              .attr("stroke-width", i === 0 ? 2.5 : 0)
+              .attr("stroke-width", i === 0 ? strokeWidth : 0)
               .attr("stroke-linejoin", "round")
               .style("pointer-events", "none");
           });
@@ -1168,15 +1278,16 @@
         function dimAllExcept(exceptD) {
           ribGroups.each(function(d) {
             const isActive = isSameChord(d, exceptD) || isSameChord(d, selectedD);
-            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
-            else paintRib(d3.select(this), d, !isActive);
+            if (isActive) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, true);
           });
         }
         function dimAllExceptColor(targetColor) {
           ribGroups.each(function(d) {
             const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
-            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
-            else paintRib(d3.select(this), d, dom !== targetColor);
+            const isActive = isSameChord(d, selectedD) || dom === targetColor;
+            if (isActive) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, true);
           });
         }
         function restoreAll() {
@@ -1191,7 +1302,7 @@
           document.getElementById("legend").className = "";
           const detEl = document.getElementById("detail");
           detEl.className = "";
-          detEl.innerHTML = `<p class="panel-title" style="direction:ltr">Chord Details</p>`;
+          detEl.innerHTML = `<section class="detail-row detail-journey"><p class="panel-title" style="direction:ltr">Chord Details</p></section><section class="detail-row detail-conflicts"></section><section class="detail-row detail-verdict"></section>`;
         }
 
         // Add a single transparent hit-area path per chord group AFTER initial paint.
@@ -1245,7 +1356,8 @@
             // Repaint: connected chords full, others dimmed
             ribGroups.each(function(r) {
               const connected = r.source.index === d.index || r.target.index === d.index;
-              paintRib(d3.select(this), r, !connected);
+              if (connected) paintRibSelected(d3.select(this), r);
+              else paintRib(d3.select(this), r, true);
             });
             // Highlight all legend colours used by chords connected to this arc
             const connectedColors = new Set();
@@ -1551,8 +1663,8 @@
         })();
 
         det.innerHTML = `
-          <p class="panel-title">Chord Details</p>
-          <div class="det-row">
+          <section class="detail-row detail-journey">
+            <p class="panel-title">Chord Details</p>
             <p class="kicker">Departure</p>
             <p class="det-sub" style="margin:0 0 2px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
             <p class="det-title" style="margin:0">${srcLine}</p>
@@ -1563,12 +1675,18 @@
             <hr class="det-rule">
             <p class="det-sub" style="margin:0"><strong>Name match</strong><br>${nameMatch}</p>
             <p class="det-sub" style="margin:4px 0 0"><strong>Travel</strong><br><span style="color:${travelColor}">${travelLine}</span></p>
-            ${conflictItems ? `<p class="det-sub" style="margin:4px 0 0"><strong>Conflicts</strong></p><ul style="margin:2px 0 0;padding-left:14px;font-size:11px">${conflictItems}</ul>` : ""}
-            <hr class="det-rule">
+          </section>
+          <section class="detail-row detail-conflicts">
+            <p class="det-sub" style="margin:0"><strong>Conflicts</strong></p>
+            ${conflictItems
+              ? `<ul style="margin:2px 0 0;padding-left:14px;font-size:11px">${conflictItems}</ul>`
+              : `<p class="det-sub" style="margin:4px 0 0">No conflicts</p>`}
+          </section>
+          <section class="detail-row detail-verdict">
             <p class="kicker" style="margin:0 0 3px">Should this link exist?</p>
             <p class="det-sub" style="color:${verdictColor};font-weight:700;font-size:13px;margin:0">${verdictAnswer}</p>
             ${flags.length > 0 ? `<p class="det-sub" style="font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
-          </div>`;
+          </section>`;
       }
 
       const THEME_STORAGE_KEY = "linkageEngineTheme";
@@ -1578,6 +1696,7 @@
         return {
           label: cs.getPropertyValue("--chart-label").trim() || "#3d3d38",
           halo: cs.getPropertyValue("--chart-halo").trim() || "#fafaf9",
+          chartBg: cs.getPropertyValue("--chart-bg").trim() || "transparent",
         };
       }
 
