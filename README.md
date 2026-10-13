@@ -1,5 +1,11 @@
 # linkage-engine
 
+<!-- SUMMARY:START generated from workspace-linkedin-profile/Projects.json by scripts/build_readme_header.py; edit there -->
+Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage resolve pipeline (SQL search, vector rerank, semantic, spatio-temporal), pgvector on Aurora PostgreSQL, and Bedrock; 149 tests, 94.5% coverage.
+
+**Skills:** Java 21 · Virtual Threads · Spring Boot · Spring AI · Entity Resolution · Vector Search · pgvector · Amazon Aurora PostgreSQL Serverless v2 · Bedrock · Amazon Titan Embeddings · AWS ECS Fargate · Amazon S3 · Docker · Terraform · GitHub Actions · JUnit · JaCoCo · Automated Software Testing (JUnit/Jest/Vitest/PyTest)
+<!-- SUMMARY:END -->
+
 <a href="https://raw.githubusercontent.com/sbecker11/linkage-engine/main/docs/chord-diagram.png" target="_blank" rel="noopener noreferrer"><img src="docs/chord-diagram-single.png" width="304" height="295" alt="linkage-engine record-similarity chord diagram (click for the full diagram)"></a>
 
 **linkage-engine** is a genealogical record linkage service that answers the question: _could these two historical records describe the same person?_
