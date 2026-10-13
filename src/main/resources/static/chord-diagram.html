@@ -4,7 +4,82 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Linkage Engine — Record Similarity Graph</title>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("linkageEngineTheme") === "dark") {
+            document.documentElement.classList.add("dark-theme");
+          }
+        } catch (e) {
+          console.error("[theme] Failed to read saved theme before paint", e);
+        }
+      })();
+    </script>
     <style>
+      :root {
+        color-scheme: light;
+        --bg: #fafaf9;
+        --text: #1a1a18;
+        --muted: #6b6b63;
+        --panel: #f5f4ef;
+        --panel-border: #d3d1c7;
+        --hairline: rgba(0, 0, 0, 0.08);
+        --btn-bg: #ffffff;
+        --btn-border: #b4b2a9;
+        --btn-hover: #f1efe8;
+        --code-bg: rgba(0, 0, 0, 0.06);
+        --link: #2d6a4f;
+        --link-hover: #1b4332;
+        --chart-label: #3d3d38;
+        --chart-halo: #fafaf9;
+        --legend-active-bg: #1a1a18;
+        --legend-active-fg: #fafaf9;
+        --tip-bg: #ffffff;
+        --tip-border: #b4b2a9;
+        --progress-track: #d3d1c7;
+        --toggle-off: #cccccc;
+        --toggle-on: #1d9e75;
+        --toggle-knob: #ffffff;
+      }
+      .dark-theme {
+        color-scheme: dark;
+        --bg: #1c2128;
+        --text: #cdd9e5;
+        --muted: #97a6b7;
+        --panel: #2d333b;
+        --panel-border: #444c56;
+        --hairline: rgba(255, 255, 255, 0.12);
+        --btn-bg: #2d333b;
+        --btn-border: #586069;
+        --btn-hover: #373e47;
+        --code-bg: rgba(255, 255, 255, 0.08);
+        --link: #5dcaa5;
+        --link-hover: #9ee6c8;
+        --chart-label: #cdd9e5;
+        --chart-halo: #1c2128;
+        --legend-active-bg: #cdd9e5;
+        --legend-active-fg: #1c2128;
+        --tip-bg: #2d333b;
+        --tip-border: #586069;
+        --progress-track: #444c56;
+        --toggle-off: #586069;
+        --toggle-on: #1d9e75;
+        --toggle-knob: #cdd9e5;
+      }
+      /* Selected chords paint these panels a light tint, so ink stays dark. */
+      #detail.plausible,
+      #detail.lowconf,
+      #detail.moderate,
+      #detail.verylow,
+      #detail.impossible,
+      #legend.plausible,
+      #legend.lowconf,
+      #legend.moderate,
+      #legend.verylow,
+      #legend.impossible {
+        --text: #1a1a18;
+        --muted: #5f5e5a;
+      }
       *,
       *::before,
       *::after {
@@ -17,8 +92,8 @@
           system-ui,
           -apple-system,
           sans-serif;
-        background: #fafaf9;
-        color: #1a1a18;
+        background: var(--bg);
+        color: var(--text);
         min-height: 100vh;
       }
       header {
@@ -38,23 +113,75 @@
       }
       .sub {
         font-size: 12px;
-        color: #6b6b63;
+        color: var(--muted);
         line-height: 1.5;
       }
       .header-nav {
         font-size: 11px;
-        color: #6b6b63;
+        color: var(--muted);
         margin-top: 8px;
         line-height: 1.6;
       }
       .header-nav a {
-        color: #2d6a4f;
+        color: var(--link);
         text-decoration: none;
-        border-bottom: 1px solid rgba(45, 106, 79, 0.35);
+        border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
       }
       .header-nav a:hover {
-        color: #1b4332;
-        border-bottom-color: #1b4332;
+        color: var(--link-hover);
+        border-bottom-color: var(--link-hover);
+      }
+      .header-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .theme-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .theme-control-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      #themeToggle {
+        position: relative;
+        width: 44px;
+        height: 22px;
+        border-radius: 11px;
+        border: 1px solid var(--btn-border);
+        background: var(--toggle-off);
+        cursor: pointer;
+        padding: 0;
+        appearance: none;
+        color: transparent;
+        font-size: 0;
+        line-height: 0;
+      }
+      #themeToggle::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--toggle-knob);
+        top: 2px;
+        left: 2px;
+        transition: transform 0.2s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+      }
+      .dark-theme #themeToggle {
+        background: var(--toggle-on);
+      }
+      .dark-theme #themeToggle::before {
+        transform: translateX(22px);
+      }
+      #themeToggle:focus-visible {
+        outline: 2px solid var(--toggle-on);
+        outline-offset: 2px;
       }
       .badge {
         font-size: 11px;
@@ -78,17 +205,17 @@
       .btn {
         font-size: 12px;
         padding: 5px 13px;
-        border: 0.5px solid #b4b2a9;
+        border: 0.5px solid var(--btn-border);
         border-radius: 6px;
-        background: white;
+        background: var(--btn-bg);
         cursor: pointer;
-        color: #1a1a18;
+        color: var(--text);
         margin-left: auto;
         margin-top: 2px;
         white-space: nowrap;
       }
       .btn:hover {
-        background: #f1efe8;
+        background: var(--btn-hover);
       }
       .btn:active {
         transform: scale(0.97);
@@ -100,13 +227,13 @@
       }
       #status-line {
         font-size: 12px;
-        color: #6b6b63;
+        color: var(--muted);
         min-height: 0;
         margin-bottom: 4px;
       }
       .progress {
         height: 3px;
-        background: #d3d1c7;
+        background: var(--progress-track);
         border-radius: 2px;
         margin-bottom: 6px;
         overflow: hidden;
@@ -121,7 +248,7 @@
       code {
         font-family: ui-monospace, monospace;
         font-size: 10.5px;
-        background: rgba(0, 0, 0, 0.06);
+        background: var(--code-bg);
         padding: 1px 4px;
         border-radius: 3px;
       }
@@ -135,7 +262,7 @@
       }
       #empty-msg {
         font-size: 13px;
-        color: #888780;
+        color: var(--muted);
         text-align: center;
         padding: 40px 0;
         display: none;
@@ -148,11 +275,11 @@
         height: 100%;
         overflow-y: auto;
         padding: 20px 16px;
-        background: #f5f4ef;
-        border-left: 1px solid #d3d1c7;
+        background: var(--panel);
+        border-left: 1px solid var(--panel-border);
         transition: background 0.3s, border-color 0.3s;
         font-size: 11px;
-        color: #6b6b63;
+        color: var(--muted);
         display: flex;
         flex-direction: column;
         gap: 0;
@@ -163,7 +290,7 @@
         font-weight: 600;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: #999;
+        color: var(--muted);
         margin: 10px 0 4px;
       }
       .legend-group-label:first-child {
@@ -180,8 +307,8 @@
         white-space: nowrap;
       }
       #legend span[data-color].legend-active {
-        background: #1a1a18;
-        color: #fafaf9;
+        background: var(--legend-active-bg);
+        color: var(--legend-active-fg);
       }
       #legend span[data-color].legend-dim {
         opacity: 0.3;
@@ -205,10 +332,10 @@
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: .08em;
-        color: #aaa;
+        color: var(--muted);
         margin: 0 0 12px;
         padding-bottom: 6px;
-        border-bottom: 1px solid rgba(0,0,0,0.08);
+        border-bottom: 1px solid var(--hairline);
       }
       #detail {
         display: block;
@@ -220,9 +347,10 @@
         overflow-y: auto;
         direction: rtl;
         padding: 20px 16px 20px 16px;
-        background: #f5f4ef;
-        border-color: #d3d1c7;
-        border-right: 1px solid #d3d1c7;
+        background: var(--panel);
+        border-color: var(--panel-border);
+        border-right: 1px solid var(--panel-border);
+        color: var(--text);
         overflow-y: auto;
         z-index: 100;
         transition:
@@ -262,12 +390,12 @@
       .det-title {
         font-size: 13px;
         font-weight: 600;
-        color: #1a1a18;
+        color: var(--text);
         line-height: 1.5;
       }
       .det-sub {
         font-size: 11px;
-        color: #5f5e5a;
+        color: var(--muted);
         margin-top: 4px;
         line-height: 1.5;
       }
@@ -333,12 +461,12 @@
           direction: ltr;
           order: 3;
           border-right: none;
-          border-bottom: 1px solid #d3d1c7;
+          border-bottom: 1px solid var(--panel-border);
         }
         #legend {
           order: 4;
           border-left: none;
-          border-top: 1px solid #d3d1c7;
+          border-top: 1px solid var(--panel-border);
         }
         header {
           order: 1;
@@ -362,8 +490,8 @@
       .tip {
         position: fixed;
         font-size: 11px;
-        background: white;
-        border: 0.5px solid #b4b2a9;
+        background: var(--tip-bg);
+        border: 0.5px solid var(--tip-border);
         border-radius: 7px;
         padding: 7px 11px;
         pointer-events: none;
@@ -372,8 +500,33 @@
         max-width: 240px;
         line-height: 1.55;
         z-index: 200;
-        color: #1a1a18;
+        color: var(--text);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .tip-kicker {
+        font-size: 9px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .tip-meta {
+        color: var(--muted);
+      }
+      .tip-note {
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .kicker {
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 0 0 1px;
+      }
+      .det-rule {
+        border: none;
+        border-top: 1px solid var(--hairline);
+        margin: 8px 0;
       }
     </style>
   </head>
@@ -401,15 +554,12 @@
           <a href="/actuator/health">Actuator health</a>
         </p>
       </div>
-      <div
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 6px;
-        "
-      >
+      <div class="header-actions">
         <span id="profile-badge" class="badge" style="display: none"></span>
+        <div class="theme-control">
+          <span id="themeToggleLabel" class="theme-control-label">Dark mode</span>
+          <button id="themeToggle" type="button" title="Switch to dark mode" aria-label="Dark mode" aria-pressed="false"></button>
+        </div>
         <button class="btn" onclick="init()">&#8635; Refresh</button>
       </div>
     </header>
@@ -1107,7 +1257,7 @@
           .append("path")
           .attr("d", arcGen)
           .attr("fill", (d, i) => GCOLS[i % GCOLS.length])
-          .attr("stroke", "#fafaf9")
+          .attr("stroke", chartThemeColors().halo)
           .attr("stroke-width", 0.8)
           .style("cursor", "pointer")
           .on("mouseover", (event, d) => {
@@ -1151,9 +1301,9 @@
           )
           .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
           .attr("font-size", narrow ? "11px" : "10.5px")
-          .attr("fill", "#3d3d38")
+          .attr("fill", chartThemeColors().label)
           .attr("font-weight", "500")
-          .attr("stroke", "#fafaf9")
+          .attr("stroke", chartThemeColors().halo)
           .attr("stroke-width", 2.5)
           .attr("paint-order", "stroke fill")
           .attr("font-family", "system-ui,-apple-system,sans-serif")
@@ -1175,7 +1325,7 @@
               `rotate(${(d.angle * 180) / Math.PI - 90}) translate(${OR},0)`,
           )
           .attr("x2", 5)
-          .attr("stroke", "#fafaf9")
+          .attr("stroke", chartThemeColors().halo)
           .attr("stroke-width", 0.8);
 
         // Wire legend ↔ chord cross-highlighting now that ribs is in scope
@@ -1330,18 +1480,18 @@
           .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
 
         const tipArrow = sameCity
-          ? `<span style="color:#aaa">↕ same city</span>`
+          ? `<span class="tip-meta">↕ same city</span>`
           : p?.travelDays
             ? `<span style="color:${p.plausible ? travelColor : "#e24b4a"}">↓ ~${p.travelDays.toFixed(1)} days travel</span>`
-            : `<span style="color:#aaa">↓</span>`;
+            : `<span class="tip-meta">↓</span>`;
 
         tip.innerHTML =
-          `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Departure</span><br>` +
-          `<strong>${srcLine}</strong><br><span style="color:#666">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
+          `<span class="tip-kicker">Departure</span><br>` +
+          `<strong>${srcLine}</strong><br><span class="tip-meta">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
           `${tipArrow}<br>` +
-          `<span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.05em">Arrival</span><br>` +
-          `<strong>${tgtLine}</strong><br><span style="color:#666">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
-          `<span style="color:#5f5e5a;font-size:10px">${nameMatch}</span>` +
+          `<span class="tip-kicker">Arrival</span><br>` +
+          `<strong>${tgtLine}</strong><br><span class="tip-meta">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
+          `<span class="tip-note">${nameMatch}</span>` +
           (conflictSummary ? `<br>${conflictSummary}` : `<br><span style="color:#2a7a5a;font-size:10px">${flags.length === 0 ? "No conflicts" : ""}</span>`);
         tip.style.opacity = "1";
         tip.style.left = event.clientX + 16 + "px";
@@ -1406,7 +1556,7 @@
                             : "#2a7a5a";
 
         const travelArrow = (() => {
-          if (!p || sameCity) return `<span style="color:#aaa;font-size:18px">↕</span><span style="color:#aaa;font-size:10px"> same city</span>`;
+          if (!p || sameCity) return `<span class="tip-meta" style="font-size:18px">↕</span><span class="tip-meta"> same city</span>`;
           const days  = p.travelDays != null ? `${p.travelDays.toFixed(1)} days` : "";
           const col   = p.plausible ? travelColor : "#e24b4a";
           const ratio = p.availableDays / Math.max(0.1, p.travelDays);
@@ -1422,24 +1572,78 @@
         det.innerHTML = `
           <p class="panel-title">Chord Details</p>
           <div class="det-row">
-            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 1px">Departure</p>
-            <p class="det-sub" style="color:#888;margin:0 0 2px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
+            <p class="kicker">Departure</p>
+            <p class="det-sub" style="margin:0 0 2px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
             <p class="det-title" style="margin:0">${srcLine}</p>
             <p style="margin:4px 0 8px">${travelArrow}</p>
-            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 1px">Arrival</p>
-            <p class="det-sub" style="color:#888;margin:0 0 2px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
+            <p class="kicker">Arrival</p>
+            <p class="det-sub" style="margin:0 0 2px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
             <p class="det-title" style="margin:0">${tgtLine}</p>
-            <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0">
+            <hr class="det-rule">
             <p class="det-sub" style="margin:0"><strong>Name match</strong><br>${nameMatch}</p>
             <p class="det-sub" style="margin:4px 0 0"><strong>Travel</strong><br><span style="color:${travelColor}">${travelLine}</span></p>
             ${conflictItems ? `<p class="det-sub" style="margin:4px 0 0"><strong>Conflicts</strong></p><ul style="margin:2px 0 0;padding-left:14px;font-size:11px">${conflictItems}</ul>` : ""}
-            <hr style="border:none;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0">
-            <p class="det-sub" style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 3px">Should this link exist?</p>
+            <hr class="det-rule">
+            <p class="kicker" style="margin:0 0 3px">Should this link exist?</p>
             <p class="det-sub" style="color:${verdictColor};font-weight:700;font-size:13px;margin:0">${verdictAnswer}</p>
-            ${flags.length > 0 ? `<p class="det-sub" style="color:#888;font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
+            ${flags.length > 0 ? `<p class="det-sub" style="font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
           </div>`;
       }
 
+      const THEME_STORAGE_KEY = "linkageEngineTheme";
+
+      function chartThemeColors() {
+        const cs = getComputedStyle(document.documentElement);
+        return {
+          label: cs.getPropertyValue("--chart-label").trim() || "#3d3d38",
+          halo: cs.getPropertyValue("--chart-halo").trim() || "#fafaf9",
+        };
+      }
+
+      function persistTheme(theme) {
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, theme);
+        } catch (e) {
+          console.error("[theme] Failed to save theme preference", e);
+          console.log("Remedy: Keeping the selected theme for this page view only");
+        }
+      }
+
+      function applyTheme(theme) {
+        const isDark = theme === "dark";
+        document.documentElement.classList.toggle("dark-theme", isDark);
+        persistTheme(isDark ? "dark" : "light");
+        const button = document.getElementById("themeToggle");
+        if (button) {
+          button.setAttribute("aria-pressed", isDark ? "true" : "false");
+          button.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+        }
+        if (lastChordRender) {
+          const x = lastChordRender;
+          render(x.records, x.matrix, x.plausMap, x.simSource);
+        }
+      }
+
+      function initThemeToggle() {
+        const button = document.getElementById("themeToggle");
+        if (!button) {
+          throw new Error("[theme] Theme toggle button #themeToggle is missing");
+        }
+        let savedTheme = null;
+        try {
+          savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+        } catch (e) {
+          console.error("[theme] Failed to read saved theme", e);
+          console.log("Remedy: Starting in light mode");
+        }
+        applyTheme(savedTheme === "dark" ? "dark" : "light");
+        button.addEventListener("click", function () {
+          const next = document.documentElement.classList.contains("dark-theme") ? "light" : "dark";
+          applyTheme(next);
+        });
+      }
+
+      initThemeToggle();
       init();
     </script>
   </body>
