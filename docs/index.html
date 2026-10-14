@@ -3,15 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="only light" id="color-scheme-meta" />
+    <meta name="darkreader-lock" />
     <title>Linkage Engine — Record Similarity Graph</title>
     <script>
       (function () {
+        var root = document.documentElement;
+        var dark = false;
         try {
-          if (localStorage.getItem("linkageEngineTheme") === "dark") {
-            document.documentElement.classList.add("dark-theme");
-          }
+          dark = localStorage.getItem("linkageEngineTheme") === "dark";
         } catch (e) {
           console.error("[theme] Failed to read saved theme before paint", e);
+        }
+        var meta = document.getElementById("color-scheme-meta");
+        if (dark) {
+          root.classList.add("dark-theme");
+          root.style.backgroundColor = "#1c2128";
+          root.style.color = "#cdd9e5";
+          if (meta) meta.setAttribute("content", "dark");
+        } else {
+          root.classList.remove("dark-theme");
+          root.style.backgroundColor = "#ffffff";
+          root.style.color = "#000000";
+          if (meta) meta.setAttribute("content", "only light");
         }
       })();
     </script>
@@ -82,16 +96,17 @@
         --muted: #000000;
       }
       html:not(.dark-theme) {
-        background: #ffffff;
-        color: #000000;
-        color-scheme: only light;
+        background: #ffffff !important;
+        color: #000000 !important;
+        color-scheme: only light !important;
       }
       html:not(.dark-theme) body,
       html:not(.dark-theme) header,
       html:not(.dark-theme) main,
       html:not(.dark-theme) #chart-wrap,
       html:not(.dark-theme) svg {
-        background: #ffffff;
+        background: #ffffff !important;
+        color: #000000;
       }
       *,
       *::before,
@@ -2022,7 +2037,12 @@
 
       function applyTheme(theme) {
         const isDark = theme === "dark";
-        document.documentElement.classList.toggle("dark-theme", isDark);
+        const root = document.documentElement;
+        root.classList.toggle("dark-theme", isDark);
+        root.style.backgroundColor = isDark ? "#1c2128" : "#ffffff";
+        root.style.color = isDark ? "#cdd9e5" : "#000000";
+        const schemeMeta = document.getElementById("color-scheme-meta");
+        if (schemeMeta) schemeMeta.setAttribute("content", isDark ? "dark" : "only light");
         persistTheme(isDark ? "dark" : "light");
         const lightButton = document.getElementById("themeLight");
         const darkButton = document.getElementById("themeDark");
