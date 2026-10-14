@@ -25,8 +25,8 @@ jobs:
       - name: Assemble static site
         run: |
           mkdir -p _site
-          cp src/main/resources/static/chord-diagram.html _site/index.html
-          cp src/main/resources/static/chord-diagram.html _site/chord-diagram.html
+          cp docs/index.html _site/index.html
+          cp docs/index.html _site/chord-diagram.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

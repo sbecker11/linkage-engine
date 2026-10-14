@@ -1,0 +1,2039 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Linkage Engine — Record Similarity Graph</title>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("linkageEngineTheme") === "dark") {
+            document.documentElement.classList.add("dark-theme");
+          }
+        } catch (e) {
+          console.error("[theme] Failed to read saved theme before paint", e);
+        }
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fafaf9;
+        --text: #1a1a18;
+        --muted: #6b6b63;
+        --panel: #f5f4ef;
+        --panel-border: #d3d1c7;
+        --hairline: rgba(0, 0, 0, 0.08);
+        --btn-bg: #ffffff;
+        --btn-border: #b4b2a9;
+        --btn-hover: #f1efe8;
+        --code-bg: rgba(0, 0, 0, 0.06);
+        --link: #2d6a4f;
+        --link-hover: #1b4332;
+        --chart-label: #3d3d38;
+        --chart-halo: #fafaf9;
+        --chart-bg: transparent;
+        --legend-active-bg: #1a1a18;
+        --legend-active-fg: #fafaf9;
+        --tip-bg: #ffffff;
+        --tip-border: #b4b2a9;
+        --progress-track: #d3d1c7;
+        /* Fixed tracks. A percentage of the viewport collapses (and does not
+           match a percentage margin on the center), which hid the left column. */
+        --detail-col: 280px;
+        --legend-col: 200px;
+      }
+      .dark-theme {
+        color-scheme: dark;
+        --bg: #1c2128;
+        --text: #cdd9e5;
+        --muted: #97a6b7;
+        --panel: #2d333b;
+        --panel-border: #444c56;
+        --hairline: rgba(255, 255, 255, 0.12);
+        --btn-bg: #2d333b;
+        --btn-border: #586069;
+        --btn-hover: #373e47;
+        --code-bg: rgba(255, 255, 255, 0.08);
+        --link: #5dcaa5;
+        --link-hover: #9ee6c8;
+        --chart-label: #cdd9e5;
+        --chart-halo: #1c2128;
+        --chart-bg: #f4f3ee;
+        --legend-active-bg: #cdd9e5;
+        --legend-active-fg: #1c2128;
+        --tip-bg: #2d333b;
+        --tip-border: #586069;
+        --progress-track: #444c56;
+      }
+      /* Selected chords paint these panels a light tint, so ink stays dark. */
+      #detail.plausible,
+      #detail.lowconf,
+      #detail.moderate,
+      #detail.verylow,
+      #detail.impossible,
+      #legend.plausible,
+      #legend.lowconf,
+      #legend.moderate,
+      #legend.verylow,
+      #legend.impossible {
+        --text: #1a1a18;
+        --muted: #5f5e5a;
+      }
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      header {
+        margin-left: var(--detail-col);
+        margin-right: var(--legend-col);
+        padding: 12px 24px 4px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 3px;
+      }
+      .sub {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .header-nav {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 8px;
+        line-height: 1.6;
+      }
+      .header-nav a {
+        color: var(--link);
+        text-decoration: none;
+        border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+      }
+      .header-nav a:hover {
+        color: var(--link-hover);
+        border-bottom-color: var(--link-hover);
+      }
+      .header-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .theme-control {
+        display: flex;
+        align-items: center;
+      }
+      .theme-choice {
+        padding: 4px 10px;
+        border: 1px solid var(--btn-border);
+        background: var(--btn-bg);
+        color: var(--text);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .theme-choice + .theme-choice {
+        margin-left: -1px;
+      }
+      #themeLight {
+        border-radius: 6px 0 0 6px;
+      }
+      #themeDark {
+        border-radius: 0 6px 6px 0;
+      }
+      .theme-choice[aria-pressed="true"] {
+        background: #1d9e75;
+        border-color: #1d9e75;
+        color: #ffffff;
+        position: relative;
+        z-index: 1;
+      }
+      .theme-choice:focus-visible {
+        outline: 2px solid #1d9e75;
+        outline-offset: 2px;
+      }
+      .badge {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 3px 10px;
+        border-radius: 99px;
+        border: 1px solid;
+        white-space: nowrap;
+        margin-top: 2px;
+      }
+      .badge-local {
+        background: #faeeda;
+        color: #633806;
+        border-color: #fac775;
+      }
+      .badge-bedrock {
+        background: #e1f5ee;
+        color: #085041;
+        border-color: #5dcaa5;
+      }
+      .btn {
+        font-size: 12px;
+        padding: 5px 13px;
+        border: 0.5px solid var(--btn-border);
+        border-radius: 6px;
+        background: var(--btn-bg);
+        cursor: pointer;
+        color: var(--text);
+        margin-left: auto;
+        margin-top: 2px;
+        white-space: nowrap;
+      }
+      .btn:hover {
+        background: var(--btn-hover);
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+      main {
+        margin-left: var(--detail-col);
+        margin-right: var(--legend-col);
+        padding: 0 6px 12px;
+      }
+      #status-line {
+        font-size: 12px;
+        color: var(--muted);
+        min-height: 0;
+        margin-bottom: 4px;
+      }
+      .progress {
+        height: 3px;
+        background: var(--progress-track);
+        border-radius: 2px;
+        margin-bottom: 6px;
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        background: #1d9e75;
+        border-radius: 2px;
+        transition: width 0.35s ease;
+        width: 0%;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+        font-size: 10.5px;
+        background: var(--code-bg);
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      #chart-wrap {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        min-height: 260px;
+        overflow: visible;
+      }
+      #empty-msg {
+        font-size: 13px;
+        color: var(--muted);
+        text-align: center;
+        padding: 40px 0;
+        display: none;
+      }
+      #legend {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: auto;
+        left: auto;
+        width: var(--legend-col);
+        min-width: var(--legend-col);
+        height: 100vh;
+        height: 100dvh;
+        overflow-y: auto;
+        padding: 20px 16px;
+        background: var(--panel);
+        border-left: 1px solid var(--panel-border);
+        transition: background 0.3s, border-color 0.3s;
+        font-size: 11px;
+        color: var(--muted);
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        box-sizing: border-box;
+      }
+      .legend-group-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 10px 0 4px;
+      }
+      .legend-group-label:first-child {
+        margin-top: 0;
+      }
+      #legend span[data-color] {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        cursor: pointer;
+        border-radius: 4px;
+        padding: 3px 5px;
+        transition: background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      #legend span[data-color].legend-active {
+        background: var(--legend-active-bg);
+        color: var(--legend-active-fg);
+      }
+      #legend span[data-color].legend-dim {
+        opacity: 0.3;
+      }
+      .legend-step {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        color: #aaa;
+        flex-shrink: 0;
+      }
+      .dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+      .panel-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        color: var(--muted);
+        margin: 0 0 12px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      #detail {
+        display: flex;
+        flex-direction: column;
+        flex: none;
+        gap: 10px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: auto;
+        bottom: auto;
+        width: var(--detail-col);
+        min-width: var(--detail-col);
+        max-width: var(--detail-col);
+        /* 100% of an auto-height flex parent collapses this column to the
+           title line and overflow:hidden clips the rows. Use the viewport. */
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100vh;
+        max-height: 100dvh;
+        /* The column itself does not scroll. The three rows share this
+           height so Conflicts and the verdict stay on screen. */
+        overflow: hidden;
+        direction: ltr;
+        writing-mode: horizontal-tb;
+        padding: 12px 14px 10px;
+        background: var(--panel);
+        border-color: var(--panel-border);
+        border-right: 1px solid var(--panel-border);
+        color: var(--text);
+        z-index: 100;
+        transition:
+          background 0.3s,
+          border-color 0.3s;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.08);
+      }
+      #detail.plausible, #legend.plausible {
+        background: #e4f7f0;   /* teal-green — very comfortable */
+        border-color: #1D9E75;
+      }
+      #detail.lowconf, #legend.lowconf {
+        background: #e8f2fc;   /* steel-blue — comfortable */
+        border-color: #4A90D9;
+      }
+      #detail.moderate, #legend.moderate {
+        background: #f0eafa;   /* purple — moderate */
+        border-color: #9B6FD4;
+      }
+      #detail.verylow, #legend.verylow {
+        background: #fdf3e3;   /* amber — tight */
+        border-color: #EF9F27;
+      }
+      #detail.impossible, #legend.impossible {
+        background: #fcebeb;
+        border-color: #f09595;
+      }
+      /* Dark mode keeps both columns dark grey with white text, including a pinned chord. */
+      .dark-theme #detail,
+      .dark-theme #legend,
+      .dark-theme #detail.plausible,
+      .dark-theme #detail.lowconf,
+      .dark-theme #detail.moderate,
+      .dark-theme #detail.verylow,
+      .dark-theme #detail.impossible,
+      .dark-theme #detail.age-conflict,
+      .dark-theme #detail.gender-conflict,
+      .dark-theme #legend.plausible,
+      .dark-theme #legend.lowconf,
+      .dark-theme #legend.moderate,
+      .dark-theme #legend.verylow,
+      .dark-theme #legend.impossible,
+      .dark-theme #legend.age-conflict,
+      .dark-theme #legend.gender-conflict {
+        background: #2d333b;
+        border-color: #444c56;
+        color: #ffffff;
+        --text: #ffffff;
+        --muted: #ffffff;
+      }
+      .detail-row {
+        direction: ltr;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      /* Journey takes the leftover height and scrolls its own text.
+         Conflicts and the verdict keep a slice of the column so their
+         boxes stay inside the viewport. */
+      .detail-journey {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      #detail .detail-conflicts:empty,
+      #detail .detail-verdict:empty {
+        display: none;
+      }
+      .dark-theme #detail .detail-journey,
+      .dark-theme #detail .detail-journey * {
+        color: #ffffff !important;
+      }
+      #detail .detail-conflicts,
+      #detail .detail-verdict {
+        /* Stay at content height so the note is on screen. A cap remains
+           so an unusually long note scrolls inside its own row. */
+        flex: 0 0 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        background: rgb(233, 233, 234);
+        color: #1a1a18;
+        --text: #1a1a18;
+        --muted: #3d3d38;
+        border-radius: 6px;
+        padding: 8px 10px;
+      }
+      #detail .detail-conflicts {
+        max-height: 46%;
+      }
+      #detail .detail-verdict {
+        max-height: 40%;
+      }
+      .dark-theme #legend,
+      .dark-theme #legend * {
+        color: #ffffff !important;
+      }
+      .dark-theme #legend span[data-color].legend-active {
+        background: #444c56;
+        color: #ffffff !important;
+      }
+      .det-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        direction: ltr;
+      }
+      .panel-title {
+        direction: ltr;
+      }
+      .det-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .det-sub {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+        line-height: 1.5;
+      }
+      .det-conf {
+        font-size: 24px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .c-green {
+        color: #0f6e56;
+      }
+      .c-amber {
+        color: #633806;
+      }
+      .c-red {
+        color: #a32d2d;
+      }
+      /* Wide: fill viewport between header and bottom so the chord can use max height */
+      @media (min-width: 901px) {
+        html {
+          height: 100%;
+        }
+        body {
+          height: 100%;
+          min-height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        main {
+          flex: 1 1 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        #chart-wrap {
+          flex: 1 1 0;
+          min-height: 0;
+        }
+      }
+
+      /* Keep a real left track on laptop-narrow windows. 20% of ~750px was ~150px
+         and the center margin did not match, so the column read as missing. */
+      @media (max-width: 1000px) and (min-width: 641px) {
+        :root {
+          --detail-col: 240px;
+          --legend-col: 160px;
+        }
+      }
+
+      /* Very narrow viewports stack the columns under the chart. Keep the chart short
+         so Chord Details stays on screen instead of below the fold. */
+      @media (max-width: 640px) {
+        body {
+          display: flex;
+          flex-direction: column;
+        }
+        header,
+        main {
+          margin-left: 0;
+          margin-right: 0;
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        #detail,
+        #legend {
+          position: static;
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+          height: auto;
+          max-height: none;
+          bottom: auto;
+          box-shadow: none;
+        }
+        #detail {
+          direction: ltr;
+          order: 3;
+          overflow: visible;
+          left: auto;
+          right: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--panel-border);
+        }
+        .detail-journey,
+        #detail .detail-conflicts,
+        #detail .detail-verdict {
+          max-height: none;
+          overflow: visible;
+          flex: 0 0 auto;
+        }
+        #legend {
+          order: 4;
+          border-left: none;
+          border-top: 1px solid var(--panel-border);
+        }
+        header {
+          order: 1;
+        }
+        main {
+          order: 2;
+          flex: 0 1 auto;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        #chart-wrap {
+          flex: 0 1 auto;
+          min-height: 240px;
+          max-height: 48vh;
+        }
+        .tip {
+          order: 50;
+        }
+      }
+
+      .tip {
+        position: fixed;
+        font-size: 11px;
+        background: var(--tip-bg);
+        border: 0.5px solid var(--tip-border);
+        border-radius: 7px;
+        padding: 7px 11px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s;
+        max-width: 240px;
+        line-height: 1.55;
+        z-index: 200;
+        color: var(--text);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .tip-kicker {
+        font-size: 9px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .tip-meta {
+        color: var(--muted);
+      }
+      .tip-note {
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .kicker {
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 0 0 1px;
+      }
+      .det-rule {
+        border: none;
+        border-top: 1px solid var(--hairline);
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div style="flex: 1; min-width: 0">
+        <h1>Linkage Engine &mdash; Record Similarity Graph</h1>
+        <p class="sub">
+          Directed chord diagram &middot; arc size = total similarity flow
+          &middot; chord width = score &middot; arrowhead = resolution direction
+        </p>
+        <p class="sub" style="margin-top: 3px">
+          Hover an arc to highlight its connections &middot; hover a chord for
+          details &middot; click a chord to pin
+        </p>
+        <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
+        <p class="sub" id="cost-line" style="margin-top: 4px; opacity: 0.72; font-size: 0.72rem"></p>
+        <p class="header-nav">
+          <a href="/chord-diagram.html">Chord diagram</a
+          ><span id="cost-page-nav-wrap" style="display: none" aria-hidden="true">
+            &middot;
+            <a href="/v1/cost/month-to-date/page">Month-to-date cost (HTML)</a></span
+          >
+          &middot;
+          <a href="/v1/health/page">Actuator health</a>
+        </p>
+      </div>
+      <div class="header-actions">
+        <span id="profile-badge" class="badge" style="display: none"></span>
+        <div class="theme-control" role="group" aria-label="Color theme">
+          <button id="themeLight" type="button" class="theme-choice" aria-pressed="true">Light</button>
+          <button id="themeDark" type="button" class="theme-choice" aria-pressed="false">Dark</button>
+        </div>
+        <button class="btn" onclick="init()">&#8635; Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="status-line">Initialising&hellip;</div>
+      <div class="progress"><div class="progress-bar" id="pbar"></div></div>
+      <div id="chart-wrap">
+        <div id="empty-msg"></div>
+      </div>
+    </main>
+
+    <div id="detail"></div>
+    <div id="legend">
+      <p class="panel-title">Chord Legend</p>
+      <div class="legend-group-label">Plausible — travel margin</div>
+      <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Very comfortable &nbsp;&ge;10&times;</span>
+      <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Comfortable &nbsp;4–10&times;</span>
+      <span data-color="#9b6fd4"><span class="dot" style="background:#9b6fd4"></span>Moderate &nbsp;2–4&times;</span>
+      <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
+      <div class="legend-group-label">Implausible</div>
+      <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Physically impossible</span>
+    </div>
+    <div class="tip" id="tip"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script>
+      const BASE = "";
+
+      // GitHub Pages cannot run Spring. These 12 demo/seed-data.sh records and the
+      // pairwise overlap JSON below drive the diagram and the left column.
+      const DEMO_RECORDS = [
+  {
+    "recordId": "DEMO-A",
+    "givenName": "John",
+    "familyName": "Smith",
+    "year": 1850,
+    "location": "Philadelphia",
+    "birthYear": 1820
+  },
+  {
+    "recordId": "DEMO-B",
+    "givenName": "John",
+    "familyName": "Smith",
+    "year": 1851,
+    "location": "New York",
+    "birthYear": 1820
+  },
+  {
+    "recordId": "DEMO-C",
+    "givenName": "James",
+    "familyName": "Brown",
+    "year": 1848,
+    "location": "Philadelphia",
+    "birthYear": 1815
+  },
+  {
+    "recordId": "DEMO-D",
+    "givenName": "James",
+    "familyName": "Brown",
+    "year": 1850,
+    "location": "Boston",
+    "birthYear": 1815
+  },
+  {
+    "recordId": "DEMO-E",
+    "givenName": "William",
+    "familyName": "Davis",
+    "year": 1852,
+    "location": "Boston",
+    "birthYear": 1822
+  },
+  {
+    "recordId": "DEMO-F",
+    "givenName": "William",
+    "familyName": "Davis",
+    "year": 1852,
+    "location": "New York",
+    "birthYear": 1822
+  },
+  {
+    "recordId": "DEMO-G",
+    "givenName": "John",
+    "familyName": "Smith",
+    "year": 1850,
+    "location": "Boston",
+    "birthYear": 1820
+  },
+  {
+    "recordId": "DEMO-H",
+    "givenName": "John",
+    "familyName": "Smith",
+    "year": 1850,
+    "location": "San Francisco",
+    "birthYear": 1820
+  },
+  {
+    "recordId": "DEMO-I",
+    "givenName": "Thomas",
+    "familyName": "Wilson",
+    "year": 1850,
+    "location": "Philadelphia",
+    "birthYear": 1820
+  },
+  {
+    "recordId": "DEMO-J",
+    "givenName": "Thomas",
+    "familyName": "Wilson",
+    "year": 1851,
+    "location": "Philadelphia",
+    "birthYear": 1780
+  },
+  {
+    "recordId": "DEMO-K",
+    "givenName": "Mary",
+    "familyName": "Taylor",
+    "year": 1850,
+    "location": "Philadelphia",
+    "birthYear": 1825
+  },
+  {
+    "recordId": "DEMO-L",
+    "givenName": "Robert",
+    "familyName": "Taylor",
+    "year": 1851,
+    "location": "Philadelphia",
+    "birthYear": 1825
+  }
+];
+      const DEMO_PARTNER = {
+  "DEMO-A": "DEMO-B",
+  "DEMO-B": "DEMO-A",
+  "DEMO-C": "DEMO-D",
+  "DEMO-D": "DEMO-C",
+  "DEMO-E": "DEMO-F",
+  "DEMO-F": "DEMO-E",
+  "DEMO-G": "DEMO-H",
+  "DEMO-H": "DEMO-G",
+  "DEMO-I": "DEMO-J",
+  "DEMO-J": "DEMO-I",
+  "DEMO-K": "DEMO-L",
+  "DEMO-L": "DEMO-K"
+};
+      const DEMO_PAIRS = {
+  "John|New York|1851|1820||John|Philadelphia|1850|1820": {
+    "plausible": true,
+    "travelDays": 2,
+    "availableDays": 365,
+    "transitMode": "railroad_eastern",
+    "rulesTriggered": [],
+    "confidenceAdjustment": 0,
+    "rulePenalties": {}
+  },
+  "James|Boston|1850|1815||James|Philadelphia|1848|1815": {
+    "plausible": true,
+    "travelDays": 80,
+    "availableDays": 730,
+    "transitMode": "railroad_eastern",
+    "rulesTriggered": [],
+    "confidenceAdjustment": 0,
+    "rulePenalties": {}
+  },
+  "William|Boston|1852|1822||William|New York|1852|1822": {
+    "plausible": true,
+    "travelDays": 20,
+    "availableDays": 30,
+    "transitMode": "railroad_eastern",
+    "rulesTriggered": [],
+    "confidenceAdjustment": 0,
+    "rulePenalties": {}
+  },
+  "John|Boston|1850|1820||John|San Francisco|1850|1820": {
+    "plausible": false,
+    "travelDays": 120,
+    "availableDays": 30,
+    "transitMode": "ocean_ship",
+    "rulesTriggered": [
+      "physical_impossibility"
+    ],
+    "confidenceAdjustment": 50,
+    "rulePenalties": {
+      "physical_impossibility": 50
+    }
+  },
+  "Thomas|Philadelphia|1850|1820||Thomas|Philadelphia|1851|1780": {
+    "plausible": false,
+    "travelDays": 0,
+    "availableDays": 365,
+    "transitMode": "same_city",
+    "rulesTriggered": [
+      "AgeConsistencyRule"
+    ],
+    "confidenceAdjustment": 40,
+    "rulePenalties": {
+      "AgeConsistencyRule": 40
+    }
+  },
+  "Mary|Philadelphia|1850|1825||Robert|Philadelphia|1851|1825": {
+    "plausible": true,
+    "travelDays": 0,
+    "availableDays": 365,
+    "transitMode": "same_city",
+    "rulesTriggered": [
+      "GenderPlausibilityRule"
+    ],
+    "confidenceAdjustment": 20,
+    "rulePenalties": {
+      "GenderPlausibilityRule": 20
+    }
+  }
+};
+      function demoPairKey(a, b) {
+        const side = (r) => [r.givenName, r.location, r.year, r.birthYear].join("|");
+        return [side(a), side(b)].sort().join("||");
+      }
+      function demoJson(data) {
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      function demoResolve(body) {
+        const self = DEMO_RECORDS.find((r) =>
+          r.givenName === body.givenName &&
+          r.familyName === body.familyName &&
+          r.year === body.approxYear &&
+          r.location === body.location
+        );
+        const partnerId = self && DEMO_PARTNER[self.recordId];
+        const partner = DEMO_RECORDS.find((r) => r.recordId === partnerId);
+        if (!partner) return { rankedCandidates: [] };
+        return {
+          rankedCandidates: [{
+            recordId: partner.recordId,
+            vectorSimilarity: null,
+            givenName: partner.givenName,
+            location: partner.location,
+            year: partner.year,
+            birthYear: partner.birthYear,
+          }],
+        };
+      }
+      function demoOverlap(body) {
+        const saved = DEMO_PAIRS[demoPairKey(body.from, body.to)];
+        if (saved) return saved;
+        const yearDelta = Math.abs((body.from.year || 0) - (body.to.year || 0));
+        const same = body.from.location === body.to.location;
+        return {
+          plausible: true,
+          travelDays: same ? 0 : 4,
+          availableDays: yearDelta === 0 ? 182.5 : yearDelta * 365,
+          transitMode: same ? "same_city" : "railroad_eastern",
+          rulesTriggered: [],
+          confidenceAdjustment: 0,
+          rulePenalties: {},
+        };
+      }
+      (function () {
+        const nav = document.querySelector(".header-nav");
+        if (nav) nav.style.display = "none";
+      })();
+      const demoNativeFetch = window.fetch.bind(window);
+      window.fetch = function (url, opts) {
+        const path = String(url);
+        const options = opts || {};
+        const readBody = () =>
+          typeof options.body === "string" ? JSON.parse(options.body) : (options.body || {});
+        if (path.indexOf("/v1/records") !== -1 && (!options.method || options.method === "GET")) {
+          return Promise.resolve(demoJson(DEMO_RECORDS));
+        }
+        if (path.indexOf("/v1/linkage/resolve") !== -1) {
+          return Promise.resolve(demoJson(demoResolve(readBody())));
+        }
+        if (path.indexOf("/v1/spatial/temporal-overlap") !== -1) {
+          return Promise.resolve(demoJson(demoOverlap(readBody())));
+        }
+        if (path.indexOf("/v1/") !== -1) {
+          return Promise.resolve(demoJson({ status: "DISABLED", showCostMonthToDatePageLink: false }));
+        }
+        return demoNativeFetch(url, opts);
+      };
+      const MAX_RECORDS = 12;
+
+      /** Reflow chord on window resize after a successful render. */
+      let lastChordRender = null;
+      let chordResizeTimer = null;
+
+      const GCOLS = [
+        "#185FA5",
+        "#0F6E56",
+        "#534AB7",
+        "#854F0B",
+        "#A32D2D",
+        "#3C3489",
+        "#085041",
+        "#993C1D",
+        "#0C447C",
+        "#3B6D11",
+        "#633806",
+        "#26215C",
+      ];
+
+      const setStatus = (msg) => {
+        document.getElementById("status-line").textContent = msg;
+      };
+      const setProgress = (pct) => {
+        document.getElementById("pbar").style.width = pct + "%";
+      };
+
+      async function apiFetch(url, opts = {}) {
+        const r = await fetch(BASE + url, opts);
+        if (!r.ok)
+          throw new Error(
+            `${opts.method || "GET"} ${url} \u2192 HTTP ${r.status}`,
+          );
+        return r.json();
+      }
+      const apiGet = (url) => apiFetch(url);
+      const apiPost = (url, body) =>
+        apiFetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+
+      function cityAbbr(loc) {
+        const MAP = {
+          Philadelphia: "Philly",
+          "New York": "NYC",
+          "San Francisco": "SF",
+          "Los Angeles": "LA",
+          "New Orleans": "N.O.",
+        };
+        return MAP[loc] || (loc.length > 9 ? loc.slice(0, 8) + "." : loc);
+      }
+
+      // Canonical city name for deduplication — keeps "Philly" and "Philadelphia"
+      // from being treated as different locations.
+      const CITY_CANON = {
+        philly: "philadelphia",
+        phila: "philadelphia",
+        nyc: "new york",
+        "new york city": "new york",
+        sf: "san francisco",
+        "san fran": "san francisco",
+        la: "los angeles",
+        "n.o.": "new orleans",
+        "new orleans": "new orleans",
+      };
+      function canonCity(loc) {
+        const k = (loc || "").toLowerCase().trim();
+        return CITY_CANON[k] || k;
+      }
+
+      function recordLabel(r) {
+        const ini = r.givenName ? r.givenName[0] + ". " : "";
+        const yr = String(r.year || "").slice(2);
+        return `${ini}${r.familyName || r.name || "?"} \u00b7 ${cityAbbr(r.location)} '${yr}`;
+      }
+
+      /** Stable id for API rows (camelCase or snake_case JSON). */
+      function recordIdStr(r) {
+        return String(r?.recordId ?? r?.record_id ?? "").trim();
+      }
+
+      /** AWS month-to-date cost (tag-filtered); non-fatal if absent or errors. */
+      async function loadMonthlyCost() {
+        const el = document.getElementById("cost-line");
+        if (!el) return;
+        try {
+          const r = await fetch((BASE || "") + "/v1/cost/month-to-date");
+          if (!r.ok) {
+            el.textContent = "";
+            return;
+          }
+          const j = await r.json();
+          if (j.status === "OK" && j.amountUsd != null) {
+            const amt = Number(j.amountUsd);
+            const formatted = Number.isFinite(amt)
+              ? amt.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              : j.amountUsd;
+            el.textContent = `AWS month-to-date (${j.tagFilterSummary}): $${formatted} USD — ${j.hint || ""}`;
+          } else if (j.status === "DISABLED") {
+            el.textContent =
+              "AWS month-to-date cost: not enabled on this server.";
+          } else {
+            const hint = j.hint || j.status || "error";
+            el.textContent = `AWS month-to-date cost: unavailable — ${hint}`;
+          }
+        } catch (_) {
+          el.textContent = "";
+        }
+      }
+
+      async function applyChordNavHints() {
+        const wrap = document.getElementById("cost-page-nav-wrap");
+        if (!wrap) return;
+        try {
+          const r = await fetch(BASE + "/v1/ui/features");
+          if (!r.ok) return;
+          const j = await r.json();
+          if (j.showCostMonthToDatePageLink === true) {
+            wrap.style.display = "inline";
+            wrap.removeAttribute("aria-hidden");
+          }
+        } catch (_) {
+          /* keep cost nav hidden */
+        }
+      }
+
+      async function init() {
+        lastChordRender = null;
+        loadMonthlyCost();
+        applyChordNavHints();
+        const detEl = document.getElementById("detail");
+        detEl.className = "";
+        detEl.innerHTML = `<section class="detail-row detail-journey"><p class="panel-title" style="direction:ltr">Chord Details</p></section><section class="detail-row detail-conflicts"></section><section class="detail-row detail-verdict"></section>`;
+        document.getElementById("chart-wrap").innerHTML =
+          '<div id="empty-msg"></div>';
+        document.getElementById("empty-msg").style.display = "none";
+        document.getElementById("profile-badge").style.display = "none";
+        setProgress(0);
+
+        setStatus("Fetching records from GET /v1/records\u2026");
+        let records;
+        try {
+          records = await apiGet("/v1/records");
+        } catch (e) {
+          console.error("[chord] Failed to fetch records:", e.message);
+          setStatus(`⚠ Failed to fetch records: ${e.message}. Is the server running?`);
+          return;
+        }
+
+        // Chord needs overlapping names/years. DEMO-* seed rows are designed for that.
+        // If any exist, take them from the *full* /v1/records list (not the first 12 by
+        // record_id — E2E-/SYN- ids often sort before DEMO-* and hid the pack).
+        const all = records || [];
+        const isChordDemoId = (id) => /^DEMO-[A-Z]+$/i.test(id);
+        const demos = all
+          .filter((r) => isChordDemoId(recordIdStr(r)))
+          .sort((a, b) =>
+            recordIdStr(a).localeCompare(recordIdStr(b), undefined, {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          );
+        if (demos.length >= 2) {
+          records = demos.slice(0, MAX_RECORDS);
+        } else {
+          all.sort((a, b) => {
+            const ida = recordIdStr(a),
+              idb = recordIdStr(b);
+            const da = isChordDemoId(ida),
+              db = isChordDemoId(idb);
+            if (da !== db) return da ? -1 : 1;
+            return ida.localeCompare(idb, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            });
+          });
+          records = all.slice(0, MAX_RECORDS);
+        }
+        const n = records.length;
+
+        if (n < 2) {
+          document.getElementById("empty-msg").textContent =
+            "Not enough records to draw a chord diagram. Run demo/seed-data.sh first.";
+          document.getElementById("empty-msg").style.display = "block";
+          setStatus("");
+          return;
+        }
+
+        setProgress(10);
+        const demoHint =
+          demos.length < 2 && all.length >= 3
+            ? " No DEMO-* rows in /v1/records — run demo/seed-data.sh (set BASE_URL + INGEST_API_KEY on ECS)."
+            : "";
+        setStatus(`Resolving ${n} records against the pipeline\u2026${demoHint}`);
+
+        const resolveResults = await Promise.all(
+          records.map(async (rec) => {
+            try {
+              return await apiPost("/v1/linkage/resolve", {
+                givenName: rec.givenName,
+                familyName: rec.familyName || rec.name || "Smith",
+                approxYear: rec.year,
+                location: rec.location,
+              });
+            } catch (e) {
+              // console.warn("[resolve] failed for", rec.recordId, e.message);
+              return null;
+            }
+          }),
+        );
+
+        setProgress(50);
+
+        const matrix = Array.from({ length: n }, () => new Array(n).fill(0));
+        // Tracks which (i,j) pairs have a real vector similarity vs an estimate.
+        // "real" = Bedrock embedding cosine score; "rank" = rank-based estimate; "family" = family-name fallback
+        const simSource = new Map();   // key "i-j" → "real" | "rank" | "family"
+        const pairSet = new Map();
+        let anyNull = false,
+          anyReal = false;
+
+        resolveResults.forEach((res, i) => {
+          if (!res || !Array.isArray(res.rankedCandidates)) return;
+          res.rankedCandidates.forEach((cand, rank) => {
+            if (!cand.recordId) return;
+            const j = records.findIndex((r) => r.recordId === cand.recordId);
+            if (j < 0 || j === i || matrix[i][j] > 0) return;
+            const hasSim =
+              cand.vectorSimilarity !== null &&
+              cand.vectorSimilarity !== undefined;
+            if (hasSim) anyReal = true;
+            else anyNull = true;
+            const sim = hasSim
+              ? Math.round(cand.vectorSimilarity * 100)
+              : Math.max(90 - rank * 7, 50);
+            matrix[i][j] = sim;
+            const simKey = `${Math.min(i, j)}-${Math.max(i, j)}`;
+            simSource.set(simKey, hasSim ? "real" : "rank");
+            const key = `${i}-${j}`;
+            if (!pairSet.has(key))
+              pairSet.set(key, {
+                i,
+                j,
+                nameA:      records[i].givenName,
+                locA:       records[i].location,
+                yearA:      records[i].year,
+                birthYearA: records[i].birthYear,
+                nameB:      cand.givenName   || records[j].givenName,
+                locB:       cand.location    || records[j].location,
+                yearB:      cand.year        || records[j].year,
+                birthYearB: cand.birthYear   || records[j].birthYear,
+              });
+          });
+        });
+
+        // Also add pairs that weren't returned as resolve candidates but share a
+        // family name — these need gender/age checks on the journey endpoints even
+        // when the given names differ (e.g. Mary Taylor → Robert Taylor).
+        // Same-family + same-given + different location → spatial impossibility check.
+        // Same-family + different-given → gender/age consistency check.
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const a = records[i], b = records[j];
+            const key = `${i}-${j}`;
+            if (pairSet.has(key) || matrix[i][j] > 0) continue;
+            const sameFamilyName =
+              (a.familyName || "").toLowerCase() === (b.familyName || "").toLowerCase();
+            if (!sameFamilyName) continue;
+            anyNull = true;
+            matrix[i][j] = 60;
+            simSource.set(key, "family");
+            pairSet.set(key, {
+              i, j,
+              nameA:      a.givenName,  locA: a.location, yearA: a.year, birthYearA: a.birthYear,
+              nameB:      b.givenName,  locB: b.location, yearB: b.year, birthYearB: b.birthYear,
+            });
+          }
+        }
+
+        const isLocal = anyNull && !anyReal;
+        const badge = document.getElementById("profile-badge");
+        badge.style.display = "inline";
+        badge.textContent = isLocal ? "local profile" : "bedrock profile";
+        badge.className =
+          "badge " + (isLocal ? "badge-local" : "badge-bedrock");
+
+        if (isLocal) {
+          // console.info("[chord] local profile — chord widths use rank-based estimates (no EmbeddingModel)");
+        }
+
+        if (pairSet.size === 0) {
+          document.getElementById("empty-msg").textContent =
+            "Records found but no candidate pairs resolved. Check that names/years/locations overlap in your seed data.";
+          document.getElementById("empty-msg").style.display = "block";
+          setStatus("");
+          return;
+        }
+
+        setStatus(
+          `Checking spatio-temporal plausibility for ${pairSet.size} candidate pairs\u2026`,
+        );
+        const plausMap = new Map();
+
+        await Promise.all(
+          [...pairSet.values()].map(
+            async ({ i, j, nameA, locA, yearA, birthYearA, nameB, locB, yearB, birthYearB }) => {
+              const pi = Math.min(i, j),
+                pj = Math.max(i, j);
+              const pkey = `${pi}-${pj}`;
+              try {
+                const res = await apiPost("/v1/spatial/temporal-overlap", {
+                  from: { recordId: "q-a", givenName: nameA, location: locA, year: yearA, birthYear: birthYearA },
+                  to:   { recordId: "q-b", givenName: nameB, location: locB, year: yearB, birthYear: birthYearB },
+                });
+                plausMap.set(pkey, res);
+              } catch (e) {
+                // console.warn("[spatial] failed for pair", i, j, e.message);
+                plausMap.set(pkey, {
+                  plausible: true,
+                  transitMode: "unknown",
+                  travelDays: 0,
+                  availableDays: 365,
+                  confidenceAdjustment: 0,
+                });
+              }
+            },
+          ),
+        );
+
+        setProgress(90);
+        setStatus("");
+        render(records, matrix, plausMap, simSource);
+        setProgress(100);
+        setTimeout(() => setProgress(0), 700);
+      }
+
+      // 5-tier color scale:
+      // Plausible pairs — by travel-time margin ratio (available / required):
+      //   #1D9E75  teal-green  — ratio >= 10x  (very comfortable — "no rush")
+      //   #4A90D9  steel-blue  — ratio 4–10x   (comfortable)
+      //   #9B6FD4  purple      — ratio 2–4x    (moderate)
+      //   #EF9F27  amber       — ratio 1–2x    (tight — barely plausible)
+      // Implausible pairs:
+      //   #E24B4A  red         — physical impossibility (travel time > available)
+      // ── Colour palette (hex) ──────────────────────────────────────────────────
+      const COL = {
+        green:   "#1D9E75",
+        blue:    "#4A90D9",
+        purple:  "#9B6FD4",
+        amber:   "#EF9F27",
+        red:     "#E24B4A",
+        grey:    "#888780",
+      };
+
+      // Parse a hex colour string into {r,g,b}. Invalid input → neutral grey (avoids rgba(NaN) → black).
+      function hexToRgb(hex) {
+        const h = String(hex || "").replace("#", "");
+        if (h.length !== 6) return { r: 136, g: 135, b: 128 };
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        if ([r, g, b].some((x) => Number.isNaN(x)))
+          return { r: 136, g: 135, b: 128 };
+        return { r, g, b };
+      }
+
+
+      // Travel-margin colour for a plausible pair.
+      function travelHex(p) {
+        const ratio = (p.availableDays || 365) / (p.travelDays || 1);
+        if (ratio >= 10) return COL.green;
+        if (ratio >= 4)  return COL.blue;
+        if (ratio >= 2)  return COL.purple;
+        return COL.amber;
+      }
+
+      // Returns the colour for a chord: red if physically impossible, else travel-margin colour.
+      function chordLayers(p) {
+        if (!p) return [COL.grey];
+        const penalties = p.rulePenalties || {};
+        if (penalties["physical_impossibility"] || !p.plausible)
+          return [COL.red];
+        return [travelHex(p)];
+      }
+
+      // plausMap is keyed "min-max". D3 chords can have source.index > target.index,
+      // so always normalise before lookup.
+      function plausGet(plausMap, si, ti) {
+        const a = Math.min(si, ti), b = Math.max(si, ti);
+        return plausMap.get(`${a}-${b}`);
+      }
+
+      // Dominant colour for legend matching — first conflict rule wins, else travel.
+      function chordColor(si, ti, plausMap) {
+        const p = plausGet(plausMap, si, ti);
+        const layers = chordLayers(p);
+        // First conflict colour (index ≥ 1) is dominant; fall back to travel.
+        return layers.length > 1 ? layers[1] : layers[0];
+      }
+
+      // ── Legend ↔ chord cross-highlighting ─────────────────────────────────
+
+      function legendItems() {
+        return Array.from(document.querySelectorAll("#legend span[data-color]"));
+      }
+
+      // Highlight the legend item whose data-color matches `color`; dim others.
+      function highlightLegend(color) {
+        const norm = (c) => c.toLowerCase().replace(/\s/g, "");
+        legendItems().forEach(el => {
+          const match = norm(el.dataset.color) === norm(color);
+          el.classList.toggle("legend-active", match);
+          el.classList.toggle("legend-dim", !match);
+        });
+      }
+
+      // Reset all legend items to neutral.
+      function resetLegend() {
+        legendItems().forEach(el => {
+          el.classList.remove("legend-active", "legend-dim");
+        });
+      }
+
+      // Wire legend hover → highlight matching chords.
+      // dimFn(targetColorHex) dims all chords whose dominant colour doesn't match.
+      // restoreFn() restores all chords to their normal painted state.
+      function bindLegendHover(plausMap, dimFn, restoreFn) {
+        legendItems().forEach(el => {
+          const targetColor = el.dataset.color.toLowerCase();
+          el.addEventListener("mouseenter", () => {
+            highlightLegend(targetColor);
+            dimFn(targetColor);
+          });
+          el.addEventListener("mouseleave", () => {
+            resetLegend();
+            restoreFn();
+          });
+        });
+      }
+
+      function render(records, matrix, plausMap, simSource) {
+        const W = 700,
+          H = 700,
+          CX = 350,
+          CY = 350;
+        const OR = 195,
+          IR = 177;
+        /* Ribbon fill opacity (was referenced but never defined → invalid rgba, broken fills) */
+        const LAYER_ALPHA = 0.55;
+
+        const wrap = document.getElementById("chart-wrap");
+        wrap.innerHTML = "";
+        const svgEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        const narrow = window.innerWidth <= 640;
+        const progressBottom = document
+          .querySelector(".progress")
+          .getBoundingClientRect().bottom;
+        let availW;
+        let availH;
+        if (narrow) {
+          availW = Math.max(260, window.innerWidth - 32);
+          availH = Math.max(260, window.innerHeight - progressBottom - 24);
+        } else {
+          const det = document.getElementById("detail").getBoundingClientRect();
+          const leg = document.getElementById("legend").getBoundingClientRect();
+          // Horizontal gap between fixed #detail (right edge) and #legend (left edge)
+          availW = Math.max(200, leg.left - det.right - 12);
+          // All vertical space below the progress bar (chart sits directly under it in <main>)
+          availH = Math.max(200, window.innerHeight - progressBottom - 16);
+        }
+        // Square SVG scaled uniformly — no cropping (viewBox preserves aspect)
+        const side = Math.floor(Math.max(200, Math.min(availW, availH)));
+        svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        svgEl.setAttribute("width", side);
+        svgEl.setAttribute("height", side);
+        svgEl.setAttribute("shape-rendering", "geometricPrecision");
+        wrap.appendChild(svgEl);
+
+        // Transparent background rect — clicking it clears the selection.
+        d3.select(svgEl)
+          .insert("rect", ":first-child")
+          .attr("width", W)
+          .attr("height", H)
+          .attr("fill", "transparent")
+          .style("cursor", "default")
+          .on("click", () => { if (selectedD) clearSelection(); });
+
+        const svg = d3
+          .select(svgEl)
+          .append("g")
+          .attr("transform", `translate(${CX},${CY})`);
+
+        // Ribbon fills are translucent. In dark mode they disappear on the page
+        // background, so the chord interior uses a light disk.
+        svg.append("circle")
+          .attr("r", IR)
+          .attr("fill", chartThemeColors().chartBg)
+          .style("pointer-events", "none");
+
+        const chordLayout = d3
+          .chordDirected()
+          .padAngle(14 / OR)
+          .sortSubgroups(d3.descending)
+          .sortChords(d3.descending);
+
+        const chords = chordLayout(matrix);
+        const arcGen = d3.arc().innerRadius(IR).outerRadius(OR);
+        const ribGen = d3
+          .ribbonArrow()
+          .radius(IR - 1)
+          .padAngle(1 / IR);
+
+        // Each chord is a <g> containing:
+        //   [0] base path  — travel-margin colour at 0.55 opacity
+        //   [1..N] overlay paths — one per triggered conflict rule at 1/N opacity each
+        // This lets all conflict signals show through equally with no override.
+        const ribGroups = svg
+          .append("g")
+          .selectAll("g")
+          .data(chords)
+          .join("g");
+
+        // Helper: (re)paint all layers of a chord group from plausMap data.
+        function paintRib(gEl, d, dimmed) {
+          const p = plausGet(plausMap, d.source.index, d.target.index);
+          const path = ribGen(d);
+          const strokeCol = (() => {
+            const c = d3.color(chordColor(d.source.index, d.target.index, plausMap));
+            return c ? c.darker(0.5).formatHex() : "#555";
+          })();
+
+          gEl.selectAll("path.vis").remove();
+
+          if (dimmed) {
+            const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
+            // 0.05 disappears on the dark-mode disk; keep unselected chords readable there.
+            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.05;
+            gEl.append("path")
+              .attr("class", "vis")
+              .attr("d", path)
+              .attr("fill", `rgba(${r},${g},${b},${dimAlpha})`)
+              .attr("stroke", "none")
+              .style("pointer-events", "none");
+          } else {
+            const layers = chordLayers(p);
+            layers.forEach((hex, i) => {
+              const { r, g, b } = hexToRgb(hex);
+              gEl.append("path")
+                .attr("class", "vis")
+                .attr("d", path)
+                .attr("fill", `rgba(${r},${g},${b},${LAYER_ALPHA})`)
+                .attr("stroke", i === 0 ? strokeCol : "none")
+                .attr("stroke-width", i === 0 ? 0.75 : 0)
+                .attr("stroke-linejoin", "round")
+                .style("pointer-events", "none");
+            });
+          }
+        }
+
+        let selectedD = null;   // the currently pinned chord, if any
+
+        function isSameChord(a, b) {
+          return a && b &&
+            a.source.index === b.source.index &&
+            a.target.index === b.target.index;
+        }
+
+        // Active chord: opaque fill and a thick rim so it separates from the
+        // translucent unselected ribbons on the dark-mode disk.
+        function activeRibbonStyle() {
+          const dark = document.documentElement.classList.contains("dark-theme");
+          return dark
+            ? { alpha: 1, strokeWidth: 6 }
+            : { alpha: LAYER_ALPHA, strokeWidth: 2.5 };
+        }
+
+        function paintRibSelected(gEl, d) {
+          const p = plausGet(plausMap, d.source.index, d.target.index);
+          const path = ribGen(d);
+          const baseHex = chordColor(d.source.index, d.target.index, plausMap);
+          const { alpha, strokeWidth } = activeRibbonStyle();
+          const strokeCol = (() => {
+            const c = d3.color(baseHex);
+            return c ? c.brighter(0.8).formatHex() : "#fff";
+          })();
+
+          gEl.selectAll("path.vis").remove();
+          const layers = chordLayers(p);
+          layers.forEach((hex, i) => {
+            const { r, g, b } = hexToRgb(hex);
+            gEl.append("path")
+              .attr("class", "vis")
+              .attr("d", path)
+              .attr("fill", `rgba(${r},${g},${b},${alpha})`)
+              .attr("stroke", i === 0 ? strokeCol : "none")
+              .attr("stroke-width", i === 0 ? strokeWidth : 0)
+              .attr("stroke-linejoin", "round")
+              .style("pointer-events", "none");
+          });
+        }
+
+        ribGroups.each(function(d) { paintRib(d3.select(this), d, false); });
+
+        function dimAllExcept(exceptD) {
+          ribGroups.each(function(d) {
+            const isActive = isSameChord(d, exceptD) || isSameChord(d, selectedD);
+            if (isActive) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, true);
+          });
+        }
+        function dimAllExceptColor(targetColor) {
+          ribGroups.each(function(d) {
+            const dom = chordColor(d.source.index, d.target.index, plausMap).toLowerCase();
+            const isActive = isSameChord(d, selectedD) || dom === targetColor;
+            if (isActive) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, true);
+          });
+        }
+        function restoreAll() {
+          ribGroups.each(function(d) {
+            if (isSameChord(d, selectedD)) paintRibSelected(d3.select(this), d);
+            else paintRib(d3.select(this), d, false);
+          });
+        }
+        function clearSelection() {
+          selectedD = null;
+          restoreAll();
+          document.getElementById("legend").className = "";
+          const detEl = document.getElementById("detail");
+          detEl.className = "";
+          detEl.innerHTML = `<section class="detail-row detail-journey"><p class="panel-title" style="direction:ltr">Chord Details</p></section><section class="detail-row detail-conflicts"></section><section class="detail-row detail-verdict"></section>`;
+        }
+
+        // Add a single transparent hit-area path per chord group AFTER initial paint.
+        // All event handlers live here — visual paths have pointer-events:none so they
+        // never interfere. paintRib() only touches visual paths (class "vis"), not this one.
+        ribGroups.each(function(d) {
+          d3.select(this).append("path")
+            .attr("class", "hit")
+            .attr("d", ribGen(d))
+            .attr("fill", "transparent")
+            .attr("stroke", "none")
+            .style("pointer-events", "all")
+            .style("cursor", "pointer")
+            .on("mouseover", (event) => {
+              dimAllExcept(d);
+              highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
+              showTip(event, d, records, matrix, plausMap, simSource);
+            })
+            .on("mousemove", moveTip)
+            .on("mouseout", () => {
+              restoreAll();
+              resetLegend();
+              hideTip();
+            })
+            .on("click", () => {
+              hideTip();
+              selectedD = d;
+              restoreAll();
+              dimAllExcept(d);
+              pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
+            });
+        });
+
+        // Alias used by legend hover and arc hover handlers below.
+        const ribs = ribGroups;
+
+        const grp = svg
+          .append("g")
+          .selectAll("g")
+          .data(chords.groups)
+          .join("g");
+
+        grp
+          .append("path")
+          .attr("d", arcGen)
+          .attr("fill", (d, i) => GCOLS[i % GCOLS.length])
+          .attr("stroke", chartThemeColors().halo)
+          .attr("stroke-width", 0.8)
+          .style("cursor", "pointer")
+          .on("mouseover", (event, d) => {
+            // Repaint: connected chords full, others dimmed
+            ribGroups.each(function(r) {
+              const connected = r.source.index === d.index || r.target.index === d.index;
+              if (connected) paintRibSelected(d3.select(this), r);
+              else paintRib(d3.select(this), r, true);
+            });
+            // Highlight all legend colours used by chords connected to this arc
+            const connectedColors = new Set();
+            ribGroups.each((r) => {
+              if (r.source.index === d.index || r.target.index === d.index) {
+                connectedColors.add(
+                  chordColor(r.source.index, r.target.index, plausMap).toLowerCase()
+                );
+              }
+            });
+            legendItems().forEach(el => {
+              const match = connectedColors.has(el.dataset.color.toLowerCase());
+              el.classList.toggle("legend-active", match);
+              el.classList.toggle("legend-dim", !match);
+            });
+          })
+          .on("mouseout", () => {
+            restoreAll();
+            resetLegend();
+          });
+
+        grp
+          .append("text")
+          .each((d) => {
+            d.angle = (d.startAngle + d.endAngle) / 2;
+          })
+          .attr("dy", ".35em")
+          .attr(
+            "transform",
+            (d) =>
+              `rotate(${(d.angle * 180) / Math.PI - 90}) ` +
+              `translate(${OR + 12}) ` +
+              `${d.angle > Math.PI ? "rotate(180)" : ""}`,
+          )
+          .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
+          .attr("font-size", narrow ? "11px" : "10.5px")
+          .attr("fill", chartThemeColors().label)
+          .attr("font-weight", "500")
+          .attr("stroke", chartThemeColors().halo)
+          .attr("stroke-width", 2.5)
+          .attr("paint-order", "stroke fill")
+          .attr("font-family", "system-ui,-apple-system,sans-serif")
+          .text((d, i) => recordLabel(records[i]));
+
+        grp
+          .append("g")
+          .selectAll("line")
+          .data((d) => {
+            const k = (d.endAngle - d.startAngle) / d.value;
+            return d3
+              .range(0, d.value, 20)
+              .map((v) => ({ angle: v * k + d.startAngle }));
+          })
+          .join("line")
+          .attr(
+            "transform",
+            (d) =>
+              `rotate(${(d.angle * 180) / Math.PI - 90}) translate(${OR},0)`,
+          )
+          .attr("x2", 5)
+          .attr("stroke", chartThemeColors().halo)
+          .attr("stroke-width", 0.8);
+
+        // Wire legend ↔ chord cross-highlighting now that ribs is in scope
+        bindLegendHover(plausMap, dimAllExceptColor, restoreAll);
+
+        lastChordRender = { records, matrix, plausMap, simSource };
+
+        // Stamp the render time in the header
+        const ts = new Date().toUTCString();
+        document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
+      }
+
+      window.addEventListener("resize", () => {
+        if (!lastChordRender) return;
+        clearTimeout(chordResizeTimer);
+        chordResizeTimer = setTimeout(() => {
+          const x = lastChordRender;
+          render(x.records, x.matrix, x.plausMap, x.simSource);
+        }, 200);
+      });
+
+      // ── Chord story builder ───────────────────────────────────────────────────
+      // Builds a structured narrative for a chord. Both showTip and pinDetail
+      // consume this — tooltip shows headline + flags, detail shows everything.
+      function chordStory(p, recA, recB, si, ti, sim, simSource) {
+        const fullName = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
+        const gender   = (r) => inferGenderLabel(r.givenName);
+        const attrs    = (r) => {
+          const parts = [];
+          if (r.birthYear) parts.push(`born ${r.birthYear}`);
+          const g = gender(r);
+          if (g !== "ambiguous" && g !== "unknown") parts.push(g);
+          return parts.length ? `(${parts.join(", ")})` : "";
+        };
+
+        // ── Sort by year so departure is always the earlier record ────────────
+        const [srcRec, tgtRec] = (recA.year || 0) <= (recB.year || 0)
+          ? [recA, recB] : [recB, recA];
+
+        const srcLine = `${fullName(srcRec)} ${attrs(srcRec)}`.trim();
+        const tgtLine = `${fullName(tgtRec)} ${attrs(tgtRec)}`.trim();
+
+        // ── Name match ────────────────────────────────────────────────────────
+        const a = Math.min(si, ti), b = Math.max(si, ti);
+        const srcType = simSource?.get(`${a}-${b}`);
+        const sameGiven = (recA.givenName || "").toLowerCase() === (recB.givenName || "").toLowerCase();
+        const sameFull  = sameGiven &&
+          (recA.familyName || "").toLowerCase() === (recB.familyName || "").toLowerCase();
+        const nameMatch = sameFull             ? `Exact name match: "${fullName(recA)}"`
+                        : srcType === "real"   ? `Name/text similarity: ${sim}% (vector score)`
+                        : srcType === "rank"   ? `Name similarity: ~${sim}% (rank estimate)`
+                        : srcType === "family" ? `Shared family name "${recA.familyName || recB.familyName}" — given names differ ("${recA.givenName}" vs "${recB.givenName}")`
+                        :                       `Similarity: ${sim}%`;
+
+        // ── Travel ────────────────────────────────────────────────────────────
+        const sameCity = (p?.travelDays || 0) < 0.1;
+        const modeLabel = (raw) => {
+          if (!raw) return "unknown route";
+          const s = raw.toLowerCase();
+          if (s.includes("ocean") || s.includes("ship") || s.includes("sea")) return "ocean ship";
+          if (s.includes("railroad") || s.includes("rail") || s.includes("train")) return "railroad";
+          if (s.includes("stage") || s.includes("coach")) return "stagecoach";
+          if (s.includes("foot") || s.includes("walk")) return "on foot";
+          return raw.replace(/_/g, " ").toLowerCase();
+        };
+        const mode = modeLabel(p?.transitMode);
+        const yearDiff = (tgtRec.year || 0) - (srcRec.year || 0);
+        let travelLine, travelFlag, travelColor;
+        if (!p) {
+          travelLine = "No travel data available.";
+          travelFlag = null; travelColor = "#888";
+        } else if (yearDiff < 0) {
+          // Sorted by year above, so this shouldn't happen — but guard anyway
+          travelLine = `⚠ Records are in reverse chronological order (${srcRec.year} → ${tgtRec.year}).`;
+          travelFlag = "Reversed dates"; travelColor = "#e24b4a";
+        } else if (sameCity && srcRec.location === tgtRec.location) {
+          travelLine = `Same city (${srcRec.location}) — no travel required.`;
+          travelFlag = null; travelColor = "#888";
+        } else if (!p.plausible) {
+          travelLine = `⚠ Physically impossible: ${srcRec.location} → ${tgtRec.location} via ${mode} requires ${p.travelDays.toFixed(1)} days but only ${p.availableDays.toFixed(1)} days available between records.`;
+          travelFlag = "Impossible journey"; travelColor = "#e24b4a";
+        } else {
+          const ratio = p.availableDays / Math.max(0.1, p.travelDays);
+          const margin = ratio >= 10 ? "very comfortable" : ratio >= 4 ? "comfortable" : ratio >= 2 ? "moderate" : "tight";
+          travelLine = `${srcRec.location} → ${tgtRec.location} via ${mode}: ${p.travelDays.toFixed(1)} days needed, ${Math.round(p.availableDays)} days available — ${margin} margin.`;
+          travelFlag = null; travelColor = travelHex(p);
+        }
+
+        // ── Age ───────────────────────────────────────────────────────────────
+        let ageLine = null, ageFlag = null, ageColor = "#888";
+        let ageGapYears = null, calendarYears = null;
+        const agePenalty = p?.rulePenalties?.["AgeConsistencyRule"] ?? null;
+        if (agePenalty !== null) {
+          const ageA = (srcRec.birthYear && srcRec.year) ? srcRec.year - srcRec.birthYear : null;
+          const ageB = (tgtRec.birthYear && tgtRec.year) ? tgtRec.year - tgtRec.birthYear : null;
+          ageColor = "#c2185b";
+          if (ageA !== null && ageB !== null && (ageA < 0 || ageB < 0)) {
+            const badRec  = ageA < 0 ? srcRec : tgtRec;
+            const badAge  = ageA < 0 ? ageA   : ageB;
+            ageLine = `⚠ Impossible age: ${fullName(badRec)} (born ${badRec.birthYear}) recorded in ${badRec.year} implies age ${badAge} — birth year is after the event year.`;
+            ageFlag = `Impossible age (${badAge})`;
+            ageGapYears = Math.abs(badAge);
+          } else if (ageA !== null && ageB !== null) {
+            ageGapYears  = Math.abs(ageB - ageA);
+            calendarYears = Math.abs(tgtRec.year - srcRec.year);
+            ageLine = `⚠ Age contradiction: ${fullName(srcRec)} was age ${ageA} in ${srcRec.year} (born ${srcRec.birthYear}), but ${fullName(tgtRec)} was age ${ageB} in ${tgtRec.year} (born ${tgtRec.birthYear}). That's ${ageGapYears} years of ageing in ${calendarYears} calendar year${calendarYears !== 1 ? "s" : ""}.`;
+            ageFlag = `Age gap ${ageGapYears} yr${ageGapYears !== 1 ? "s" : ""}`;
+          } else {
+            ageLine = `⚠ Age inconsistency detected (birth year missing on one record).`;
+            ageFlag = "Age inconsistency";
+          }
+        }
+
+        // ── Gender ────────────────────────────────────────────────────────────
+        let genderLine = null, genderFlag = null;
+        const genderPenalty = p?.rulePenalties?.["GenderPlausibilityRule"] ?? null;
+        if (genderPenalty !== null) {
+          genderLine = `⚠ Gender conflict: "${srcRec.givenName}" is typically ${inferGenderLabel(srcRec.givenName)} but "${tgtRec.givenName}" is typically ${inferGenderLabel(tgtRec.givenName)}.`;
+          genderFlag = `${srcRec.givenName} (${inferGenderLabel(srcRec.givenName)}) vs ${tgtRec.givenName} (${inferGenderLabel(tgtRec.givenName)})`;
+        }
+
+        // ── Verdict ───────────────────────────────────────────────────────────
+        const flags = [travelFlag, ageFlag, genderFlag].filter(Boolean);
+        const verdict = flags.length === 0
+          ? "No conflicts detected — records are consistent."
+          : `${flags.length} conflict${flags.length > 1 ? "s" : ""} detected: ${flags.join("; ")}.`;
+
+        return { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags };
+      }
+
+      // Simple gender label for the story — mirrors GivenNameGenderProvider.
+      function inferGenderLabel(name) {
+        if (!name) return "unknown";
+        const female = ["mary","elizabeth","sarah","margaret","anna","emma","alice","helen","catherine","ruth"];
+        const male   = ["john","jon","johnny","james","william","george","charles","henry","thomas","robert","joseph","samuel","edward","richard","david"];
+        const n = name.toLowerCase().trim();
+        if (female.includes(n)) return "female";
+        if (male.includes(n))   return "male";
+        return "ambiguous";
+      }
+
+      function showTip(event, d, records, matrix, plausMap, simSource) {
+        const si = d.source.index, ti = d.target.index;
+        const p   = plausGet(plausMap, si, ti);
+        const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
+        const sim = matrix[si][ti];
+        const tip = document.getElementById("tip");
+
+        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+
+        const conflictSummary = [ageLine, genderLine].filter(Boolean)
+          .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
+
+        const tipArrow = sameCity
+          ? `<span class="tip-meta">↕ same city</span>`
+          : p?.travelDays
+            ? `<span style="color:${p.plausible ? travelColor : "#e24b4a"}">↓ ~${p.travelDays.toFixed(1)} days travel</span>`
+            : `<span class="tip-meta">↓</span>`;
+
+        tip.innerHTML =
+          `<span class="tip-kicker">Departure</span><br>` +
+          `<strong>${srcLine}</strong><br><span class="tip-meta">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
+          `${tipArrow}<br>` +
+          `<span class="tip-kicker">Arrival</span><br>` +
+          `<strong>${tgtLine}</strong><br><span class="tip-meta">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
+          `<span class="tip-note">${nameMatch}</span>` +
+          (conflictSummary ? `<br>${conflictSummary}` : `<br><span style="color:#2a7a5a;font-size:10px">${flags.length === 0 ? "No conflicts" : ""}</span>`);
+        tip.style.opacity = "1";
+        tip.style.left = event.clientX + 16 + "px";
+        tip.style.top = event.clientY - 12 + "px";
+      }
+
+      function moveTip(event) {
+        const tip = document.getElementById("tip");
+        tip.style.left = event.clientX + 16 + "px";
+        tip.style.top = event.clientY - 12 + "px";
+      }
+
+      function hideTip() {
+        document.getElementById("tip").style.opacity = "0";
+      }
+
+      function pinDetail(d, records, matrix, plausMap, simSource, onClose) {
+        const si = d.source.index, ti = d.target.index;
+        const p   = plausGet(plausMap, si, ti);
+        const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
+        const sim = matrix[si][ti];
+        const det = document.getElementById("detail");
+
+        const rules = p?.rulesTriggered || [];
+        const isImpossible    = p && !p.plausible;
+        const isAgeConflict   = rules.some(r => r === "AgeConsistencyRule");
+        const isGenderConflict= rules.some(r => r === "GenderPlausibilityRule");
+
+        // Panel background class — mirrors chord colour scale
+        const _ratio = p ? (p.availableDays || 365) / Math.max(0.1, p.travelDays || 1) : 99;
+        let detClass = "plausible";
+        if (isAgeConflict)         detClass = "age-conflict";
+        else if (isGenderConflict) detClass = "gender-conflict";
+        else if (isImpossible)     detClass = "impossible";
+        else if (_ratio < 2)       detClass = "verylow";    // amber — tight
+        else if (_ratio < 4)       detClass = "moderate";   // purple — moderate
+        else if (_ratio < 10)      detClass = "lowconf";    // blue — comfortable
+        // else green — very comfortable → "plausible"
+        det.className = detClass;
+        document.getElementById("legend").className = detClass;
+
+        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
+
+        const conflictItems = [ageLine, genderLine].filter(Boolean)
+          .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
+
+        const hasConflict = flags.length > 0;
+        const isPhysImpossible = rules.some(r => r === "PhysicalImpossibilityRule") || isImpossible;
+        const verdictAnswer = isPhysImpossible && !isAgeConflict
+                            ? "No — journey is physically impossible"
+                            : isAgeConflict && ageGapYears !== null
+                            ? `Unlikely — recorded birth years contradict each other by ${ageGapYears} year${ageGapYears !== 1 ? "s" : ""}`
+                            : isAgeConflict
+                            ? "Unlikely — age data contradicts identity"
+                            : isGenderConflict
+                            ? "Unlikely — gender conflict between records"
+                            : hasConflict
+                            ? "Uncertain — conflicts detected"
+                            : "Yes — records are consistent";
+        const verdictColor  = isPhysImpossible || isAgeConflict || isGenderConflict ? "#a32d2d"
+                            : hasConflict ? "#b06000"
+                            : "#2a7a5a";
+
+        const travelArrow = (() => {
+          if (!p || sameCity) return `<span class="tip-meta" style="font-size:18px">↕</span><span class="tip-meta"> same city</span>`;
+          const days  = p.travelDays != null ? `${p.travelDays.toFixed(1)} days` : "";
+          const col   = p.plausible ? travelColor : "#e24b4a";
+          const ratio = p.availableDays / Math.max(0.1, p.travelDays);
+          const margin = !p.plausible          ? "impossible"
+                       : ratio >= 10           ? "very comfortable"
+                       : ratio >= 4            ? "comfortable"
+                       : ratio >= 2            ? "moderate"
+                       :                        "tight";
+          const marginStr = days ? ` (${margin})` : "";
+          return `<span style="color:${col};font-size:18px">↓</span>${days ? `<span style="color:${col};font-size:10px"> ~${days} travel${marginStr}</span>` : ""}`;
+        })();
+
+        det.innerHTML = `
+          <section class="detail-row detail-journey">
+            <p class="panel-title">Chord Details</p>
+            <p class="kicker">Departure</p>
+            <p class="det-sub" style="margin:0 0 2px">${srcRec.location} &middot; ${srcRec.year || "?"}</p>
+            <p class="det-title" style="margin:0">${srcLine}</p>
+            <p style="margin:4px 0 8px">${travelArrow}</p>
+            <p class="kicker">Arrival</p>
+            <p class="det-sub" style="margin:0 0 2px">${tgtRec.location} &middot; ${tgtRec.year || "?"}</p>
+            <p class="det-title" style="margin:0">${tgtLine}</p>
+            <hr class="det-rule">
+            <p class="det-sub" style="margin:0"><strong>Name match</strong><br>${nameMatch}</p>
+            <p class="det-sub" style="margin:4px 0 0"><strong>Travel</strong><br><span style="color:${travelColor}">${travelLine}</span></p>
+          </section>
+          <section class="detail-row detail-conflicts">
+            <p class="det-sub" style="margin:0"><strong>Conflicts</strong></p>
+            ${conflictItems
+              ? `<ul style="margin:2px 0 0;padding-left:14px;font-size:11px">${conflictItems}</ul>`
+              : `<p class="det-sub" style="margin:4px 0 0">No conflicts</p>`}
+          </section>
+          <section class="detail-row detail-verdict">
+            <p class="kicker" style="margin:0 0 3px">Should this link exist?</p>
+            <p class="det-sub" style="color:${verdictColor};font-weight:700;font-size:13px;margin:0">${verdictAnswer}</p>
+            ${flags.length > 0 ? `<p class="det-sub" style="font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
+          </section>`;
+      }
+
+      const THEME_STORAGE_KEY = "linkageEngineTheme";
+
+      function chartThemeColors() {
+        const cs = getComputedStyle(document.documentElement);
+        return {
+          label: cs.getPropertyValue("--chart-label").trim() || "#3d3d38",
+          halo: cs.getPropertyValue("--chart-halo").trim() || "#fafaf9",
+          chartBg: cs.getPropertyValue("--chart-bg").trim() || "transparent",
+        };
+      }
+
+      function persistTheme(theme) {
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, theme);
+        } catch (e) {
+          console.error("[theme] Failed to save theme preference", e);
+          console.log("Remedy: Keeping the selected theme for this page view only");
+        }
+      }
+
+      function applyTheme(theme) {
+        const isDark = theme === "dark";
+        document.documentElement.classList.toggle("dark-theme", isDark);
+        persistTheme(isDark ? "dark" : "light");
+        const lightButton = document.getElementById("themeLight");
+        const darkButton = document.getElementById("themeDark");
+        if (lightButton) {
+          lightButton.setAttribute("aria-pressed", isDark ? "false" : "true");
+        }
+        if (darkButton) {
+          darkButton.setAttribute("aria-pressed", isDark ? "true" : "false");
+        }
+        if (lastChordRender) {
+          const x = lastChordRender;
+          render(x.records, x.matrix, x.plausMap, x.simSource);
+        }
+      }
+
+      function initThemeToggle() {
+        const lightButton = document.getElementById("themeLight");
+        const darkButton = document.getElementById("themeDark");
+        if (!lightButton || !darkButton) {
+          throw new Error("[theme] Theme choice buttons #themeLight and #themeDark are missing");
+        }
+        let savedTheme = null;
+        try {
+          savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+        } catch (e) {
+          console.error("[theme] Failed to read saved theme", e);
+          console.log("Remedy: Starting in light mode");
+        }
+        applyTheme(savedTheme === "dark" ? "dark" : "light");
+        lightButton.addEventListener("click", function () {
+          applyTheme("light");
+        });
+        darkButton.addEventListener("click", function () {
+          applyTheme("dark");
+        });
+      }
+
+      initThemeToggle();
+      init();
+    </script>
+  </body>
+</html>
