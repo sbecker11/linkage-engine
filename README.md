@@ -6,11 +6,12 @@ Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage re
 **Skills:** Java 21 · Virtual Threads · Spring Boot · Spring AI · Entity Resolution · Vector Search · pgvector · Amazon Aurora PostgreSQL Serverless v2 · Bedrock · Amazon Titan Embeddings · AWS ECS Fargate · Amazon S3 · Docker · Terraform · GitHub Actions · JUnit · JaCoCo · Automated Software Testing (JUnit/Jest/Vitest/PyTest)
 <!-- SUMMARY:END -->
 
-**linkage-engine** is a genealogical record linkage service that answers the question: _could these two historical records describe the same person?_
+**linkage-engine** answers one question: _could these two historical records describe the same person?_
 
-It resolves ambiguous names, locations, and dates using a four-stage pipeline — deterministic SQL search, vector similarity reranking, LLM semantic summary, and spatio-temporal plausibility.
-
-It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock Titan embeddings, and deployed on ECS Fargate. **Production AWS is Terraform-managed** — see [**Terraform**](#terraform) below.
+- **See a decision** — [Chord diagram](#chord-diagram), then the service behind it in [Architecture](#architecture).
+- **Run the API** — [Local Quick Start](#local-quick-start-under-5-minutes), then [All Endpoints](#all-endpoints).
+- **Open the published diagram** — [Chord diagram operations](#chord-diagram-operations).
+- **Change production** — [Terraform](#terraform), then the module reference in [Infrastructure (Terraform)](#infrastructure-terraform).
 
 ---
 
@@ -18,9 +19,9 @@ It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock 
 
 <img src="./docs/chord-diagram-dark.png" width="720" alt="Linkage Engine local front end in dark mode" />
 
-This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) visualizes 12 seeded genealogical records — variants of John Smith, Jon Smyth, Johnny Smith, John Smythe, and Mary Smith spanning Boston, Philadelphia, New York, and San Francisco between 1849 and 1852.
+This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) shows 12 seeded genealogical records — John Smith, James Brown, William Davis, Thomas Wilson, Mary Taylor, and Robert Taylor — in Boston, Philadelphia, New York, and San Francisco between 1848 and 1852.
 
-Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Boston 1850*). A chord between two records represents a possible travel event: could the same person have moved from one location to the other in the time available? **Chord colour** shows how plausible that journey was given 19th-century travel speeds:
+Each arc segment is a record — a person, place, and year (e.g. *John Smith, Boston 1850*). A chord between two records represents a possible travel event: could the same person have moved from one location to the other in the time available? **Chord colour** shows how plausible that journey was given 19th-century travel speeds:
 
 | Colour | Meaning                                                           |
 | :----- | :---------------------------------------------------------------- |
@@ -30,12 +31,25 @@ Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Bost
 | Amber  | Tight — less than 2× travel time, but still plausible             |
 | Red    | Physically impossible — travel time exceeds the available window  |
 
+Green through amber are plausible trips. Red means the available time is shorter than the trip. [Architecture](#architecture) is the request path that assigns those colours.
+
 ---
+
 ## Architecture
 
-Multi-tiered architecture that drives the chord-diagram for the linkage-engine project
+<img src="./docs/architecture.png" width="720" alt="linkage-engine architecture: the chord diagram calls the API through the load balancer, four stages run in Spring Boot, and Aurora, Bedrock, and CloudWatch sit behind them" />
 
-The live service decides whether two historical records can describe the same person. POST /v1/linkage/resolve passes the load balancer and web application firewall into the Spring Boot API. Four stages run in order: SQL search, pgvector rerank, Bedrock summary, then a transit conflict check. SQL and cosine rerank read Aurora PostgreSQL. Embeddings and the summary call Bedrock, and stay off when Bedrock is not configured.
+The chord diagram is the front of this service. On AWS, `POST /v1/linkage/resolve` passes the load balancer and web application firewall into the Spring Boot API. Four stages run in order. The last stage, the transit conflict check, sets the chord colour from the table above. SQL search and the cosine rerank read Aurora PostgreSQL. Embeddings and the summary call Bedrock, and stay off when Bedrock is not configured. GitHub Pages draws the same diagram from an embedded seed and does not call the API.
+
+```
+POST /v1/linkage/resolve
+  └─ Stage 1: Deterministic SQL search    (always on)
+  └─ Stage 2: pgvector cosine rerank      (gates on Bedrock Titan embeddings)
+  └─ Stage 3: Bedrock Converse summary    (gates on LINKAGE_SEMANTIC_LLM_ENABLED=true)
+  └─ Stage 4: Spatio-temporal validation  (always on; historical transit plausibility)
+```
+
+Sprint history, the two demo outcomes, and the design patterns are in [What Was Built](#what-was-built). Production resources inside the dashed boundary are defined in [Terraform](#terraform).
 
 ---
 
@@ -49,13 +63,43 @@ All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application
 | **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here |
 | **`infra/modules/`** | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
 
-**Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and longer first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform) later in this file.
+**Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform).
 
 ---
 
-### Chord diagram operations
+## Chord diagram operations
 
-Served at `/chord-diagram.html` — locally on port 8080, as a front-end-only [RunMe on GitHub Pages](https://sbecker11.github.io/linkage-engine/) (light/dark toggle and chord selection use the embedded demo seed), or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
+Where the diagram is served, how the GitHub Pages page chooses its theme and pinned chord, and how the AWS stack behind the live diagram is paused, resumed, and torn down.
+
+Served at `/chord-diagram.html` — locally on port 8080, as a front-end-only [RunMe on GitHub Pages](https://sbecker11.github.io/linkage-engine/) (the diagram data is the embedded demo seed; theme and the pinned chord come from [`docs/chord.env`](docs/chord.env)), or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
+
+**Startup settings (`docs/chord.env`):**
+
+The GitHub Pages page (`docs/index.html`) opens from [`docs/chord.env`](docs/chord.env). The Pages workflow copies that file next to the published page as `chord.env`. The Spring page at `/chord-diagram.html` is a separate file and leaves these settings unused.
+
+```env
+theme=dark
+selectedChord=DEMO-I to DEMO-J
+```
+
+| Key | What it sets |
+| :-- | :----------- |
+| **`theme`** | `dark` or `light`. Any value other than `dark` opens in light mode. |
+| **`selectedChord`** | Record ids of the chord to pin on load. The shipped value pins **DEMO-I** (Thomas Wilson, Philadelphia 1850, born 1820) to **DEMO-J** (Thomas Wilson, Philadelphia 1851, born 1780). |
+
+Lines are `key=value`. Blank lines and lines starting with `#` are ignored, and matching quotes around a value are removed. `selectedChord` splits on ` to `, a comma, or a pipe, so `DEMO-I to DEMO-J`, `DEMO-I,DEMO-J`, and `DEMO-J to DEMO-I` select the same chord. One id matches the chord that has that id on either end. Two ids must both sit on the chord. Seed ids are `DEMO-A` through `DEMO-L` in `docs/index.html`. An id pair that matches no chord is logged as `[chord] Startup settings did not match a chord`, and the diagram stays unpinned.
+
+The first load in a browser tab fetches `chord.env` and stores the parsed settings in `sessionStorage` under `linkageEngineInit`. Later loads in that tab use the session copy. A new tab reads the file again. The Light and Dark buttons write `theme`. Clicking a chord writes `selectedChord` as `idA to idB`. Clearing the selection removes `selectedChord` from the session.
+
+Serve `docs/` over HTTP so the page can fetch the file. From the repo root:
+
+```bash
+python3 -m http.server 8781 --directory docs
+```
+
+Open `http://127.0.0.1:8781/` in a **new** tab. Refreshing a tab that already has `linkageEngineInit` keeps the session settings, including after you edit `docs/chord.env`.
+
+Push a change to `main` to publish it. The live page is [https://sbecker11.github.io/linkage-engine/](https://sbecker11.github.io/linkage-engine/) and the published file is [https://sbecker11.github.io/linkage-engine/chord.env](https://sbecker11.github.io/linkage-engine/chord.env).
 
 **AWS demo lifecycle (same region as your stack; defaults to `us-west-1`):**
 
@@ -67,7 +111,7 @@ The ECS task definition’s `lifecycle.ignore_changes` includes `desired_count`,
 
 **Total month-to-date AWS cost on the chord page (“totalMonthlyCost”):**
 
-The diagram loads **`GET /v1/cost/month-to-date`**, which returns the **calendar month-to-date (UTC) sum of `UnblendedCost` in USD** for resources matching a **Cost Explorer tag filter** (Terraform sets **`App=<app name>`**, e.g. `App=linkage-engine`). That figure is the running **total for the current month so far** for that tagged footprint — what operators often call **total monthly cost to date**; in JSON it appears as **`amountUsd`** when **`status`** is `OK`. The page renders it under the diagram header (and refreshes it whenever you click **Refresh**).
+The diagram loads **`GET /v1/cost/month-to-date`**, which returns the **calendar month-to-date (UTC) sum of `UnblendedCost` in USD** for resources matching a **Cost Explorer tag filter** (Terraform sets **`App=<app name>`**, e.g. `App=linkage-engine`). That figure is the running **total for the current month so far** for that tagged footprint — what operators often call **total monthly cost to date**; in JSON it appears as **`amountUsd`** when **`status`** is `OK`. The page renders it under the diagram header (and refreshes it whenever you click **Refresh**). Calling it yourself is covered under [All Endpoints](#all-endpoints).
 
 Supporting pieces:
 
@@ -84,54 +128,25 @@ If cost query is disabled or Cost Explorer fails, the endpoint returns **`status
 
 ---
 
+## Dashboards
+
+Two views of the same running stack: a terminal status board, and the CloudWatch board for the ECS services.
+
 ### Linkage-Engine Dashboard (terminal view)
 
 <img src="./docs/linkage-engine-terminal.png" width="600"
 alt="Live terminal status dashboard of all AWS Services running on Gateway/ECS.">
-Snapshot of terminal status dashboard of all AWS Services running on Gateway/ECS.
 
 ### Linkage-Engine Dashboard (AWS CloudWatch view)
 
 <img src="./docs/linkage-engine-aws-cloudwatch.png" width="600"
-alt="Live cloudwatch status dashboard of all AWS Services running on Gateway/ECS.">
-Snapshot of AWS Cloudwatch dashboard showing live status of all linkage-engine AWS Services running on Gateway/ECS.
-
----
-
-## What Was Built
-
-**Four-stage hybrid resolution pipeline:**
-
-```
-POST /v1/linkage/resolve
-  └─ Stage 1: Deterministic SQL search    (always on)
-  └─ Stage 2: pgvector cosine rerank      (gates on Bedrock Titan embeddings)
-  └─ Stage 3: Bedrock Converse summary    (gates on LINKAGE_SEMANTIC_LLM_ENABLED=true)
-  └─ Stage 4: Spatio-temporal validation  (always on; historical transit plausibility)
-```
-
-| Sprint | Deliverable                                                                                              |
-| :----- | :------------------------------------------------------------------------------------------------------- |
-| 1      | Build, boot, pgvector Docker — app starts in ~2.5s from a clean clone                                    |
-| 2      | Ingestion pipeline — `CleansingProvider` chain (`OCRNoiseReducer`, `LocationStandardizer`), chunk, embed |
-| 3      | Hybrid search — SQL narrowing → pgvector cosine rerank → Bedrock Converse summary                        |
-| 4      | Spatio-temporal validation — historical transit speed table, `ConflictRule` chain, confidence penalty    |
-| 5      | Remaining endpoints, 80%+ branch coverage, demo scripts, Aurora Serverless v2 provisioning guide         |
-
-**Demo story in two calls:**
-
-- Philadelphia → New York 1850→1851: `plausible=true`, `railroad_eastern`, high confidence
-- Boston → San Francisco same month: `plausible=false`, `ocean_ship`, confidence penalised by 50 pts
-
-**Three design patterns carried through every sprint:**
-
-- `ObjectProvider` over `@ConditionalOnBean` — bean ordering in autoconfiguration is non-deterministic; runtime null-checks are not
-- Chain of Responsibility for both cleansing (`CleansingProvider`) and conflict rules (`ConflictRule`) — adding a new step is a one-file change
-- Profile-gated graceful degradation — each stage has a defined fallback; the pipeline never hard-fails on a missing dependency
+alt="Live CloudWatch status dashboard of all AWS Services running on Gateway/ECS.">
 
 ---
 
 ## Local Quick Start (under 5 minutes)
+
+The `local` profile runs the API without Bedrock. SQL search and the transit check still run. Vector rerank and the Bedrock summary stay off until you add the [Bedrock profile](#bedrock-profile).
 
 ### 1. Start PostgreSQL + pgvector
 
@@ -298,7 +313,7 @@ Returns JSON for the **current UTC calendar month** (partial month supported): `
 curl -s "http://localhost:8080/v1/cost/month-to-date" | python3 -m json.tool
 ```
 
-**HTML summary (same data):** open **`GET /v1/cost/month-to-date/page`** in a browser (e.g. `http://localhost:8080/v1/cost/month-to-date/page` locally, or `http://<alb-dns>/v1/cost/month-to-date/page` in prod). The page links to the JSON URL and the chord diagram. On **`local`**, **`chord-diagram.html`** does not show a nav link to this HTML page (see **`GET /v1/ui/features`** above); you can still open the URL directly.
+**HTML summary (same data):** open **`GET /v1/cost/month-to-date/page`** in a browser (e.g. `http://localhost:8080/v1/cost/month-to-date/page` locally, or `http://<alb-dns>/v1/cost/month-to-date/page` in prod). The page links to the JSON URL and the chord diagram. On **`local`**, **`chord-diagram.html`** does not show a nav link to this HTML page (`showCostMonthToDatePageLink` from **`GET /v1/ui/features`**, described in [Chord diagram operations](#chord-diagram-operations)); you can still open the URL directly.
 
 When **`linkage.cost.enabled`** is **false**, **`status`** is **`DISABLED`** and **`amountUsd`** is omitted. That is always the case for **`spring-boot.run.profiles=local`** (`application-local.properties`). For other profiles, **`linkage.cost.enabled`** follows **`LINKAGE_COST_ENABLED`** (default **`false`** if the variable is unset). **Prod** sets **`LINKAGE_COST_ENABLED=true`** on the ECS task.
 
@@ -366,20 +381,43 @@ Requires valid AWS credentials with `bedrock:InvokeModel` permissions.
 ## Demo
 
 ```bash
-# Seed 8 pre-crafted records and run all demo calls
+# Seed 18 pre-crafted records and run the demo calls
 ./demo/seed-data.sh
 ./demo/demo-calls.sh
 ```
 
-See [demo/README.md](demo/README.md) for the full story.
+See [demo/README.md](demo/README.md) for the full story. The two outcomes those calls are built around are in [What Was Built](#what-was-built).
+
+---
+
+## What Was Built
+
+The four stages are listed in [Architecture](#architecture). This section is the sprint record, the two outcomes the demo is built around, and the patterns that carry through the code.
+
+| Sprint | Deliverable                                                                                              |
+| :----- | :------------------------------------------------------------------------------------------------------- |
+| 1      | Build, boot, pgvector Docker — app starts in ~2.5s from a clean clone                                    |
+| 2      | Ingestion pipeline — `CleansingProvider` chain (`OCRNoiseReducer`, `LocationStandardizer`), chunk, embed |
+| 3      | Hybrid search — SQL narrowing → pgvector cosine rerank → Bedrock Converse summary                        |
+| 4      | Spatio-temporal validation — historical transit speed table, `ConflictRule` chain, confidence penalty    |
+| 5      | Remaining endpoints, 80%+ branch coverage, demo scripts, Aurora Serverless v2 provisioning guide         |
+
+**Demo story in two calls:**
+
+- Philadelphia → New York 1850→1851: `plausible=true`, `railroad_eastern`, high confidence
+- Boston → San Francisco same month: `plausible=false`, `ocean_ship`, confidence penalised by 50 pts
+
+**Three design patterns carried through every sprint:**
+
+- `ObjectProvider` over `@ConditionalOnBean` — bean ordering in autoconfiguration is non-deterministic; runtime null-checks are not
+- Chain of Responsibility for both cleansing (`CleansingProvider`) and conflict rules (`ConflictRule`) — adding a new step is a one-file change
+- Profile-gated graceful degradation — each stage has a defined fallback; the pipeline never hard-fails on a missing dependency
 
 ---
 
 ## Infrastructure (Terraform)
 
-> **Summary:** high-level Terraform on this repo is introduced [above](#terraform). This section is the **detailed** reference (module table, directory layout, first-time commands).
-
-All AWS infrastructure is defined as code in `infra/` and managed with Terraform. No manual console changes are needed after the initial bootstrap.
+The short map is [above](#terraform). This section is the module list, directory layout, and first-time apply. After bootstrap, changes go through Terraform rather than the console.
 
 ### What Terraform manages
 
