@@ -1,12 +1,7 @@
 # linkage-engine
 
 <!-- SUMMARY:START generated from workspace-linkedin-profile/Projects.json by scripts/build_readme_header.py; edit there -->
-<a href="https://sbecker11.github.io/linkage-engine/" target="_blank" rel="noopener noreferrer"><img src="docs/chord-diagram-dark.png" alt="Linkage Engine local front end in dark mode"></a>
-
 Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage resolve pipeline (SQL search, vector rerank, semantic, spatio-temporal), pgvector on Aurora PostgreSQL, and Bedrock; 149 tests, 94.5% coverage.
-
-**ReadMe:** [https://github.com/sbecker11/linkage-engine](https://github.com/sbecker11/linkage-engine)\
-**RunMe:** [https://sbecker11.github.io/linkage-engine/](https://sbecker11.github.io/linkage-engine/)
 
 **Skills:** Java 21 · Virtual Threads · Spring Boot · Spring AI · Entity Resolution · Vector Search · pgvector · Amazon Aurora PostgreSQL Serverless v2 · Bedrock · Amazon Titan Embeddings · AWS ECS Fargate · Amazon S3 · Docker · Terraform · GitHub Actions · JUnit · JaCoCo · Automated Software Testing (JUnit/Jest/Vitest/PyTest)
 <!-- SUMMARY:END -->
