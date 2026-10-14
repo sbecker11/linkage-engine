@@ -1535,7 +1535,7 @@
             const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
             // Light mode sits on white, so a faint ribbon vanishes. Keep unselected
             // chords clearly colored; the pinned chord is still the opaque one.
-            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.72;
+            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.5;
             gEl.append("path")
               .attr("class", "vis")
               .attr("d", path)
