@@ -1280,8 +1280,9 @@
 
           if (dimmed) {
             const { r, g, b } = hexToRgb(chordColor(d.source.index, d.target.index, plausMap));
-            // 0.05 disappears on the dark-mode disk; keep unselected chords readable there.
-            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.05;
+            // Light mode sits on white, so a faint ribbon vanishes. Keep unselected
+            // chords clearly colored; the pinned chord is still the opaque one.
+            const dimAlpha = document.documentElement.classList.contains("dark-theme") ? 0.42 : 0.72;
             gEl.append("path")
               .attr("class", "vis")
               .attr("d", path)
