@@ -14,21 +14,7 @@ It is backed by Spring AI, pgvector on Aurora PostgreSQL Serverless v2, Bedrock 
 
 ---
 
-## Terraform
-
-All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application Load Balancer, Web Application Firewall, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
-
-| Path | Purpose |
-| :--- | :------ |
-| **`infra/bootstrap/`** | One-time remote state (S3 bucket + DynamoDB lock table) |
-| **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here |
-| **`infra/modules/`** | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
-
-**Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and longer first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform) later in this file.
-
----
-
-### Genealogical records - similarity graph
+## Chord diagram
 
 <img src="./docs/chord-diagram-dark.png" width="720" alt="Linkage Engine local front end in dark mode" />
 
@@ -43,6 +29,31 @@ Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Bost
 | Purple | Moderate — 2–4× travel time available                             |
 | Amber  | Tight — less than 2× travel time, but still plausible             |
 | Red    | Physically impossible — travel time exceeds the available window  |
+
+---
+## Architecture
+
+Multi-tiered architecture that drives the chord-diagram for the linkage-engine project
+
+The live service decides whether two historical records can describe the same person. POST /v1/linkage/resolve passes the load balancer and web application firewall into the Spring Boot API. Four stages run in order: SQL search, pgvector rerank, Bedrock summary, then a transit conflict check. SQL and cosine rerank read Aurora PostgreSQL. Embeddings and the summary call Bedrock, and stay off when Bedrock is not configured.
+
+---
+
+## Terraform
+
+All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application Load Balancer, Web Application Firewall, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
+
+| Path | Purpose |
+| :--- | :------ |
+| **`infra/bootstrap/`** | One-time remote state (S3 bucket + DynamoDB lock table) |
+| **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here |
+| **`infra/modules/`** | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
+
+**Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and longer first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform) later in this file.
+
+---
+
+### Chord diagram operations
 
 Served at `/chord-diagram.html` — locally on port 8080, as a front-end-only [RunMe on GitHub Pages](https://sbecker11.github.io/linkage-engine/) (light/dark toggle and chord selection use the embedded demo seed), or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
 
