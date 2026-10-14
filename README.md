@@ -37,9 +37,15 @@ Green through amber are plausible trips. Red means the available time is shorter
 
 ## Architecture
 
+Two deployments share this chord diagram and the same colour meanings. Each one runs on its own and keeps its own data.
+
+**GitHub Pages**, at [sbecker11.github.io/linkage-engine](https://sbecker11.github.io/linkage-engine/), is a static page that stays up on its own. The 12 records and their chord colours are baked into `docs/index.html`. [`docs/chord.env`](docs/chord.env) only sets the theme and which chord is pinned. Nothing is written to a database or to S3, and Bedrock is never called.
+
+**The AWS app** is the service in the figure below. `POST /v1/linkage/resolve` goes through the load balancer and web application firewall into Spring Boot on ECS. Searchable records live in Aurora PostgreSQL. S3 holds the ingest files (raw upload, landing, validated, quarantine) and later archives of old Aurora rows. Stage 4 of that pipeline assigns green through red on the chord page served by the load balancer. That stack can be paused with `./deploy/demo-stop.sh`. The Pages site stays up either way.
+
 <img src="./docs/architecture.png" width="720" alt="linkage-engine architecture: the chord diagram calls the API through the load balancer, four stages run in Spring Boot, and Aurora, Bedrock, and CloudWatch sit behind them" />
 
-The chord diagram is the front of this service. On AWS, `POST /v1/linkage/resolve` passes the load balancer and web application firewall into the Spring Boot API. Four stages run in order. The last stage, the transit conflict check, sets the chord colour from the table above. SQL search and the cosine rerank read Aurora PostgreSQL. Embeddings and the summary call Bedrock, and stay off when Bedrock is not configured. GitHub Pages draws the same diagram from an embedded seed and does not call the API.
+Four stages run in order. The last stage, the transit conflict check, sets the chord colour from the table above. SQL search and the cosine rerank read Aurora PostgreSQL. Embeddings and the summary call Bedrock, and stay off when Bedrock is not configured.
 
 ```
 POST /v1/linkage/resolve
