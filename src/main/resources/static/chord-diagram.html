@@ -19,8 +19,8 @@
       :root {
         color-scheme: light;
         --bg: #fafaf9;
-        --text: #1a1a18;
-        --muted: #6b6b63;
+        --text: #000000;
+        --muted: #000000;
         --panel: #f5f4ef;
         --panel-border: #d3d1c7;
         --hairline: rgba(0, 0, 0, 0.08);
@@ -28,9 +28,9 @@
         --btn-border: #b4b2a9;
         --btn-hover: #f1efe8;
         --code-bg: rgba(0, 0, 0, 0.06);
-        --link: #2d6a4f;
-        --link-hover: #1b4332;
-        --chart-label: #3d3d38;
+        --link: #000000;
+        --link-hover: #000000;
+        --chart-label: #000000;
         --chart-halo: #fafaf9;
         --chart-bg: transparent;
         --legend-active-bg: #1a1a18;
@@ -77,8 +77,8 @@
       #legend.moderate,
       #legend.verylow,
       #legend.impossible {
-        --text: #1a1a18;
-        --muted: #5f5e5a;
+        --text: #000000;
+        --muted: #000000;
       }
       *,
       *::before,
@@ -437,9 +437,9 @@
         overflow-x: hidden;
         overflow-y: auto;
         background: rgb(233, 233, 234);
-        color: #1a1a18;
-        --text: #1a1a18;
-        --muted: #3d3d38;
+        color: #000000;
+        --text: #000000;
+        --muted: #000000;
         border-radius: 6px;
         padding: 8px 10px;
       }
@@ -483,14 +483,29 @@
         font-weight: 600;
         white-space: nowrap;
       }
-      .c-green {
-        color: #0f6e56;
-      }
-      .c-amber {
-        color: #633806;
-      }
+      .c-green,
+      .c-amber,
       .c-red {
-        color: #a32d2d;
+        color: #000000;
+      }
+      /* Light mode keeps every label black, including chord names and inline notes. */
+      html:not(.dark-theme) :is(
+        body, h1, .sub, .header-nav, .header-nav a, #status-line,
+        .badge, .btn, .theme-choice, code,
+        #detail, #detail *, #legend, #legend *,
+        .tip, .tip *,
+        .c-green, .c-amber, .c-red, .legend-step
+      ) {
+        color: #000000 !important;
+      }
+      html:not(.dark-theme) svg text {
+        fill: #000000 !important;
+      }
+      html:not(.dark-theme) .theme-choice[aria-pressed="true"] {
+        color: #ffffff !important;
+      }
+      html:not(.dark-theme) #legend span[data-color].legend-active {
+        color: var(--legend-active-fg) !important;
       }
       /* Wide: fill viewport between header and bottom so the chord can use max height */
       @media (min-width: 901px) {
@@ -1724,7 +1739,7 @@
       function chartThemeColors() {
         const cs = getComputedStyle(document.documentElement);
         return {
-          label: cs.getPropertyValue("--chart-label").trim() || "#3d3d38",
+          label: cs.getPropertyValue("--chart-label").trim() || "#000000",
           halo: cs.getPropertyValue("--chart-halo").trim() || "#fafaf9",
           chartBg: cs.getPropertyValue("--chart-bg").trim() || "transparent",
         };
