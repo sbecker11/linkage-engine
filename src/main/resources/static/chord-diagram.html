@@ -1312,23 +1312,24 @@
             a.target.index === b.target.index;
         }
 
-        // Active chord: opaque fill and a thick rim so it separates from the
-        // translucent unselected ribbons on the dark-mode disk.
+        // Active chord: opaque fill and a thick rim in both themes. Light mode
+        // uses a dark rim; a bright rim disappears on the white disk.
         function activeRibbonStyle() {
           const dark = document.documentElement.classList.contains("dark-theme");
           return dark
-            ? { alpha: 1, strokeWidth: 6 }
-            : { alpha: LAYER_ALPHA, strokeWidth: 2.5 };
+            ? { alpha: 1, strokeWidth: 6, rim: "brighter" }
+            : { alpha: 1, strokeWidth: 6, rim: "darker" };
         }
 
         function paintRibSelected(gEl, d) {
           const p = plausGet(plausMap, d.source.index, d.target.index);
           const path = ribGen(d);
           const baseHex = chordColor(d.source.index, d.target.index, plausMap);
-          const { alpha, strokeWidth } = activeRibbonStyle();
+          const { alpha, strokeWidth, rim } = activeRibbonStyle();
           const strokeCol = (() => {
             const c = d3.color(baseHex);
-            return c ? c.brighter(0.8).formatHex() : "#fff";
+            if (!c) return rim === "darker" ? "#000000" : "#ffffff";
+            return rim === "darker" ? c.darker(1.4).formatHex() : c.brighter(0.8).formatHex();
           })();
 
           gEl.selectAll("path.vis").remove();
