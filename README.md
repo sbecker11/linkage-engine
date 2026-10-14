@@ -46,7 +46,7 @@ Each arc segment is a record — a person, place, and year (e.g. *J. Smith, Bost
 | Amber  | Tight — less than 2× travel time, but still plausible             |
 | Red    | Physically impossible — travel time exceeds the available window  |
 
-Served at `/chord-diagram.html` — locally on port 8080, on [GitHub Pages](https://sbecker11.github.io/linkage-engine/) (page shell and light/dark toggle; the diagram still loads records from this service), or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
+Served at `/chord-diagram.html` — locally on port 8080, or via the [ALB](docs/DEPLOYMENT_ECS_FARGATE.md) when deployed to AWS. For the **repeatable prod release** steps (Terraform → Git → deploy workflow), see [Every-change release checklist](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in the ECS deployment guide.
 
 **AWS demo lifecycle (same region as your stack; defaults to `us-west-1`):**
 
