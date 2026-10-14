@@ -8,24 +8,110 @@
     <title>Linkage Engine — Record Similarity Graph</title>
     <script>
       (function () {
+        // Deployed startup file. .github/workflows/pages.yml copies it next to index.html.
+        var INIT_PROPERTIES_FILE = "chord.env";
+        var INIT_SESSION_KEY = "linkageEngineInit";
+        var CHORD_KEYS = ["selectedChord"];
         var root = document.documentElement;
-        var dark = false;
-        try {
-          dark = localStorage.getItem("linkageEngineTheme") === "dark";
-        } catch (e) {
-          console.error("[theme] Failed to read saved theme before paint", e);
+
+        function paint(dark) {
+          var meta = document.getElementById("color-scheme-meta");
+          if (dark) {
+            root.classList.add("dark-theme");
+            root.style.backgroundColor = "#1c2128";
+            root.style.color = "#cdd9e5";
+            if (meta) meta.setAttribute("content", "dark");
+          } else {
+            root.classList.remove("dark-theme");
+            root.style.backgroundColor = "#ffffff";
+            root.style.color = "#000000";
+            if (meta) meta.setAttribute("content", "only light");
+          }
         }
-        var meta = document.getElementById("color-scheme-meta");
-        if (dark) {
-          root.classList.add("dark-theme");
-          root.style.backgroundColor = "#1c2128";
-          root.style.color = "#cdd9e5";
-          if (meta) meta.setAttribute("content", "dark");
+
+        function parseEnv(text) {
+          var out = {};
+          String(text || "").split(/\n/).forEach(function (line) {
+            var trimmed = line.trim();
+            if (!trimmed || trimmed.charAt(0) === "#") return;
+            var eq = trimmed.indexOf("=");
+            if (eq < 1) return;
+            var key = trimmed.slice(0, eq).trim();
+            var val = trimmed.slice(eq + 1).trim();
+            if (
+              (val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') ||
+              (val.charAt(0) === "'" && val.charAt(val.length - 1) === "'")
+            ) {
+              val = val.slice(1, -1);
+            }
+            out[key] = val;
+          });
+          return out;
+        }
+
+        function readInit() {
+          try {
+            var raw = sessionStorage.getItem(INIT_SESSION_KEY);
+            if (!raw) return null;
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === "object" ? parsed : null;
+          } catch (e) {
+            console.error("[chord] Failed to read session startup settings", e);
+            return null;
+          }
+        }
+
+        function writeInit(settings) {
+          var next = settings || {};
+          try {
+            sessionStorage.setItem(INIT_SESSION_KEY, JSON.stringify(next));
+          } catch (e) {
+            console.error("[chord] Failed to store startup settings in the session", e);
+          }
+          window.__linkageChordSettings = Promise.resolve(next);
+          return next;
+        }
+
+        window.__linkageWriteInit = function (patch) {
+          return writeInit(Object.assign({}, readInit() || {}, patch || {}));
+        };
+
+        window.__linkageClearChord = function () {
+          var next = Object.assign({}, readInit() || {});
+          CHORD_KEYS.forEach(function (key) {
+            delete next[key];
+          });
+          return writeInit(next);
+        };
+
+        function themeIsDark(settings) {
+          return String((settings && settings.theme) || "").toLowerCase() === "dark";
+        }
+
+        var existing = readInit();
+        if (existing) {
+          paint(themeIsDark(existing));
+          window.__linkageChordSettings = Promise.resolve(existing);
         } else {
-          root.classList.remove("dark-theme");
-          root.style.backgroundColor = "#ffffff";
-          root.style.color = "#000000";
-          if (meta) meta.setAttribute("content", "only light");
+          root.style.visibility = "hidden";
+          paint(false);
+          window.__linkageChordSettings = fetch(INIT_PROPERTIES_FILE, { cache: "no-cache" })
+            .then(function (res) {
+              if (!res.ok) throw new Error(INIT_PROPERTIES_FILE + " HTTP " + res.status);
+              return res.text();
+            })
+            .then(parseEnv)
+            .then(function (settings) {
+              writeInit(settings);
+              paint(themeIsDark(settings));
+              root.style.visibility = "";
+              return settings;
+            })
+            .catch(function (e) {
+              console.error("[chord] Failed to read " + INIT_PROPERTIES_FILE, e);
+              root.style.visibility = "";
+              return {};
+            });
         }
       })();
     </script>
@@ -1626,6 +1712,8 @@
         }
         function clearSelection() {
           selectedD = null;
+          chordPin = false;
+          if (window.__linkageClearChord) window.__linkageClearChord();
           restoreAll();
           document.getElementById("legend").className = "";
           const detEl = document.getElementById("detail");
@@ -1658,6 +1746,10 @@
             .on("click", () => {
               hideTip();
               selectedD = d;
+              chordPin = [recordIdStr(records[d.source.index]), recordIdStr(records[d.target.index])];
+              if (window.__linkageWriteInit) {
+                window.__linkageWriteInit({ selectedChord: chordPin.join(" to ") });
+              }
               restoreAll();
               dimAllExcept(d);
               pinDetail(d, records, matrix, plausMap, simSource, clearSelection);
@@ -1753,6 +1845,7 @@
         bindLegendHover(plausMap, dimAllExceptColor, restoreAll);
 
         lastChordRender = { records, matrix, plausMap, simSource };
+        applyPinnedChord(ribGroups, records, matrix, plausMap, simSource);
 
         // Stamp the render time in the header
         const ts = new Date().toUTCString();
@@ -2017,8 +2110,6 @@
           </section>`;
       }
 
-      const THEME_STORAGE_KEY = "linkageEngineTheme";
-
       function chartThemeColors() {
         const cs = getComputedStyle(document.documentElement);
         return {
@@ -2028,12 +2119,57 @@
         };
       }
 
-      function persistTheme(theme) {
-        try {
-          localStorage.setItem(THEME_STORAGE_KEY, theme);
-        } catch (e) {
-          console.error("[theme] Failed to save theme preference", e);
-          console.log("Remedy: Keeping the selected theme for this page view only");
+      // null = use chord.env / the URL. false = the visitor cleared the pin.
+      // A two-id list is a chord they clicked.
+      let chordPin = null;
+
+      function chordIdsFromSpec(spec) {
+        return String(spec || "")
+          .split(/\s+to\s+|[,|]/i)
+          .map((part) => part.trim())
+          .filter(Boolean);
+      }
+
+      function chordMatchesSettings(d, records, settings) {
+        const ida = recordIdStr(records[d.source.index]);
+        const idb = recordIdStr(records[d.target.index]);
+        const ids = chordIdsFromSpec(settings.selectedChord);
+        if (ids.length === 1) return ids[0] === ida || ids[0] === idb;
+        if (ids.length >= 2) return ids.includes(ida) && ids.includes(idb);
+        return false;
+      }
+
+      async function applyPinnedChord(ribGroups, records, matrix, plausMap, simSource) {
+        const loaded = await (window.__linkageChordSettings || Promise.resolve({}));
+        const settings = Object.assign({}, loaded);
+
+        let match = null;
+        ribGroups.each(function (d) {
+          if (match) return;
+          if (Array.isArray(chordPin)) {
+            const ida = recordIdStr(records[d.source.index]);
+            const idb = recordIdStr(records[d.target.index]);
+            if (chordPin.includes(ida) && chordPin.includes(idb)) match = d;
+            return;
+          }
+          if (chordPin === null && chordMatchesSettings(d, records, settings)) {
+            match = d;
+          }
+        });
+        if (!match) {
+          const wanted = settings.selectedChord || "";
+          if (wanted && chordPin === null) {
+            console.error("[chord] Startup settings did not match a chord:", wanted);
+          }
+          return;
+        }
+        ribGroups.each(function (d) {
+          if (d.source.index === match.source.index && d.target.index === match.target.index) {
+            d3.select(this).select("path.hit").dispatch("click");
+          }
+        });
+        if (chordPin === null) {
+          chordPin = [recordIdStr(records[match.source.index]), recordIdStr(records[match.target.index])];
         }
       }
 
@@ -2045,7 +2181,6 @@
         root.style.color = isDark ? "#cdd9e5" : "#000000";
         const schemeMeta = document.getElementById("color-scheme-meta");
         if (schemeMeta) schemeMeta.setAttribute("content", isDark ? "dark" : "only light");
-        persistTheme(isDark ? "dark" : "light");
         const lightButton = document.getElementById("themeLight");
         const darkButton = document.getElementById("themeDark");
         if (lightButton) {
@@ -2060,30 +2195,35 @@
         }
       }
 
-      function initThemeToggle() {
+      async function initThemeToggle() {
         const lightButton = document.getElementById("themeLight");
         const darkButton = document.getElementById("themeDark");
         if (!lightButton || !darkButton) {
           throw new Error("[theme] Theme choice buttons #themeLight and #themeDark are missing");
         }
-        let savedTheme = null;
-        try {
-          savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-        } catch (e) {
-          console.error("[theme] Failed to read saved theme", e);
-          console.log("Remedy: Starting in light mode");
-        }
-        applyTheme(savedTheme === "dark" ? "dark" : "light");
+        const settings = await (window.__linkageChordSettings || Promise.resolve({}));
+        const mode = String(settings.theme || "light").toLowerCase();
+        applyTheme(mode === "dark" ? "dark" : "light");
+        document.documentElement.style.visibility = "";
         lightButton.addEventListener("click", function () {
+          if (window.__linkageWriteInit) window.__linkageWriteInit({ theme: "light" });
           applyTheme("light");
         });
         darkButton.addEventListener("click", function () {
+          if (window.__linkageWriteInit) window.__linkageWriteInit({ theme: "dark" });
           applyTheme("dark");
         });
       }
 
-      initThemeToggle();
-      init();
+      initThemeToggle()
+        .then(function () {
+          init();
+        })
+        .catch(function (e) {
+          console.error("[theme] Failed to apply startup settings", e);
+          document.documentElement.style.visibility = "";
+          init();
+        });
     </script>
   </body>
 </html>
