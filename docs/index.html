@@ -17,11 +17,11 @@
     </script>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #fafaf9;
+        color-scheme: only light;
+        --bg: #ffffff;
         --text: #000000;
         --muted: #000000;
-        --panel: #f5f4ef;
+        --panel: #ffffff;
         --panel-border: #d3d1c7;
         --hairline: rgba(0, 0, 0, 0.08);
         --btn-bg: #ffffff;
@@ -31,8 +31,8 @@
         --link: #000000;
         --link-hover: #000000;
         --chart-label: #000000;
-        --chart-halo: #fafaf9;
-        --chart-bg: transparent;
+        --chart-halo: #ffffff;
+        --chart-bg: #ffffff;
         --legend-active-bg: #1a1a18;
         --legend-active-fg: #fafaf9;
         --tip-bg: #ffffff;
@@ -79,6 +79,18 @@
       #legend.impossible {
         --text: #000000;
         --muted: #000000;
+      }
+      html:not(.dark-theme) {
+        background: #ffffff;
+        color: #000000;
+        color-scheme: only light;
+      }
+      html:not(.dark-theme) body,
+      html:not(.dark-theme) header,
+      html:not(.dark-theme) main,
+      html:not(.dark-theme) #chart-wrap,
+      html:not(.dark-theme) svg {
+        background: #ffffff;
       }
       *,
       *::before,
