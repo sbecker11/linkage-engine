@@ -1,9 +1,11 @@
 # linkage-engine
 
 <!-- SUMMARY:START generated from workspace-linkedin-profile/Projects.json by scripts/build_readme_header.py; edit there -->
+
 Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage resolve pipeline (SQL search, vector rerank, semantic, spatio-temporal), pgvector on Aurora PostgreSQL, and Bedrock; 149 tests, 94.5% coverage.
 
 **Skills:** Java 21 · Virtual Threads · Spring Boot · Spring AI · Entity Resolution · Vector Search · pgvector · Amazon Aurora PostgreSQL Serverless v2 · Bedrock · Amazon Titan Embeddings · AWS ECS Fargate · Amazon S3 · Docker · Terraform · GitHub Actions · JUnit · JaCoCo · Automated Software Testing (JUnit/Jest/Vitest/PyTest)
+
 <!-- SUMMARY:END -->
 
 **linkage-engine** answers one question: _could these two historical records describe the same person?_
@@ -21,7 +23,7 @@ Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage re
 
 This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) shows 12 seeded genealogical records — John Smith, James Brown, William Davis, Thomas Wilson, Mary Taylor, and Robert Taylor — in Boston, Philadelphia, New York, and San Francisco between 1848 and 1852.
 
-Each arc segment is a record — a person, place, and year (e.g. *John Smith, Boston 1850*). A chord between two records represents a possible travel event: could the same person have moved from one location to the other in the time available? **Chord colour** shows how plausible that journey was given 19th-century travel speeds:
+Each arc segment is a record — a person, place, and year (e.g. _John Smith, Boston 1850_). A chord between two records represents a possible travel event: could the same person have moved from one location to the other in the time available? **Chord colour** shows how plausible that journey was given 19th-century travel speeds:
 
 | Colour | Meaning                                                           |
 | :----- | :---------------------------------------------------------------- |
@@ -63,11 +65,11 @@ Sprint history, the two demo outcomes, and the design patterns are in [What Was 
 
 All **production AWS resources** (ECS Fargate, Aurora Serverless v2, Application Load Balancer, Web Application Firewall, IAM, Secrets Manager, monitoring, and related wiring) are defined as code under **`infra/`** and applied with **[HashiCorp Terraform](https://www.terraform.io/)**.
 
-| Path | Purpose |
-| :--- | :------ |
-| **`infra/bootstrap/`** | One-time remote state (S3 bucket + DynamoDB lock table) |
-| **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here |
-| **`infra/modules/`** | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
+| Path                   | Purpose                                                                                  |
+| :--------------------- | :--------------------------------------------------------------------------------------- |
+| **`infra/bootstrap/`** | One-time remote state (S3 bucket + DynamoDB lock table)                                  |
+| **`infra/envs/prod/`** | Production root module — run **`terraform plan`** / **`apply`** here                     |
+| **`infra/modules/`**   | Reusable modules (ECR, networking, Aurora, secrets, IAM, ALB, ACM, WAF, ECS, monitoring) |
 
 **Read next:** [`infra/README.md`](infra/README.md) (bootstrap, `terraform.tfvars`, import). For **Terraform → Git → deploy workflow** on every change, use the [**Every-change release checklist**](docs/DEPLOYMENT_ECS_FARGATE.md#every-change-release-checklist) in [`docs/DEPLOYMENT_ECS_FARGATE.md`](docs/DEPLOYMENT_ECS_FARGATE.md). The **full module table** and first-time sequence are in [**Infrastructure (Terraform)**](#infrastructure-terraform).
 
@@ -88,14 +90,14 @@ theme=dark
 selectedChord=DEMO-I to DEMO-J
 ```
 
-| Key | What it sets |
-| :-- | :----------- |
-| **`theme`** | `dark` or `light`. Any value other than `dark` opens in light mode. |
+| Key                 | What it sets                                                                                                                                                                         |
+| :------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`theme`**         | `dark` or `light`. Any value other than `dark` opens in light mode.                                                                                                                  |
 | **`selectedChord`** | Record ids of the chord to pin on load. The shipped value pins **DEMO-I** (Thomas Wilson, Philadelphia 1850, born 1820) to **DEMO-J** (Thomas Wilson, Philadelphia 1851, born 1780). |
 
 Lines are `key=value`. Blank lines and lines starting with `#` are ignored, and matching quotes around a value are removed. `selectedChord` splits on ` to `, a comma, or a pipe, so `DEMO-I to DEMO-J`, `DEMO-I,DEMO-J`, and `DEMO-J to DEMO-I` select the same chord. One id matches the chord that has that id on either end. Two ids must both sit on the chord. Seed ids are `DEMO-A` through `DEMO-L` in `docs/index.html`. An id pair that matches no chord is logged as `[chord] Startup settings did not match a chord`, and the diagram stays unpinned.
 
-The first load in a browser tab fetches `chord.env` and stores the parsed settings in `sessionStorage` under `linkageEngineInit`. Later loads in that tab use the session copy. A new tab reads the file again. The Light and Dark buttons write `theme`. Clicking a chord writes `selectedChord` as `idA to idB`. Clearing the selection removes `selectedChord` from the session.
+The first load in a browser tab fetches `chord.env` and stores the parsed settings in `sessionStorage` under `linkageEngineInit`. Later loads in that tab use the session copy. A new tab reads the file again. The Light and Dark buttons write `theme`. Clicking a chord writes `selectedChord` as `idA to idB`. Clicking the diagram background, and not another chord, clears the selection and removes `selectedChord` from the session.
 
 Serve `docs/` over HTTP so the page can fetch the file. From the repo root:
 
@@ -121,14 +123,14 @@ The diagram loads **`GET /v1/cost/month-to-date`**, which returns the **calendar
 
 Supporting pieces:
 
-| Piece | Role |
-| :---- | :--- |
-| **`MonthlyTaggedCostService`** | Calls AWS Cost Explorer (`ce:GetCostAndUsage`) in **`us-east-1`**, `MONTHLY` granularity, filter on the configured tag key/value. |
-| **`CostSummaryController`** | Exposes **`GET /v1/cost/month-to-date`** (JSON) and **`GET /v1/cost/month-to-date/page`** (HTML) for browsers and operators. |
-| **`UiHintsController`** | **`GET /v1/ui/features`** — JSON used by **`chord-diagram.html`**; e.g. **`showCostMonthToDatePageLink`** is **`false`** when profile **`local`** is active so the cost HTML link is omitted locally, and **`true`** in production. |
-| **ECS task IAM** | Inline policy **`CostExplorerRead`** allows `ce:GetCostAndUsage`. |
-| **Environment** | **`LINKAGE_COST_ENABLED`** is read by Spring as **`linkage.cost.enabled`** (`application.properties`: `linkage.cost.enabled=${LINKAGE_COST_ENABLED:false}`). **Prod / ECS:** set **`LINKAGE_COST_ENABLED=true`** on the task (see **`deploy/ecs/task-definition.json`** / Terraform). **Local:** omit **`LINKAGE_COST_ENABLED`** from **`.env`** entirely; **`application-local.properties`** sets **`linkage.cost.enabled=false`** so Cost Explorer is not called. **`LINKAGE_COST_TAG_KEY`** / **`LINKAGE_COST_TAG_VALUE`** override the tag filter. |
-| **AWS account setup** | Turn on **Cost Explorer** in Billing; activate the tag key (e.g. **`App`**) as a **cost allocation tag** or the filter returns little or no usage. Numbers can **lag ~24 hours**. |
+| Piece                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`MonthlyTaggedCostService`** | Calls AWS Cost Explorer (`ce:GetCostAndUsage`) in **`us-east-1`**, `MONTHLY` granularity, filter on the configured tag key/value.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **`CostSummaryController`**    | Exposes **`GET /v1/cost/month-to-date`** (JSON) and **`GET /v1/cost/month-to-date/page`** (HTML) for browsers and operators.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **`UiHintsController`**        | **`GET /v1/ui/features`** — JSON used by **`chord-diagram.html`**; e.g. **`showCostMonthToDatePageLink`** is **`false`** when profile **`local`** is active so the cost HTML link is omitted locally, and **`true`** in production.                                                                                                                                                                                                                                                                                                                    |
+| **ECS task IAM**               | Inline policy **`CostExplorerRead`** allows `ce:GetCostAndUsage`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Environment**                | **`LINKAGE_COST_ENABLED`** is read by Spring as **`linkage.cost.enabled`** (`application.properties`: `linkage.cost.enabled=${LINKAGE_COST_ENABLED:false}`). **Prod / ECS:** set **`LINKAGE_COST_ENABLED=true`** on the task (see **`deploy/ecs/task-definition.json`** / Terraform). **Local:** omit **`LINKAGE_COST_ENABLED`** from **`.env`** entirely; **`application-local.properties`** sets **`linkage.cost.enabled=false`** so Cost Explorer is not called. **`LINKAGE_COST_TAG_KEY`** / **`LINKAGE_COST_TAG_VALUE`** override the tag filter. |
+| **AWS account setup**          | Turn on **Cost Explorer** in Billing; activate the tag key (e.g. **`App`**) as a **cost allocation tag** or the filter returns little or no usage. Numbers can **lag ~24 hours**.                                                                                                                                                                                                                                                                                                                                                                      |
 
 If cost query is disabled or Cost Explorer fails, the endpoint returns **`status: "DISABLED"`** or **`"UNAVAILABLE"`** and the chord line shows a short message instead of a dollar amount.
 
@@ -427,19 +429,19 @@ The short map is [above](#terraform). This section is the module list, directory
 
 ### What Terraform manages
 
-| Module | Resources |
-| :----- | :-------- |
-| `bootstrap` | S3 remote state bucket + DynamoDB lock table |
-| `ecr` | ECR repository with lifecycle policy (keep 10 tagged, expire untagged after 14 days) |
-| `networking` | Security groups for ALB, ECS, and Aurora; ingress/egress rules |
-| `aurora` | Aurora PostgreSQL Serverless v2 cluster + writer instance (scales 0–2 ACUs) |
-| `secrets` | Secrets Manager secret holding `DB_URL`, `DB_USER`, `DB_PASSWORD`, `INGEST_API_KEY` |
-| `iam` | ECS execution role, ECS task role (Bedrock + Cost Explorer read for MTD cost), GitHub OIDC deploy role |
-| `alb` | Application Load Balancer, target group, HTTP/HTTPS listeners |
-| `acm` | ACM certificate (created only when `domain_name` is set) |
-| `waf` | WAFv2 WebACL with 500 req/5 min rate limit, associated to ALB |
-| `ecs` | ECS cluster (Container Insights on), task definition, Fargate service |
-| `monitoring` | CloudWatch log group, SNS alert topic, 5 CloudWatch alarms, AWS Budget |
+| Module       | Resources                                                                                              |
+| :----------- | :----------------------------------------------------------------------------------------------------- |
+| `bootstrap`  | S3 remote state bucket + DynamoDB lock table                                                           |
+| `ecr`        | ECR repository with lifecycle policy (keep 10 tagged, expire untagged after 14 days)                   |
+| `networking` | Security groups for ALB, ECS, and Aurora; ingress/egress rules                                         |
+| `aurora`     | Aurora PostgreSQL Serverless v2 cluster + writer instance (scales 0–2 ACUs)                            |
+| `secrets`    | Secrets Manager secret holding `DB_URL`, `DB_USER`, `DB_PASSWORD`, `INGEST_API_KEY`                    |
+| `iam`        | ECS execution role, ECS task role (Bedrock + Cost Explorer read for MTD cost), GitHub OIDC deploy role |
+| `alb`        | Application Load Balancer, target group, HTTP/HTTPS listeners                                          |
+| `acm`        | ACM certificate (created only when `domain_name` is set)                                               |
+| `waf`        | WAFv2 WebACL with 500 req/5 min rate limit, associated to ALB                                          |
+| `ecs`        | ECS cluster (Container Insights on), task definition, Fargate service                                  |
+| `monitoring` | CloudWatch log group, SNS alert topic, 5 CloudWatch alarms, AWS Budget                                 |
 
 ### Directory layout
 
@@ -526,13 +528,13 @@ done
 
 Five CloudWatch alarms send to an SNS topic (`linkage-engine-alerts`). Set `alert_email` in `terraform.tfvars` to receive email notifications:
 
-| Alarm | Fires when |
-| :---- | :--------- |
-| `le-aurora-connections` | Aurora has 0 active connections (paused or app down) |
-| `linkage-engine-ecs-memory-high` | ECS task memory > 80% |
-| `linkage-engine-aurora-storage-low` | Aurora free storage < 20 GiB |
-| `linkage-engine-alb-healthy-hosts` | ALB healthy target count < 1 |
-| `linkage-engine-ecs-tasks-running` | Running ECS task count < 1 |
+| Alarm                               | Fires when                                           |
+| :---------------------------------- | :--------------------------------------------------- |
+| `le-aurora-connections`             | Aurora has 0 active connections (paused or app down) |
+| `linkage-engine-ecs-memory-high`    | ECS task memory > 80%                                |
+| `linkage-engine-aurora-storage-low` | Aurora free storage < 20 GiB                         |
+| `linkage-engine-alb-healthy-hosts`  | ALB healthy target count < 1                         |
+| `linkage-engine-ecs-tasks-running`  | Running ECS task count < 1                           |
 
 An AWS Budget fires at 80% of a configurable monthly spend limit (default $50/month).
 
@@ -544,7 +546,7 @@ An AWS Budget fires at 80% of a configurable monthly spend limit (default $50/mo
 | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
 | [infra/README.md](infra/README.md)                                    | Terraform quick start, module reference, import guide, CI/CD integration                                      |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md)                               | Four-stage pipeline, design patterns, Mermaid diagrams, DB index strategy                                     |
-| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate deployment, ALB, health checks, **every-change release checklist**, demo lifecycle             |
+| [DEPLOYMENT_ECS_FARGATE.md](docs/DEPLOYMENT_ECS_FARGATE.md)           | ECS / Fargate deployment, ALB, health checks, **every-change release checklist**, demo lifecycle              |
 | [SECRETS_MANAGER.md](docs/SECRETS_MANAGER.md)                         | AWS Secrets Manager for runtime DB credentials in ECS                                                         |
 | [DATA_PIPELINE_S3.md](docs/DATA_PIPELINE_S3.md)                       | S3 bucket layout, ingest pipeline, archival policy, Athena DDL                                                |
 | [AURORA_POSTGRESQL.md](docs/AURORA_POSTGRESQL.md)                     | Aurora provisioning, PITR disaster recovery, version notes                                                    |
