@@ -19,7 +19,7 @@ Java 21 / Spring Boot / Spring AI entity-resolution service with a four-stage re
 
 ## Chord diagram
 
-<img src="./docs/chord-diagram-dark.png" width="720" alt="Linkage Engine local front end in dark mode" />
+<a href="https://sbecker11.github.io/linkage-engine/" target="_blank" rel="noopener noreferrer"><img src="./linkage-engine-50.gif" alt="Linkage Engine chord diagram"></a>
 
 This [chord diagram](https://observablehq.com/@d3/chord-diagram/2) shows 12 seeded genealogical records — John Smith, James Brown, William Davis, Thomas Wilson, Mary Taylor, and Robert Taylor — in Boston, Philadelphia, New York, and San Francisco between 1848 and 1852.
 
