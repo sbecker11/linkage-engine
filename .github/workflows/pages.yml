@@ -28,6 +28,7 @@ jobs:
           cp docs/index.html _site/index.html
           cp docs/index.html _site/chord-diagram.html
           cp docs/chord.env _site/chord.env
+          cp demo-fullsize.mov _site/demo-fullsize.mov
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
