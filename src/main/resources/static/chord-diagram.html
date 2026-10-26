@@ -737,8 +737,8 @@
       <div class="legend-popup-toggle">
         <div class="legend-group-label">Detail popups</div>
         <div class="theme-control" role="group" aria-label="Chord detail popups">
-          <button id="popupShow" type="button" class="theme-choice" aria-pressed="true">Show</button>
-          <button id="popupHide" type="button" class="theme-choice" aria-pressed="false">Hide</button>
+          <button id="popupShow" type="button" class="theme-choice" aria-pressed="false">Show</button>
+          <button id="popupHide" type="button" class="theme-choice" aria-pressed="true">Hide</button>
         </div>
       </div>
       <div class="legend-group-label">Plausible — travel margin</div>
@@ -1655,7 +1655,7 @@
         return "ambiguous";
       }
 
-      let detailPopups = true;
+      let detailPopups = false;
 
       function setDetailPopups(on) {
         detailPopups = !!on;
