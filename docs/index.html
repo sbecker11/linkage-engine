@@ -135,8 +135,6 @@
         --chart-bg: #ffffff;
         --legend-active-bg: #1a1a18;
         --legend-active-fg: #fafaf9;
-        --tip-bg: #ffffff;
-        --tip-border: #b4b2a9;
         --progress-track: #d3d1c7;
         /* Fixed tracks. A percentage of the viewport collapses (and does not
            match a percentage margin on the center), which hid the left column. */
@@ -163,8 +161,6 @@
         --chart-bg: #f4f3ee;
         --legend-active-bg: #cdd9e5;
         --legend-active-fg: #1c2128;
-        --tip-bg: #2d333b;
-        --tip-border: #586069;
         --progress-track: #444c56;
       }
       /* Selected chords paint these panels a light tint, so ink stays dark. */
@@ -359,7 +355,26 @@
         align-items: center;
         width: 100%;
         min-height: 260px;
-        overflow: visible;
+        overflow: hidden;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+      #chart-wrap.is-panning {
+        cursor: grabbing;
+      }
+      #chart-wrap path.hit,
+      #chart-wrap text,
+      #chart-wrap path:not(.hit):not(.vis) {
+        cursor: pointer;
+      }
+      #chart-wrap svg {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        display: block;
       }
       #empty-msg {
         font-size: 13px;
@@ -401,14 +416,13 @@
       .legend-group-label:first-child {
         margin-top: 0;
       }
-      .legend-popup-toggle {
+      .legend-zoom {
         margin: 0 0 12px;
       }
-      .legend-popup-toggle .theme-choice:first-child {
-        border-radius: 6px 0 0 6px;
-      }
-      .legend-popup-toggle .theme-choice:last-child {
-        border-radius: 0 6px 6px 0;
+      .legend-zoom input[type="range"] {
+        width: 100%;
+        margin: 2px 0 0;
+        accent-color: #1d9e75;
       }
       #legend span[data-color] {
         display: flex;
@@ -566,6 +580,24 @@
         border-radius: 6px;
         padding: 8px 10px;
       }
+      .dark-theme #detail .detail-conflicts,
+      .dark-theme #detail .detail-verdict {
+        background: #3f4750;
+        color: #ffffff;
+        --text: #ffffff;
+        --muted: #ffffff;
+      }
+      #detail .detail-warn { color: #c2185b; }
+      #detail .detail-verdict .detail-warn { color: #a32d2d; }
+      #detail .detail-caution { color: #b06000; }
+      #detail .detail-ok { color: #2a7a5a; }
+      .dark-theme #detail .detail-warn,
+      .dark-theme #detail .detail-caution {
+        color: #ff8d8d;
+      }
+      .dark-theme #detail .detail-ok {
+        color: #ffffff;
+      }
       #detail .detail-conflicts {
         max-height: 46%;
       }
@@ -616,7 +648,6 @@
         body, h1, .sub, .header-nav, .header-nav a, #status-line,
         .badge, .btn, .theme-choice, code,
         #detail, #detail *, #legend, #legend *,
-        .tip, .tip *,
         .c-green, .c-amber, .c-red, .legend-step
       ) {
         color: #000000 !important;
@@ -723,43 +754,10 @@
           min-height: 240px;
           max-height: 48vh;
         }
-        .tip {
-          order: 50;
-        }
       }
 
-      .tip,
-      .tip * {
-        pointer-events: none;
-      }
-      .tip {
-        position: fixed;
-        font-size: 11px;
-        background: var(--tip-bg);
-        border: 0.5px solid var(--tip-border);
-        border-radius: 7px;
-        padding: 7px 11px;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.15s;
-        max-width: 240px;
-        line-height: 1.55;
-        z-index: 200;
-        color: var(--text);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      }
-      .tip-kicker {
-        font-size: 9px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
       .tip-meta {
         color: var(--muted);
-      }
-      .tip-note {
-        color: var(--muted);
-        font-size: 10px;
       }
       .kicker {
         color: var(--muted);
@@ -784,8 +782,8 @@
           &middot; chord width = score &middot; arrowhead = resolution direction
         </p>
         <p class="sub" style="margin-top: 3px">
-          Hover an arc to highlight its connections &middot; hover a chord for
-          details &middot; click a chord to pin
+          Hover an arc or chord to highlight it &middot; click a chord to pin
+          &middot; click the background to clear &middot; drag the background to move
         </p>
         <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
         <p class="sub" id="cost-line" style="margin-top: 4px; opacity: 0.72; font-size: 0.72rem"></p>
@@ -820,12 +818,9 @@
     <div id="detail"></div>
     <div id="legend">
       <p class="panel-title">Chord Legend</p>
-      <div class="legend-popup-toggle">
-        <div class="legend-group-label">Detail popups</div>
-        <div class="theme-control" role="group" aria-label="Chord detail popups">
-          <button id="popupShow" type="button" class="theme-choice" aria-pressed="false">Show</button>
-          <button id="popupHide" type="button" class="theme-choice" aria-pressed="true">Hide</button>
-        </div>
+      <div class="legend-zoom">
+        <div class="legend-group-label">Diagram zoom <span id="chordZoomValue">100%</span></div>
+        <input id="chordZoom" type="range" min="100" max="250" step="5" value="100" aria-label="Chord diagram zoom">
       </div>
       <div class="legend-group-label">Plausible — travel margin</div>
       <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Very comfortable &nbsp;&ge;10&times;</span>
@@ -835,7 +830,6 @@
       <div class="legend-group-label">Implausible</div>
       <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Physically impossible</span>
     </div>
-    <div class="tip" id="tip"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script>
@@ -1227,6 +1221,7 @@
       }
 
       async function init() {
+        resetChordView();
         lastChordRender = null;
         loadMonthlyCost();
         applyChordNavHints();
@@ -1573,23 +1568,32 @@
           // All vertical space below the progress bar (chart sits directly under it in <main>)
           availH = Math.max(200, window.innerHeight - progressBottom - 16);
         }
-        // Square SVG scaled uniformly — no cropping (viewBox preserves aspect)
-        const side = Math.floor(Math.max(200, Math.min(availW, availH)));
+        // The diagram element fills the chart container. The viewBox matches
+        // that rectangle so zoom crops to the container, not a smaller square.
+        const boxW = wrap.clientWidth > 0 ? wrap.clientWidth : availW;
+        const boxH = wrap.clientHeight > 0 ? wrap.clientHeight : availH;
+        svgEl.dataset.vbSize = String(W);
         svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
         svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
-        svgEl.setAttribute("width", side);
-        svgEl.setAttribute("height", side);
+        svgEl.setAttribute("width", Math.floor(boxW));
+        svgEl.setAttribute("height", Math.floor(boxH));
         svgEl.setAttribute("shape-rendering", "geometricPrecision");
         wrap.appendChild(svgEl);
 
-        // Transparent background rect — clicking it clears the selection.
+        // Transparent background. A click clears the pinned chord. A drag pans.
         d3.select(svgEl)
           .insert("rect", ":first-child")
+          .attr("class", "chord-bg")
           .attr("width", W)
           .attr("height", H)
           .attr("fill", "transparent")
-          .style("cursor", "default")
-          .on("click", () => { if (selectedD) clearSelection(); });
+          .on("click", () => {
+            if (chordBackgroundDragged) {
+              chordBackgroundDragged = false;
+              return;
+            }
+            if (selectedD) clearSelection();
+          });
 
         const svg = d3
           .select(svgEl)
@@ -1740,6 +1744,7 @@
           detEl.className = "";
           detEl.innerHTML = `<section class="detail-row detail-journey"><p class="panel-title" style="direction:ltr">Chord Details</p></section><section class="detail-row detail-conflicts"></section><section class="detail-row detail-verdict"></section>`;
         }
+        clearChordSelection = clearSelection;
 
         // Add a single transparent hit-area path per chord group AFTER initial paint.
         // All event handlers live here — visual paths have pointer-events:none so they
@@ -1752,19 +1757,15 @@
             .attr("stroke", "none")
             .style("pointer-events", "all")
             .style("cursor", "pointer")
-            .on("mouseover", (event) => {
+            .on("mouseover", () => {
               dimAllExcept(d);
               highlightLegend(chordColor(d.source.index, d.target.index, plausMap));
-              showTip(event, d, records, matrix, plausMap, simSource);
             })
-            .on("mousemove", moveTip)
             .on("mouseout", () => {
               restoreAll();
               resetLegend();
-              hideTip();
             })
             .on("click", () => {
-              hideTip();
               selectedD = d;
               chordPin = [recordIdStr(records[d.source.index]), recordIdStr(records[d.target.index])];
               if (window.__linkageWriteInit) {
@@ -1865,6 +1866,7 @@
         bindLegendHover(plausMap, dimAllExceptColor, restoreAll);
 
         lastChordRender = { records, matrix, plausMap, simSource };
+        applyChordZoom();
         applyPinnedChord(ribGroups, records, matrix, plausMap, simSource);
 
         // Stamp the render time in the header
@@ -1882,8 +1884,7 @@
       });
 
       // ── Chord story builder ───────────────────────────────────────────────────
-      // Builds a structured narrative for a chord. Both showTip and pinDetail
-      // consume this — tooltip shows headline + flags, detail shows everything.
+      // Builds a structured narrative for a chord. pinDetail shows it in the left panel.
       function chordStory(p, recA, recB, si, ti, sim, simSource) {
         const fullName = (r) => `${r.givenName || ""} ${r.familyName || r.name || ""}`.trim();
         const gender   = (r) => inferGenderLabel(r.givenName);
@@ -2001,66 +2002,125 @@
         return "ambiguous";
       }
 
-      let detailPopups = false;
+      let chordZoom = 1;
+      let chordPanX = 0;
+      let chordPanY = 0;
+      let chordBackgroundDragged = false;
+      let clearChordSelection = function () {};
+      const CHORD_ZOOM_DEFAULT = 100;
 
-      function setDetailPopups(on) {
-        detailPopups = !!on;
-        const show = document.getElementById("popupShow");
-        const hide = document.getElementById("popupHide");
-        if (show) show.setAttribute("aria-pressed", detailPopups ? "true" : "false");
-        if (hide) hide.setAttribute("aria-pressed", detailPopups ? "false" : "true");
-        if (!detailPopups) hideTip();
+      function fitChordFrame() {
+        const wrap = document.getElementById("chart-wrap");
+        const svg = wrap && wrap.querySelector("svg");
+        if (!svg) return;
+        const w = Math.floor(wrap.clientWidth);
+        const h = Math.floor(wrap.clientHeight);
+        if (w < 50 || h < 50) return;
+        svg.setAttribute("width", String(w));
+        svg.setAttribute("height", String(h));
       }
 
-      function initDetailPopupToggle() {
-        const show = document.getElementById("popupShow");
-        const hide = document.getElementById("popupHide");
-        if (!show || !hide) return;
-        show.addEventListener("click", function () { setDetailPopups(true); });
-        hide.addEventListener("click", function () { setDetailPopups(false); });
+      function applyChordZoom() {
+        const slider = document.getElementById("chordZoom");
+        const label = document.getElementById("chordZoomValue");
+        const pct = slider ? Number(slider.value) || CHORD_ZOOM_DEFAULT : Math.round(chordZoom * 100);
+        chordZoom = pct / 100;
+        if (label) label.textContent = pct + "%";
+        const svg = document.querySelector("#chart-wrap svg");
+        const wrap = document.getElementById("chart-wrap");
+        if (!svg || !wrap) return;
+        fitChordFrame();
+        const pxW = Math.max(1, svg.getBoundingClientRect().width);
+        const pxH = Math.max(1, svg.getBoundingClientRect().height);
+        const full = Number(svg.dataset.vbSize) || 700;
+        let vbW;
+        let vbH;
+        if (pxW >= pxH) {
+          vbH = full / chordZoom;
+          vbW = vbH * (pxW / pxH);
+        } else {
+          vbW = full / chordZoom;
+          vbH = vbW * (pxH / pxW);
+        }
+        const originX = (full - vbW) / 2 + chordPanX;
+        const originY = (full - vbH) / 2 + chordPanY;
+        svg.setAttribute("viewBox", originX + " " + originY + " " + vbW + " " + vbH);
       }
 
-      function showTip(event, d, records, matrix, plausMap, simSource) {
-        if (!detailPopups) return;
-        const si = d.source.index, ti = d.target.index;
-        const p   = plausGet(plausMap, si, ti);
-        const src = records[Math.min(si,ti)], tgt = records[Math.max(si,ti)];
-        const sim = matrix[si][ti];
-        const tip = document.getElementById("tip");
-
-        const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, genderLine, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
-
-        const conflictSummary = [ageLine, genderLine].filter(Boolean)
-          .map(l => `<span style="color:#a32d2d">${l}</span>`).join("<br>");
-
-        const tipArrow = sameCity
-          ? `<span class="tip-meta">↕ same city</span>`
-          : p?.travelDays
-            ? `<span style="color:${p.plausible ? travelColor : "#e24b4a"}">↓ ~${p.travelDays.toFixed(1)} days travel</span>`
-            : `<span class="tip-meta">↓</span>`;
-
-        tip.innerHTML =
-          `<span class="tip-kicker">Departure</span><br>` +
-          `<strong>${srcLine}</strong><br><span class="tip-meta">${srcRec.location} &middot; ${srcRec.year || "?"}</span><br>` +
-          `${tipArrow}<br>` +
-          `<span class="tip-kicker">Arrival</span><br>` +
-          `<strong>${tgtLine}</strong><br><span class="tip-meta">${tgtRec.location} &middot; ${tgtRec.year || "?"}</span><br>` +
-          `<span class="tip-note">${nameMatch}</span>` +
-          (conflictSummary ? `<br>${conflictSummary}` : `<br><span style="color:#2a7a5a;font-size:10px">${flags.length === 0 ? "No conflicts" : ""}</span>`);
-        tip.style.opacity = "1";
-        tip.style.left = event.clientX + 16 + "px";
-        tip.style.top = event.clientY - 12 + "px";
+      function resetChordView() {
+        chordPanX = 0;
+        chordPanY = 0;
+        chordBackgroundDragged = false;
+        const slider = document.getElementById("chordZoom");
+        const label = document.getElementById("chordZoomValue");
+        if (slider) slider.value = String(CHORD_ZOOM_DEFAULT);
+        if (label) label.textContent = CHORD_ZOOM_DEFAULT + "%";
+        chordZoom = CHORD_ZOOM_DEFAULT / 100;
       }
 
-      function moveTip(event) {
-        if (!detailPopups) return;
-        const tip = document.getElementById("tip");
-        tip.style.left = event.clientX + 16 + "px";
-        tip.style.top = event.clientY - 12 + "px";
+      function diagramBackgroundTarget(node) {
+        const el = node && node.nodeType === 1 ? node : node && node.parentElement;
+        if (!el || !el.closest || !el.closest("#chart-wrap")) return false;
+        if (el.closest("path.hit, path.vis, text")) return false;
+        const name = el.tagName;
+        if (name === "path" || name === "line" || name === "text") return false;
+        return true;
       }
 
-      function hideTip() {
-        document.getElementById("tip").style.opacity = "0";
+      function initChordZoom() {
+        const slider = document.getElementById("chordZoom");
+        if (slider) slider.addEventListener("input", applyChordZoom);
+        const wrap = document.getElementById("chart-wrap");
+        if (wrap && typeof ResizeObserver !== "undefined") {
+          new ResizeObserver(applyChordZoom).observe(wrap);
+        }
+      }
+
+      function initChordPan() {
+        const wrap = document.getElementById("chart-wrap");
+        if (!wrap || wrap.dataset.panBound) return;
+        wrap.dataset.panBound = "1";
+        let dragging = false;
+        let moved = false;
+        let lastX = 0;
+        let lastY = 0;
+        wrap.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || !diagramBackgroundTarget(event.target)) return;
+          dragging = true;
+          moved = false;
+          chordBackgroundDragged = false;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          try { wrap.setPointerCapture(event.pointerId); } catch (_) { /* synthetic events */ }
+          wrap.classList.add("is-panning");
+        });
+        wrap.addEventListener("pointermove", (event) => {
+          if (!dragging) return;
+          const dx = event.clientX - lastX;
+          const dy = event.clientY - lastY;
+          if (!moved && Math.hypot(dx, dy) < 4) return;
+          moved = true;
+          chordBackgroundDragged = true;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          const svg = wrap.querySelector("svg");
+          if (!svg) return;
+          const rect = svg.getBoundingClientRect();
+          const vb = svg.viewBox.baseVal;
+          const unitsPerPxX = vb.width / Math.max(1, rect.width);
+          const unitsPerPxY = vb.height / Math.max(1, rect.height);
+          chordPanX -= dx * unitsPerPxX;
+          chordPanY -= dy * unitsPerPxY;
+          applyChordZoom();
+        });
+        function endDrag() {
+          if (!dragging) return;
+          dragging = false;
+          wrap.classList.remove("is-panning");
+          if (!moved) clearChordSelection();
+        }
+        wrap.addEventListener("pointerup", endDrag);
+        wrap.addEventListener("pointercancel", endDrag);
       }
 
       function pinDetail(d, records, matrix, plausMap, simSource, onClose) {
@@ -2091,7 +2151,7 @@
         const { srcLine, tgtLine, srcRec, tgtRec, sameCity, nameMatch, travelLine, travelColor, ageLine, ageColor, ageGapYears, calendarYears, genderLine, verdict, flags } = chordStory(p, src, tgt, si, ti, sim, simSource);
 
         const conflictItems = [ageLine, genderLine].filter(Boolean)
-          .map(l => `<li style="margin-top:6px;color:${ageColor || '#c2185b'}">${l}</li>`).join("");
+          .map(l => `<li class="detail-warn" style="margin-top:6px">${l}</li>`).join("");
 
         const hasConflict = flags.length > 0;
         const isPhysImpossible = rules.some(r => r === "PhysicalImpossibilityRule") || isImpossible;
@@ -2106,9 +2166,9 @@
                             : hasConflict
                             ? "Uncertain — conflicts detected"
                             : "Yes — records are consistent";
-        const verdictColor  = isPhysImpossible || isAgeConflict || isGenderConflict ? "#a32d2d"
-                            : hasConflict ? "#b06000"
-                            : "#2a7a5a";
+        const verdictTone = isPhysImpossible || isAgeConflict || isGenderConflict
+                          ? "detail-warn"
+                          : hasConflict ? "detail-caution" : "detail-ok";
 
         const travelArrow = (() => {
           if (!p || sameCity) return `<span class="tip-meta" style="font-size:18px">↕</span><span class="tip-meta"> same city</span>`;
@@ -2146,7 +2206,7 @@
           </section>
           <section class="detail-row detail-verdict">
             <p class="kicker" style="margin:0 0 3px">Should this link exist?</p>
-            <p class="det-sub" style="color:${verdictColor};font-weight:700;font-size:13px;margin:0">${verdictAnswer}</p>
+            <p class="det-sub ${verdictTone}" style="font-weight:700;font-size:13px;margin:0">${verdictAnswer}</p>
             ${flags.length > 0 ? `<p class="det-sub" style="font-size:10px;margin:3px 0 0">${flags.join(" · ")}</p>` : ""}
           </section>`;
       }
@@ -2256,7 +2316,8 @@
         });
       }
 
-      initDetailPopupToggle();
+      initChordZoom();
+      initChordPan();
       initThemeToggle()
         .then(function () {
           init();
