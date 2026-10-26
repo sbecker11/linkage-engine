@@ -136,6 +136,7 @@
         --legend-active-bg: #1a1a18;
         --legend-active-fg: #fafaf9;
         --progress-track: #d3d1c7;
+        --slider-accent: #8ed4bc;
         /* Fixed tracks. A percentage of the viewport collapses (and does not
            match a percentage margin on the center), which hid the left column. */
         --detail-col: 280px;
@@ -162,6 +163,7 @@
         --legend-active-bg: #cdd9e5;
         --legend-active-fg: #1c2128;
         --progress-track: #444c56;
+        --slider-accent: #1d9e75;
       }
       /* Selected chords paint these panels a light tint, so ink stays dark. */
       #detail.plausible,
@@ -225,6 +227,20 @@
         font-size: 12px;
         color: var(--muted);
         line-height: 1.5;
+      }
+      .hint-toggle {
+        appearance: none;
+        background: none;
+        border: none;
+        padding: 0 0 0 0.4em;
+        font: inherit;
+        color: var(--link);
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .hint-toggle:hover {
+        color: var(--link-hover);
       }
       .header-nav {
         font-size: 11px;
@@ -318,6 +334,7 @@
         transform: scale(0.97);
       }
       main {
+        position: relative;
         margin-left: var(--detail-col);
         margin-right: var(--legend-col);
         padding: 0 6px 12px;
@@ -405,6 +422,21 @@
         gap: 0;
         box-sizing: border-box;
       }
+      #legend > #profile-badge {
+        align-self: flex-start;
+        margin: 0 0 14px;
+      }
+      #legend .legend-actions {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding-top: 16px;
+      }
+      #legend .legend-actions .btn {
+        margin: 0;
+      }
       .legend-group-label {
         font-size: 10px;
         font-weight: 600;
@@ -422,7 +454,7 @@
       .legend-zoom input[type="range"] {
         width: 100%;
         margin: 2px 0 0;
-        accent-color: #1d9e75;
+        accent-color: var(--slider-accent);
       }
       #legend span[data-color] {
         display: flex;
@@ -464,6 +496,78 @@
         margin: 0 0 12px;
         padding-bottom: 6px;
         border-bottom: 1px solid var(--hairline);
+      }
+      #diagram-view {
+        position: absolute;
+        right: 14px;
+        bottom: 18px;
+        z-index: 20;
+        width: max-content;
+        max-width: calc(100% - 20px);
+        padding: 8px 10px 8px;
+        background: color-mix(in srgb, var(--panel) 50%, transparent);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+      }
+      #diagram-view .legend-group-label {
+        text-transform: none;
+        margin: 0;
+      }
+      #diagram-view .view-sliders {
+        display: grid;
+        grid-template-columns: max-content 108px;
+        align-items: center;
+        column-gap: 8px;
+        row-gap: 4px;
+      }
+      #diagram-view .view-sliders input[type="range"] {
+        width: 108px;
+        margin: 0;
+        accent-color: var(--slider-accent);
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        background: transparent;
+        height: 16px;
+        --fill: 0%;
+      }
+      html:not(.dark-theme) #chordRotate {
+        --fill: 50%;
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"]::-webkit-slider-runnable-track {
+        height: 4px;
+        border-radius: 999px;
+        background: linear-gradient(to right, var(--slider-accent) var(--fill), #ffffff var(--fill));
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        margin-top: -5px;
+        border: none;
+        border-radius: 50%;
+        background: var(--slider-accent);
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"]::-moz-range-track {
+        height: 4px;
+        border: none;
+        border-radius: 999px;
+        background: #ffffff;
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"]::-moz-range-progress {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--slider-accent);
+      }
+      html:not(.dark-theme) #diagram-view .view-sliders input[type="range"]::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border: none;
+        border-radius: 50%;
+        background: var(--slider-accent);
       }
       #detail {
         display: flex;
@@ -605,7 +709,9 @@
         max-height: 40%;
       }
       .dark-theme #legend,
-      .dark-theme #legend * {
+      .dark-theme #legend *:not(#profile-badge),
+      .dark-theme #diagram-view,
+      .dark-theme #diagram-view * {
         color: #ffffff !important;
       }
       .dark-theme #legend span[data-color].legend-active {
@@ -779,14 +885,25 @@
         <h1>Linkage Engine &mdash; Record Similarity Graph</h1>
         <p class="sub">
           Directed chord diagram &middot; arc size = total similarity flow
-          &middot; chord width = score &middot; arrowhead = resolution direction
+          &middot; chord width = score &middot; arrowhead = resolution direction<span id="hint-more" hidden> &middot; Hover an arc or chord to highlight it
+          &middot; click a chord to pin
+          &middot; click the background to clear &middot; drag the background to move<span id="render-ts"></span><span id="cost-line"></span></span><button type="button" id="hint-toggle" class="hint-toggle" aria-expanded="false" aria-controls="hint-more">more...</button>
         </p>
-        <p class="sub" style="margin-top: 3px">
-          Hover an arc or chord to highlight it &middot; click a chord to pin
-          &middot; click the background to clear &middot; drag the background to move
-        </p>
-        <p class="sub" id="render-ts" style="margin-top: 4px; opacity: 0.55; font-size: 0.72rem"></p>
-        <p class="sub" id="cost-line" style="margin-top: 4px; opacity: 0.72; font-size: 0.72rem"></p>
+        <script>
+          document.getElementById("hint-toggle").addEventListener("click", function () {
+            var more = document.getElementById("hint-more");
+            var open = more.hasAttribute("hidden");
+            if (open) {
+              more.removeAttribute("hidden");
+              this.textContent = "less...";
+              this.setAttribute("aria-expanded", "true");
+            } else {
+              more.setAttribute("hidden", "");
+              this.textContent = "more...";
+              this.setAttribute("aria-expanded", "false");
+            }
+          });
+        </script>
         <p class="header-nav">
           <a href="/chord-diagram.html">Chord diagram</a
           ><span id="cost-page-nav-wrap" style="display: none" aria-hidden="true">
@@ -797,14 +914,6 @@
           <a href="/v1/health/page">Actuator health</a>
         </p>
       </div>
-      <div class="header-actions">
-        <span id="profile-badge" class="badge" style="display: none"></span>
-        <div class="theme-control" role="group" aria-label="Color theme">
-          <button id="themeLight" type="button" class="theme-choice" aria-pressed="true">Light</button>
-          <button id="themeDark" type="button" class="theme-choice" aria-pressed="false">Dark</button>
-        </div>
-        <button class="btn" onclick="init()">&#8635; Refresh</button>
-      </div>
     </header>
 
     <main>
@@ -813,15 +922,20 @@
       <div id="chart-wrap">
         <div id="empty-msg"></div>
       </div>
+      <div id="diagram-view">
+        <div class="view-sliders">
+          <div class="legend-group-label">zoom</div>
+          <input id="chordZoom" type="range" min="100" max="250" step="5" value="100" aria-label="Chord diagram zoom">
+          <div class="legend-group-label">rotate</div>
+          <input id="chordRotate" type="range" min="-180" max="180" step="5" value="0" aria-label="Chord diagram rotation">
+        </div>
+      </div>
     </main>
 
     <div id="detail"></div>
     <div id="legend">
+      <span id="profile-badge" class="badge" style="display: none"></span>
       <p class="panel-title">Chord Legend</p>
-      <div class="legend-zoom">
-        <div class="legend-group-label">Diagram zoom <span id="chordZoomValue">100%</span></div>
-        <input id="chordZoom" type="range" min="100" max="250" step="5" value="100" aria-label="Chord diagram zoom">
-      </div>
       <div class="legend-group-label">Plausible — travel margin</div>
       <span data-color="#1d9e75"><span class="dot" style="background:#1d9e75"></span>Very comfortable &nbsp;&ge;10&times;</span>
       <span data-color="#4a90d9"><span class="dot" style="background:#4a90d9"></span>Comfortable &nbsp;4–10&times;</span>
@@ -829,6 +943,13 @@
       <span data-color="#ef9f27"><span class="dot" style="background:#ef9f27"></span>Tight &nbsp;&lt;2&times;</span>
       <div class="legend-group-label">Implausible</div>
       <span data-color="#e24b4a"><span class="dot" style="background:#e24b4a"></span>Physically impossible</span>
+      <div class="legend-actions">
+        <div class="theme-control" role="group" aria-label="Color theme">
+          <button id="themeLight" type="button" class="theme-choice" aria-pressed="true">Light</button>
+          <button id="themeDark" type="button" class="theme-choice" aria-pressed="false">Dark</button>
+        </div>
+        <button class="btn" onclick="init()">&#8635; Refresh</button>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -1176,10 +1297,13 @@
       async function loadMonthlyCost() {
         const el = document.getElementById("cost-line");
         if (!el) return;
+        const show = (text) => {
+          el.textContent = text ? ` \u00b7 ${text}` : "";
+        };
         try {
           const r = await fetch((BASE || "") + "/v1/cost/month-to-date");
           if (!r.ok) {
-            el.textContent = "";
+            show("");
             return;
           }
           const j = await r.json();
@@ -1191,16 +1315,15 @@
                   maximumFractionDigits: 2,
                 })
               : j.amountUsd;
-            el.textContent = `AWS month-to-date (${j.tagFilterSummary}): $${formatted} USD — ${j.hint || ""}`;
+            show(`AWS month-to-date (${j.tagFilterSummary}): $${formatted} USD — ${j.hint || ""}`);
           } else if (j.status === "DISABLED") {
-            el.textContent =
-              "AWS month-to-date cost: not enabled on this server.";
+            show("AWS month-to-date cost: not enabled on this server.");
           } else {
             const hint = j.hint || j.status || "error";
-            el.textContent = `AWS month-to-date cost: unavailable — ${hint}`;
+            show(`AWS month-to-date cost: unavailable — ${hint}`);
           }
         } catch (_) {
-          el.textContent = "";
+          show("");
         }
       }
 
@@ -1598,6 +1721,9 @@
         const svg = d3
           .select(svgEl)
           .append("g")
+          .attr("class", "chord-spin")
+          .attr("data-cx", CX)
+          .attr("data-cy", CY)
           .attr("transform", `translate(${CX},${CY})`);
 
         // Ribbon fills are translucent. In dark mode they disappear on the page
@@ -1867,11 +1993,12 @@
 
         lastChordRender = { records, matrix, plausMap, simSource };
         applyChordZoom();
+        applyChordRotate();
         applyPinnedChord(ribGroups, records, matrix, plausMap, simSource);
 
         // Stamp the render time in the header
         const ts = new Date().toUTCString();
-        document.getElementById("render-ts").textContent = `Last rendered: ${ts}`;
+        document.getElementById("render-ts").textContent = ` \u00b7 Last rendered: ${ts}`;
       }
 
       window.addEventListener("resize", () => {
@@ -2003,6 +2130,7 @@
       }
 
       let chordZoom = 1;
+      let chordRotate = 0;
       let chordPanX = 0;
       let chordPanY = 0;
       let chordBackgroundDragged = false;
@@ -2020,8 +2148,17 @@
         svg.setAttribute("height", String(h));
       }
 
+      function paintSliderFill(slider) {
+        if (!slider) return;
+        const min = Number(slider.min);
+        const max = Number(slider.max);
+        const span = max - min || 1;
+        slider.style.setProperty("--fill", ((Number(slider.value) - min) / span) * 100 + "%");
+      }
+
       function applyChordZoom() {
         const slider = document.getElementById("chordZoom");
+        paintSliderFill(slider);
         const label = document.getElementById("chordZoomValue");
         const pct = slider ? Number(slider.value) || CHORD_ZOOM_DEFAULT : Math.round(chordZoom * 100);
         chordZoom = pct / 100;
@@ -2047,6 +2184,20 @@
         svg.setAttribute("viewBox", originX + " " + originY + " " + vbW + " " + vbH);
       }
 
+      function applyChordRotate() {
+        const slider = document.getElementById("chordRotate");
+        paintSliderFill(slider);
+        const label = document.getElementById("chordRotateValue");
+        const deg = slider ? Number(slider.value) || 0 : chordRotate;
+        chordRotate = deg;
+        if (label) label.textContent = deg + "°";
+        document.querySelectorAll("#chart-wrap g.chord-spin").forEach((g) => {
+          const cx = g.getAttribute("data-cx") || "350";
+          const cy = g.getAttribute("data-cy") || "350";
+          g.setAttribute("transform", "translate(" + cx + "," + cy + ") rotate(" + chordRotate + ")");
+        });
+      }
+
       function resetChordView() {
         chordPanX = 0;
         chordPanY = 0;
@@ -2056,6 +2207,11 @@
         if (slider) slider.value = String(CHORD_ZOOM_DEFAULT);
         if (label) label.textContent = CHORD_ZOOM_DEFAULT + "%";
         chordZoom = CHORD_ZOOM_DEFAULT / 100;
+        const rotate = document.getElementById("chordRotate");
+        const rotateLabel = document.getElementById("chordRotateValue");
+        if (rotate) rotate.value = "0";
+        if (rotateLabel) rotateLabel.textContent = "0°";
+        chordRotate = 0;
       }
 
       function diagramBackgroundTarget(node) {
@@ -2069,7 +2225,11 @@
 
       function initChordZoom() {
         const slider = document.getElementById("chordZoom");
+        paintSliderFill(slider);
         if (slider) slider.addEventListener("input", applyChordZoom);
+        const rotate = document.getElementById("chordRotate");
+        paintSliderFill(rotate);
+        if (rotate) rotate.addEventListener("input", applyChordRotate);
         const wrap = document.getElementById("chart-wrap");
         if (wrap && typeof ResizeObserver !== "undefined") {
           new ResizeObserver(applyChordZoom).observe(wrap);
