@@ -242,6 +242,19 @@
       .hint-toggle:hover {
         color: var(--link-hover);
       }
+      .hint-project {
+        margin: 0.45em 0 0;
+      }
+      .hint-project a {
+        color: var(--link);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      #hint-less {
+        display: block;
+        margin-top: 0.45em;
+        padding-left: 0;
+      }
       .header-nav {
         font-size: 11px;
         color: var(--muted);
@@ -883,25 +896,30 @@
     <header>
       <div style="flex: 1; min-width: 0">
         <h1>Linkage Engine &mdash; Record Similarity Graph</h1>
-        <p class="sub">
+        <div class="sub">
           Directed chord diagram &middot; arc size = total similarity flow
-          &middot; chord width = score &middot; arrowhead = resolution direction<span id="hint-more" hidden> &middot; Hover an arc or chord to highlight it
-          &middot; click a chord to pin
-          &middot; click the background to clear &middot; drag the background to move<span id="render-ts"></span><span id="cost-line"></span></span><button type="button" id="hint-toggle" class="hint-toggle" aria-expanded="false" aria-controls="hint-more">more...</button>
-        </p>
+          &middot; chord width = score &middot; arrowhead = resolution direction<button type="button" id="hint-toggle" class="hint-toggle" aria-expanded="false" aria-controls="hint-more">more...</button>
+          <div id="hint-more" hidden>
+            Hover an arc or chord to highlight it
+            &middot; click a chord to pin
+            &middot; click the background to clear &middot; drag the background to move<span id="render-ts"></span><span id="cost-line"></span>
+            <p class="hint-project">github project: <a href="https://github.com/sbecker11/linkage-engine">https://github.com/sbecker11/linkage-engine</a></p>
+            <button type="button" id="hint-less" class="hint-toggle" aria-controls="hint-more">less...</button>
+          </div>
+        </div>
         <script>
           document.getElementById("hint-toggle").addEventListener("click", function () {
             var more = document.getElementById("hint-more");
-            var open = more.hasAttribute("hidden");
-            if (open) {
-              more.removeAttribute("hidden");
-              this.textContent = "less...";
-              this.setAttribute("aria-expanded", "true");
-            } else {
-              more.setAttribute("hidden", "");
-              this.textContent = "more...";
-              this.setAttribute("aria-expanded", "false");
-            }
+            more.removeAttribute("hidden");
+            this.hidden = true;
+            this.setAttribute("aria-expanded", "true");
+          });
+          document.getElementById("hint-less").addEventListener("click", function () {
+            var more = document.getElementById("hint-more");
+            var toggle = document.getElementById("hint-toggle");
+            more.setAttribute("hidden", "");
+            toggle.hidden = false;
+            toggle.setAttribute("aria-expanded", "false");
           });
         </script>
         <p class="header-nav">
